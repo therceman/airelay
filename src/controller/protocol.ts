@@ -48,11 +48,15 @@ export function parseRequest(raw: string): IpcRequest {
 
   if (method === 'session.input') {
     const inputParams = params as unknown as SessionInputParams;
-    if (typeof inputParams.text !== 'string' || inputParams.text.length === 0) {
+    const hasEnter = inputParams.enter !== false && inputParams.enter !== undefined;
+    if ((!inputParams.text || inputParams.text.length === 0) && !hasEnter) {
       throw new IpcError(
         IpcErrorCodes.INVALID_PARAMS,
-        '"session.input" requires a non-empty "text" string parameter'
+        '"session.input" requires non-empty "text" or a submit action via "enter"'
       );
+    }
+    if (typeof inputParams.text !== 'string' && inputParams.text !== undefined) {
+      throw new IpcError(IpcErrorCodes.INVALID_PARAMS, '"text" must be a string if provided');
     }
   }
 

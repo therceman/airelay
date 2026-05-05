@@ -25,6 +25,15 @@ jest.mock('../src/commands/sessions', () => ({
   findSessionByKey: jest.fn(),
 }));
 
+jest.mock('../src/config/load', () => ({
+  loadConfig: jest.fn(() => ({
+    profiles: {
+      codexprof: { executable: 'codex' },
+      testprofile: { executable: 'opencode' },
+    },
+  })),
+}));
+
 import { findSessionByKey } from '../src/commands/sessions';
 
 const originalConsoleLog = console.log;
@@ -212,6 +221,30 @@ describe('promptCommand', () => {
         expect.stringContaining('testprofile_1234'),
         expect.any(Function)
       );
+    });
+
+    it('sends Enter (\\r) with submitDelayMs for codex harness profile', async () => {
+      (findSessionByKey as jest.Mock).mockReturnValue({
+        profile: 'codexprof',
+        session: {
+          id: 'ses_codex123',
+          sessionKey: 'codexprof_abcd',
+          profile: 'codexprof',
+          lastUsed: Date.now(),
+        },
+      });
+
+      const exitCodePromise = promptCommand('codexprof_abcd', 'submit via codex');
+
+      emitData({ id: 'prompt-1', type: 'success', data: {} });
+
+      await exitCodePromise;
+      const socket = mockSocketInstance;
+
+      const written = socket?.write.mock.calls[0][0];
+      // codex now uses Enter (\r) with a delay
+      expect(written).toContain('"enter":"\\r"');
+      expect(written).toContain('"submitDelayMs":500');
     });
 
     it('falls back to session.id when sessionKey is missing', async () => {

@@ -193,6 +193,8 @@ Examples:
   airelay cleanup
   airelay prompt mysession "write a test"
   airelay prompt mysession --text "continue" --no-enter
+  airelay prompt mysession --only-enter
+  airelay prompt mysession --only-sequence $'\x1b[106;4u'
   airelay sessions
   airelay sessions --json
   airelay sessions --active
@@ -208,6 +210,9 @@ Init options:
 Prompt options:
   --text <text>            Text to send to the session
   --no-enter               Do not append newline after text (default: enter)
+  --only-enter             Send Enter key only (no text)
+  --only-sequence <seq>    Send raw sequence only (no text)
+  --sequence <seq>         Override submit sequence, e.g. $'\\x1b[106;4u'
 
 Session options:
   --json                   Output in JSON format
@@ -323,8 +328,28 @@ async function runCli(): Promise<void> {
         }
         {
           const text = args[0] || (flags.text as string | undefined);
+          const onlyEnter = flags['only-enter'] === true;
+          const onlySequence =
+            (flags['only-sequence'] as string | undefined) ||
+            (flags.sequence as string | undefined) ||
+            args.find((a) => a.startsWith('sequence='))?.slice('sequence='.length);
+
+          if (onlyEnter && onlySequence) {
+            console.error('Error: --only-enter and --only-sequence cannot be combined.');
+            process.exit(1);
+          }
+          if ((onlyEnter || onlySequence) && text) {
+            console.error('Error: Text argument cannot be combined with --only-enter or --only-sequence.');
+            process.exit(1);
+          }
+
           const noEnter = flags['no-enter'] === true;
-          const exitCode = await promptCommand(profile, text, { enter: !noEnter });
+          const enterValue = noEnter ? false : true;
+          const exitCode = await promptCommand(profile, text, {
+            enter: enterValue,
+            onlyEnter,
+            onlySequence,
+          });
           process.exit(exitCode);
         }
 

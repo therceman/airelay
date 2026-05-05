@@ -32,17 +32,46 @@ export function getSessionArgExample(harness: HarnessType): string {
  */
 export interface HarnessCapabilities {
   /**
-   * Default byte to append after prompt text for submission.
-   * - "\r" (0x0D) = Enter (opencode, terminal)
-   * - "\n" (0x0A) = Ctrl+J (codex)
+   * How the submit value should be interpreted by the controller.
+   * - 'byte': single control character (e.g., '\r' for Enter)
+   * - 'sequence': multi-byte terminal sequence (e.g., CSI-u key event)
    */
-  defaultSubmitByte: '\r' | '\n';
+  submitMode: 'byte' | 'sequence';
+
+  /**
+   * The actual string to write after prompt text for submission.
+   * Written directly to the PTY by the controller handler.
+   *
+   * Examples:
+   * - "\r" (0x0D) = Enter key
+   */
+  submitValue: string;
+
+  /**
+   * Delay before writing submit sequence after text, in milliseconds.
+   * Useful for TUIs that require a short settle time before submit key events.
+   */
+  submitDelayMs: number;
 }
 
 const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
-  opencode: { defaultSubmitByte: '\r' },
-  codex: { defaultSubmitByte: '\n' },
-  unknown: { defaultSubmitByte: '\r' },
+  opencode: {
+    submitMode: 'byte',
+    submitValue: '\r',
+    submitDelayMs: 0,
+  },
+  codex: {
+    submitMode: 'byte',
+    // Enter (\r) with TEXT_TO_SUBMIT_DELAY_MS delay works for Codex in practice.
+    // CSI-u sequences are not handled by Codex's terminal mode.
+    submitValue: '\r',
+    submitDelayMs: 0,
+  },
+  unknown: {
+    submitMode: 'byte',
+    submitValue: '\r',
+    submitDelayMs: 0,
+  },
 };
 
 /**
@@ -50,7 +79,9 @@ const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
  * Unknown harnesses default to Enter semantics for broadest compatibility.
  */
 export function getHarnessCapabilities(harness: HarnessType): HarnessCapabilities {
-  return HARNESS_CAPABILITIES[harness] || { defaultSubmitByte: '\r' };
+  return (
+    HARNESS_CAPABILITIES[harness] || { submitMode: 'byte', submitValue: '\r', submitDelayMs: 0 }
+  );
 }
 
 export function getArgsHelpMessage(harness: HarnessType, hasSession: boolean): string {

@@ -64,12 +64,25 @@ function setupController(
         );
       }
 
-      const params = request.params as { text?: string; enter?: string | boolean };
+      const params = request.params as {
+        text?: string;
+        enter?: string | boolean;
+        submitDelayMs?: number;
+      };
       const text = params.text || '';
       ptyWrite.current(text);
       const submit = params.enter;
       if (submit !== false && submit !== undefined) {
-        // submit is either a boolean true (use default \r) or a string (explicit byte)
+        // Small delay before submit to let the app process text input first.
+        // Without this, the submit byte can land in the wrong buffer position
+        // and produce a newline instead of submit (especially under tmux).
+        const delayMs =
+          typeof params.submitDelayMs === 'number' && params.submitDelayMs > 0
+            ? Math.floor(params.submitDelayMs)
+            : 0;
+        if (delayMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
         const byte = typeof submit === 'string' ? submit : '\r';
         ptyWrite.current(byte);
       }

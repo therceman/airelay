@@ -13,12 +13,18 @@ export interface SessionInfoParams {
 export interface SessionInputParams {
   text: string;
   /**
-   * Submit byte to append after text.
-   * - "\r" (0x0D) = Enter (default for opencode/unknown)
-   * - "\n" (0x0A) = Ctrl+J (default for codex)
-   * - false or absent = no submit byte
+   * Submit byte/sequence to append after text.
+   * - "\r" (0x0D) = Enter (default for all harnesses)
+   * - false or absent = no submit
    */
   enter?: string | boolean;
+
+  /**
+   * Delay in ms between writing text and writing the submit sequence.
+   * Needed for TUI apps that need to process text before receiving Enter.
+   * Use 0 or omit for no delay.
+   */
+  submitDelayMs?: number;
 }
 
 export interface IpcSuccessResponse<T = unknown> {

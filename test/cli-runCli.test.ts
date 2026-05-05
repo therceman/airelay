@@ -30,6 +30,9 @@ jest.mock('../src/commands/create', () => ({
 jest.mock('../src/commands/select', () => ({
   selectCommand: jest.fn().mockResolvedValue(undefined),
 }));
+jest.mock('../src/commands/prompt', () => ({
+  promptCommand: jest.fn().mockResolvedValue(0),
+}));
 
 // Mock console methods
 const originalConsoleLog = console.log;
@@ -205,6 +208,32 @@ describe('runCli', () => {
     expect(console.error).toHaveBeenCalledWith('Error: Profile name required');
     expect(console.error).toHaveBeenCalledWith('Usage: airelay run <profile>');
     expect(process.exit).toHaveBeenCalledWith(1);
+  });
+
+  it('executes prompt command with --only-sequence', async () => {
+    process.argv = ['node', 'cli.js', 'prompt', 'sess_1', '--only-sequence', '\\x1b[106;4u'];
+    await runCli();
+
+    const { promptCommand } = require('../src/commands/prompt');
+    expect(promptCommand).toHaveBeenCalledWith('sess_1', undefined, {
+      enter: true,
+      onlyEnter: false,
+      onlySequence: '\\x1b[106;4u',
+    });
+    expect(process.exit).toHaveBeenCalledWith(0);
+  });
+
+  it('executes prompt command with --only-enter', async () => {
+    process.argv = ['node', 'cli.js', 'prompt', 'sess_1', '--only-enter'];
+    await runCli();
+
+    const { promptCommand } = require('../src/commands/prompt');
+    expect(promptCommand).toHaveBeenCalledWith('sess_1', undefined, {
+      enter: true,
+      onlyEnter: true,
+      onlySequence: undefined,
+    });
+    expect(process.exit).toHaveBeenCalledWith(0);
   });
 
   it('executes select command when no args', async () => {

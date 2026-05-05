@@ -7,6 +7,14 @@ import { loadConfig } from '../config/load';
 
 const IPC_TIMEOUT = 5000;
 
+/**
+ * Delay in ms between writing prompt text and writing the submit sequence.
+ * Required for TUI apps (especially under tmux) to process text input
+ * before the submit key arrives. Without this delay the submit byte can
+ * land in the wrong buffer position and produce a newline instead of submit.
+ */
+const TEXT_TO_SUBMIT_DELAY_MS = 500;
+
 interface IpcClientRequest {
   id: string;
   method: string;
@@ -69,16 +77,26 @@ function sendIpcRequest(
   });
 }
 
+export interface PromptOptions {
+  enter?: boolean | string;
+  onlyEnter?: boolean;
+  onlySequence?: string;
+}
+
 export async function promptCommand(
   sessionKeyOrId: string,
   text?: string,
-  options?: { enter?: boolean }
+  options?: PromptOptions
 ): Promise<number> {
   const resolvedText = text || undefined;
+  const onlyEnter = options?.onlyEnter === true;
+  const onlySequence = options?.onlySequence;
 
-  if (!resolvedText) {
-    console.error('Error: Text is required.');
-    console.error('Usage: airelay prompt <session> <text>');
+  if (!resolvedText && !onlyEnter && !onlySequence) {
+    console.error('Error: Text is required unless --only-enter or --only-sequence is used.');
+    console.error('Usage: airelay prompt <session> [text]');
+    console.error('       airelay prompt <session> --only-enter');
+    console.error('       airelay prompt <session> --only-sequence <seq>');
     return 1;
   }
 
@@ -92,27 +110,44 @@ export async function promptCommand(
   const sessionKey = found.session.sessionKey || found.session.id;
   const endpointPath = found.session.controllerEndpoint || getIpcEndpointPath(sessionKey);
 
-  // Determine submit byte based on profile harness
+  // Determine submit byte based on mode and profile harness
   const callerEnter = options?.enter;
   let submitByte: string | boolean;
-  if (callerEnter === false) {
+  let submitDelayMs = 0;
+
+  if (onlySequence) {
+    // --only-sequence: use provided bytes directly as submit value
+    submitByte = onlySequence;
+    submitDelayMs = TEXT_TO_SUBMIT_DELAY_MS;
+  } else if (onlyEnter) {
+    // --only-enter: send harness-default submit with no text
+    const config = loadConfig();
+    const profile = config.profiles[found.profile] as { executable?: string } | undefined;
+    const harness = profile?.executable ? detectHarness(profile.executable) : 'unknown';
+    const caps = getHarnessCapabilities(harness);
+    submitByte = caps.submitValue;
+    submitDelayMs = TEXT_TO_SUBMIT_DELAY_MS;
+  } else if (callerEnter === false) {
     submitByte = false;
   } else if (typeof callerEnter === 'string') {
     // Caller explicitly specified the submit byte
     submitByte = callerEnter;
+    submitDelayMs = TEXT_TO_SUBMIT_DELAY_MS;
   } else {
     // Default: resolve from harness capabilities
     const config = loadConfig();
     const profile = config.profiles[found.profile] as { executable?: string } | undefined;
     const harness = profile?.executable ? detectHarness(profile.executable) : 'unknown';
-    submitByte = getHarnessCapabilities(harness).defaultSubmitByte;
+    const caps = getHarnessCapabilities(harness);
+    submitByte = caps.submitValue;
+    submitDelayMs = TEXT_TO_SUBMIT_DELAY_MS;
   }
 
   try {
     const response = await sendIpcRequest(endpointPath, {
       id: 'prompt-1',
       method: 'session.input',
-      params: { text: resolvedText, enter: submitByte },
+      params: { text: resolvedText, enter: submitByte, submitDelayMs },
     });
 
     if (response.type === 'error' && response.error) {
