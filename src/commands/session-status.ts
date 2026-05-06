@@ -197,7 +197,6 @@ export async function sessionStatusCommand(
     if (result.compatError) {
       console.log(`  ⚠ ${result.compatError}`);
     }
-    console.log(`  Output lines buffered: ${result.outputLines}`);
   }
 
   return 0;
