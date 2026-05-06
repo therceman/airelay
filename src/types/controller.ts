@@ -79,4 +79,5 @@ export interface SessionInfoData {
   airelayVersion: string;
   controllerProtocolVersion: number;
   startedAt: number;
+  lastOutputChangeAt?: number;
 }

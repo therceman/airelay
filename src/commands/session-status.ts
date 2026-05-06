@@ -1,12 +1,11 @@
 import net from 'net';
 import { findSessionByKey } from './sessions';
 import { getIpcEndpointPath } from '../utils/ipc-path';
-import { loadConfig } from '../config/load';
-import { detectHarness, getHarnessCapabilities } from '../utils/harness';
 import { fetchSessionOutput } from './session-output';
 import { preflightVersionCheck } from './session-ipc';
 
 const IPC_TIMEOUT = 3000;
+const ACTIVITY_WINDOW_MS = 10000;
 
 interface StatusResult {
   sessionId: string;
@@ -15,8 +14,7 @@ interface StatusResult {
   controllerEndpoint?: string;
   controllerReachable: boolean;
   pingLatencyMs?: number;
-  uiHint: string;
-  hintFound: boolean;
+  state?: string;
   outputLines: number;
   airelayVersion?: string;
   controllerProtocolVersion?: number;
@@ -68,6 +66,7 @@ function fetchSessionInfo(endpoint: string): Promise<{
   airelayVersion?: string;
   controllerProtocolVersion?: number;
   startedAt?: number;
+  lastOutputChangeAt?: number;
   compatError?: string;
 }> {
   return new Promise((resolve) => {
@@ -103,6 +102,7 @@ function fetchSessionInfo(endpoint: string): Promise<{
               airelayVersion: parsed.data.airelayVersion as string,
               controllerProtocolVersion: parsed.data.controllerProtocolVersion as number,
               startedAt: parsed.data.startedAt as number,
+              lastOutputChangeAt: parsed.data.lastOutputChangeAt as number | undefined,
             });
           } else if (parsed.type === 'error') {
             resolve({
@@ -137,19 +137,6 @@ export async function sessionStatusCommand(
   const sessionKey = found.session.sessionKey || found.session.id;
   const endpointPath = found.session.controllerEndpoint || getIpcEndpointPath(sessionKey);
 
-  // Get harness hint from profile's executable
-  let uiHint = '';
-  try {
-    const config = loadConfig();
-    const profile = config.profiles[found.profile] as { executable?: string } | undefined;
-    if (profile?.executable) {
-      const harness = detectHarness(profile.executable);
-      uiHint = getHarnessCapabilities(harness).uiWorkingHint;
-    }
-  } catch {
-    // Ignore config errors
-  }
-
   // Preflight version parity check (blocking — hard-stop on major mismatch)
   const parity = await preflightVersionCheck(endpointPath);
   if (parity.error) {
@@ -166,11 +153,11 @@ export async function sessionStatusCommand(
     fetchSessionInfo(endpointPath),
   ]);
 
-  // Search output for uiHint pattern (same logic as session-find)
-  let hintFound = false;
-  if (uiHint && output.lines.length > 0) {
-    const lower = uiHint.toLowerCase();
-    hintFound = output.lines.some((l) => l.toLowerCase().includes(lower));
+  // Compute activity state from last output change timestamp
+  let state: string | undefined;
+  if (info.lastOutputChangeAt !== undefined) {
+    const elapsed = Date.now() - info.lastOutputChangeAt;
+    state = elapsed < ACTIVITY_WINDOW_MS ? 'busy' : 'free';
   }
 
   const result: StatusResult = {
@@ -180,8 +167,7 @@ export async function sessionStatusCommand(
     controllerEndpoint: endpointPath,
     controllerReachable: ping.reachable,
     pingLatencyMs: ping.latencyMs,
-    uiHint,
-    hintFound,
+    state,
     outputLines: output.lines.length,
     airelayVersion: info.airelayVersion,
     controllerProtocolVersion: info.controllerProtocolVersion,
@@ -194,7 +180,9 @@ export async function sessionStatusCommand(
   } else {
     console.log(`Session: ${result.sessionId}`);
     console.log(`  Profile: ${result.profile}`);
-    if (result.sessionKey) console.log(`  Key:     ${result.sessionKey}`);
+    if (result.sessionKey) {
+      console.log(`  Key:     ${result.sessionKey}`);
+    }
     console.log(
       `  Controller: ${result.controllerReachable ? `reachable (${result.pingLatencyMs}ms)` : 'unreachable'}`
     );
@@ -203,12 +191,11 @@ export async function sessionStatusCommand(
       console.log(`  Protocol version: ${result.controllerProtocolVersion}`);
       console.log(`  Started: ${new Date(result.startedAt!).toISOString()}`);
     }
+    if (result.state) {
+      console.log(`  State: ${result.state}`);
+    }
     if (result.compatError) {
       console.log(`  ⚠ ${result.compatError}`);
-    }
-    if (result.uiHint) {
-      const status = result.hintFound ? 'detected' : 'not seen';
-      console.log(`  UI state: ${result.uiHint} (${status})`);
     }
     console.log(`  Output lines buffered: ${result.outputLines}`);
   }

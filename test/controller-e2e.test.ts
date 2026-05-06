@@ -207,6 +207,25 @@ describe('controller E2E: real IPC socket flow', () => {
     expect(result.error).toBeTruthy();
   });
 
+  it('lastOutputChangeAt updates on feedOutput', async () => {
+    const controller = new SessionController('activity_test');
+
+    const before = controller.lastOutputChangeAtForTest();
+    await new Promise((r) => setTimeout(r, 5));
+    controller.feedOutput('new output\n');
+    const after = controller.lastOutputChangeAtForTest();
+
+    expect(after).toBeGreaterThan(before);
+  });
+
+  it('lastOutputChangeAt does not update on empty feed', async () => {
+    const controller = new SessionController('activity_empty_test');
+    const before = controller.lastOutputChangeAtForTest();
+    controller.feedOutput('');
+    const after = controller.lastOutputChangeAtForTest();
+    expect(after).toBe(before);
+  });
+
   it('session.viewport IPC returns visible lines', async () => {
     const sessionKey = 'e2e_vp_ipc';
     const controller = new SessionController(sessionKey);

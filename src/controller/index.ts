@@ -37,6 +37,13 @@ export class SessionController {
   private snapshotWindow: string[] = [];
   private snapshotLineSet: Set<string> = new Set();
   private snapshotTimer: ReturnType<typeof setInterval> | null = null;
+  /** Timestamp of last output change (for activity state) */
+  private lastOutputChangeAt: number = Date.now();
+
+  /** Test accessor for lastOutputChangeAt. */
+  lastOutputChangeAtForTest(): number {
+    return this.lastOutputChangeAt;
+  }
 
   constructor(sessionKey: string) {
     this.sessionKey = sessionKey;
@@ -67,6 +74,9 @@ export class SessionController {
    * for true viewport tracking and to the historical ring buffer.
    */
   feedOutput(chunk: string): void {
+    if (chunk.trim()) {
+      this.lastOutputChangeAt = Date.now();
+    }
     this.terminal.write(chunk);
     const lines = chunk.split('\n');
     for (const raw of lines) {
@@ -184,6 +194,7 @@ export class SessionController {
           airelayVersion: this.airelayVersion,
           controllerProtocolVersion: this.protocolVersion,
           startedAt: this.startedAt,
+          lastOutputChangeAt: this.lastOutputChangeAt,
         });
       } else if (request.method === 'session.output') {
         response = createSuccessResponse(request.id, { lines: this.outputBuf });
