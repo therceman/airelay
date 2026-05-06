@@ -38,6 +38,20 @@
 - After report finalization, worker sends:
   - `airelay prompt gpt_master_airelay "<task_id>_done"`
 
+## Master Verification Loop (Mandatory)
+- On `<task_id>_done`, master must:
+  1. Read task file, report, and changed code.
+  2. Run required validation commands locally.
+  3. If accepted:
+     - move task/report to `tasks/done/` if not already,
+     - bump patch version,
+     - commit,
+     - push.
+  4. If rejected/incomplete:
+     - create follow-up task in `tasks/todo/` with explicit fixes,
+     - send follow-up task to worker,
+     - repeat until accepted.
+
 ## Commit Policy
 - After accepted tasks/follow-ups:
   - bump patch version,
