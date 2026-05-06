@@ -21,6 +21,8 @@ afterAll(() => {
   delete process.env.AIRELAY_SOCKETS_DIR;
 });
 
+let senderKey: string;
+
 beforeEach(() => {
   if (fs.existsSync(testSessionsPath)) {
     fs.unlinkSync(testSessionsPath);
@@ -29,6 +31,8 @@ beforeEach(() => {
   for (const f of files) {
     fs.unlinkSync(path.join(testSocketsDir, f));
   }
+  senderKey = 'e2e_sender';
+  process.env.AIRELAY_SESSION_KEY = senderKey;
 });
 
 describe('controller E2E: real IPC socket flow', () => {
@@ -66,7 +70,7 @@ describe('controller E2E: real IPC socket flow', () => {
     const exitCode = await promptCommand(sessionKey, 'Hello E2E', { enter: true });
 
     expect(exitCode).toBe(0);
-    expect(deliveredText).toBe('Hello E2E');
+    expect(deliveredText).toBe(`[from=${senderKey}] Hello E2E`);
     expect(deliveredEnter).toBe(true);
 
     await controller.stop();
@@ -182,13 +186,13 @@ describe('controller E2E: real IPC socket flow', () => {
 
     expect(exitCode).toBe(0);
     expect(handlerCalled).toBe(true);
-    expect(capturedText).toBe('submit this');
+    expect(capturedText).toBe(`[from=${senderKey}] submit this`);
     expect(capturedEnter).toBe(true);
 
-    // Verify the bytes that would be written to the PTY:
-    // text + \r (carriage return, 0x0d) — correct Enter semantics for PTY raw mode
-    const expectedBytes = 'submit this' + '\r';
-    expect(Buffer.from(expectedBytes).toString('hex')).toBe('7375626d697420746869730d');
+    // Verify the bytes that would be written to the PTY: text + \r (0x0d)
+    const expectedBytes = capturedText + (capturedEnter ? '\r' : '');
+    expect(expectedBytes.endsWith('\r')).toBe(true);
+    expect(Buffer.from(expectedBytes).toString('hex')).toMatch(/0d$/);
 
     await controller.stop();
     removeSessionByKey(sessionKey);
