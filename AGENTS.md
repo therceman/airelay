@@ -71,3 +71,4 @@ Env vars with path-like values (`HOME`, `XDG_*`, `*_HOME`, `*_CONFIG_DIR`) get `
 - **Config**: Respect `AIRELAY_CONFIG` env var override in all commands
 - **Env vars with path-like values**: `HOME`, `XDG_*`, `*_HOME`, `*_CONFIG_DIR` get `~` expanded
 - **No hardcoded harnesses**: Never hardcode harness names (opencode/codex) in prompts/text. Use `src/utils/harness.ts` and `src/utils/detect-harnesses.ts` for harness-aware messages. Harness detection only for PATH checks.
+- **Prompt-back channel**: If a message contains `[from=<sender_session_key>]` and asks for prompt-back confirmation, reply using `airelay prompt <sender_session_key> "<prompt-back-msg>"` as the return channel.

@@ -54,6 +54,16 @@ describe('parseRequest', () => {
     });
   });
 
+  it('parses a valid session.output request', () => {
+    const req = parseRequest('{"id":"req-out","method":"session.output"}');
+    expect(req).toEqual({ id: 'req-out', method: 'session.output', params: {} });
+  });
+
+  it('parses a valid session.viewport request', () => {
+    const req = parseRequest('{"id":"req-vp","method":"session.viewport"}');
+    expect(req).toEqual({ id: 'req-vp', method: 'session.viewport', params: {} });
+  });
+
   it('defaults params to empty object when omitted', () => {
     const req = parseRequest('{"id":"req-5","method":"ping"}');
     expect(req.params).toEqual({});
@@ -103,6 +113,8 @@ describe('parseRequest', () => {
     expect(msg).toMatch(/ping/);
     expect(msg).toMatch(/session\.info/);
     expect(msg).toMatch(/session\.input/);
+    expect(msg).toMatch(/session\.output/);
+    expect(msg).toMatch(/session\.viewport/);
   });
 
   it('rejects session.input without text with INVALID_PARAMS', () => {

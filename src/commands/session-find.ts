@@ -1,6 +1,6 @@
 import { findSessionByKey } from './sessions';
 import { getIpcEndpointPath } from '../utils/ipc-path';
-import { fetchSessionOutput } from './session-output';
+import { fetchSessionViewport } from './session-viewport';
 
 interface FindResult {
   found: boolean;
@@ -28,7 +28,7 @@ export async function sessionFindCommand(
   const sessionKey = found.session.sessionKey || found.session.id;
   const endpointPath = found.session.controllerEndpoint || getIpcEndpointPath(sessionKey);
 
-  const output = await fetchSessionOutput(endpointPath);
+  const output = await fetchSessionViewport(endpointPath);
   const lower = pattern.toLowerCase();
   const matches = output.lines.filter((l) => l.toLowerCase().includes(lower));
 

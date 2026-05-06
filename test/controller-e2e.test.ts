@@ -5,6 +5,8 @@ import { SessionController } from '../src/controller';
 import { promptCommand } from '../src/commands/prompt';
 import { addSession, removeSessionByKey, findSessionByKey } from '../src/commands/sessions';
 
+import { fetchSessionViewport } from '../src/commands/session-viewport';
+
 const testDir = path.join(os.tmpdir(), 'airelay-e2e-test-' + process.pid + '-' + Date.now());
 const testSessionsPath = path.join(testDir, 'sessions.json');
 const testSocketsDir = path.join(testDir, 'sockets');
@@ -19,6 +21,7 @@ afterAll(() => {
   fs.rmSync(testDir, { recursive: true, force: true });
   delete process.env.AIRELAY_SESSIONS;
   delete process.env.AIRELAY_SOCKETS_DIR;
+  delete process.env.AIRELAY_SESSION_KEY;
 });
 
 let senderKey: string;
@@ -196,5 +199,70 @@ describe('controller E2E: real IPC socket flow', () => {
 
     await controller.stop();
     removeSessionByKey(sessionKey);
+  });
+
+  it('session.viewport returns error for unreachable endpoint', async () => {
+    const result = await fetchSessionViewport('/nonexistent/socket.sock');
+    expect(result.lines).toEqual([]);
+    expect(result.error).toBeTruthy();
+  });
+
+  it('session.viewport IPC returns visible lines', async () => {
+    const sessionKey = 'e2e_vp_ipc';
+    const controller = new SessionController(sessionKey);
+
+    controller.feedOutput('alpha\nbravo\ncharlie\n');
+    await controller.flushViewport();
+
+    controller.onRequest(async () => ({ handled: false }));
+    await controller.start();
+
+    addSession('e2e-profile', 'e2e_vp_ipc_ses', undefined, sessionKey, controller.endpointPath);
+
+    const result = await fetchSessionViewport(controller.endpointPath);
+    expect(result.error).toBeUndefined();
+    expect(result.lines).toContain('alpha');
+    expect(result.lines).toContain('bravo');
+    expect(result.lines).toContain('charlie');
+
+    await controller.stop();
+    removeSessionByKey(sessionKey);
+  });
+
+  it('viewport reflects CR-overwritten lines correctly', async () => {
+    const controller = new SessionController('vp_cr_test');
+
+    // Simulate a progress line overwrite: application writes status, CR, new shorter status
+    // xterm treats \r as carriage return (cursor to col 0, does NOT clear line)
+    controller.feedOutput('Progress: step 1\n');
+    controller.feedOutput('Progress: step 2...');
+    controller.feedOutput('\rProgress: DONE!\n');
+    controller.feedOutput('line 3\n');
+    await controller.flushViewport();
+
+    const lines = controller.getViewportSnapshot();
+    // "Progress: step 2..." was overwritten in place — must not appear as its own line
+    expect(lines).not.toContain('Progress: step 2...');
+    // The visible line shows "Progress: DONE!" + remaining chars from before
+    expect(lines[0]).toBe('Progress: step 1');
+    expect(lines[1]).toContain('Progress: DONE!');
+    expect(lines[2]).toBe('line 3');
+  });
+
+  it('scrolled-off lines do not appear in viewport', async () => {
+    const controller = new SessionController('vp_scroll_test');
+
+    for (let i = 0; i < 50; i++) {
+      controller.feedOutput(`line ${i}\n`);
+    }
+    await controller.flushViewport();
+
+    const lines = controller.getViewportSnapshot();
+    // xterm uses 30 rows, one for cursor line — 29 non-empty visible
+    expect(lines.length).toBe(29);
+    expect(lines[0]).toBe('line 22');
+    expect(lines).not.toContain('line 0');
+    expect(lines).not.toContain('line 21');
+    expect(lines).toContain('line 49');
   });
 });

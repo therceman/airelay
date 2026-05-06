@@ -1,4 +1,9 @@
-export type IpcMethod = 'ping' | 'session.info' | 'session.input' | 'session.output';
+export type IpcMethod =
+  | 'ping'
+  | 'session.info'
+  | 'session.input'
+  | 'session.output'
+  | 'session.viewport';
 
 export interface IpcRequest {
   id: string;
