@@ -141,7 +141,9 @@ export async function selectCommand(): Promise<void> {
 
   setLastUsedProfile(profileName);
 
-  let selectedSessionId: string | undefined;
+  let selectedSession:
+    | { id: string; sessionKey?: string; profileSessionId?: string; profileArgs?: string[] }
+    | undefined;
   if (action === 'Resume') {
     const sessions = getSessions(profileName);
     if (sessions.length > 0) {
@@ -149,9 +151,10 @@ export async function selectCommand(): Promise<void> {
         ...sessions.map((s) => {
           const cwdInfo = s.cwd ? ` ${s.cwd}` : '';
           const keyInfo = s.sessionKey ? ` [${s.sessionKey}]` : '';
+          const profileInfo = s.profileSessionId ? ` (profile: ${s.profileSessionId})` : '';
           return {
             name: s.id,
-            message: `${s.id}${keyInfo}${cwdInfo}`,
+            message: `${s.id}${keyInfo}${cwdInfo}${profileInfo}`,
           };
         }),
         { name: '__rename__', message: '[R] Rename a session' },
@@ -265,9 +268,9 @@ export async function selectCommand(): Promise<void> {
 
         const sessionValue = sessionResult?.session;
         if (sessionValue) {
-          const selectedSession = sessions.find((s) => s.id === sessionValue);
-          if (selectedSession) {
-            selectedSessionId = selectedSession.id;
+          const foundSession = sessions.find((s) => s.id === sessionValue);
+          if (foundSession) {
+            selectedSession = foundSession;
             break;
           }
         }
@@ -278,7 +281,7 @@ export async function selectCommand(): Promise<void> {
   const confirmPrompt = {
     type: 'confirm',
     name: 'confirm',
-    message: `${action} ${profileName}${selectedSessionId ? ` (session: ${selectedSessionId})` : ''}?`,
+    message: `${action} ${profileName}${selectedSession ? ` (session: ${selectedSession.sessionKey || selectedSession.id})` : ''}?`,
     initial: true,
   };
 
@@ -297,7 +300,15 @@ export async function selectCommand(): Promise<void> {
   };
 
   try {
-    exitCode = await runCommand(profileName, selectedSessionId ? [`-s`, selectedSessionId] : [], {
+    const resumeArgs = selectedSession
+      ? selectedSession.profileArgs && selectedSession.profileArgs.length > 0
+        ? selectedSession.profileArgs
+        : [`-s`, selectedSession.profileSessionId || selectedSession.id]
+      : [];
+    exitCode = await runCommand(profileName, resumeArgs, {
+      sessionKey: selectedSession?.sessionKey,
+      profileSessionId: selectedSession?.profileSessionId,
+      profileArgs: selectedSession?.profileArgs,
       onSessionStart: (info) => {
         sessionStartInfo.sessionKey = info.sessionKey;
         sessionStartInfo.controllerEndpoint = info.controllerEndpoint;

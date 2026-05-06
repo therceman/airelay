@@ -15,6 +15,8 @@ export interface SessionEntry {
   airelayVersion?: string;
   controllerProtocolVersion?: number;
   startedAt?: number;
+  profileSessionId?: string;
+  profileArgs?: string[];
 }
 
 export interface SessionsData {
@@ -47,7 +49,9 @@ export function addSession(
   pid?: number,
   airelayVersion?: string,
   controllerProtocolVersion?: number,
-  startedAt?: number
+  startedAt?: number,
+  profileSessionId?: string,
+  profileArgs?: string[]
 ): void {
   const sessions = loadSessions();
   if (!sessions[profile]) {
@@ -78,6 +82,12 @@ export function addSession(
     if (startedAt !== undefined) {
       sessions[profile][existingIndex].startedAt = startedAt;
     }
+    if (profileSessionId) {
+      sessions[profile][existingIndex].profileSessionId = profileSessionId;
+    }
+    if (profileArgs) {
+      sessions[profile][existingIndex].profileArgs = profileArgs;
+    }
   } else {
     sessions[profile].push({
       id: sessionId,
@@ -90,6 +100,8 @@ export function addSession(
       airelayVersion,
       controllerProtocolVersion,
       startedAt,
+      profileSessionId,
+      profileArgs,
     });
   }
 

@@ -14,6 +14,16 @@ function generateSessionKey(profileName: string): string {
   return `${profileName}_${suffix}`;
 }
 
+/** Extract a harness resume session id from extra args (e.g. resume <id> or -s <id>). */
+export function detectResumeSessionId(args: string[]): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    if ((args[i] === 'resume' || args[i] === '-s') && i + 1 < args.length) {
+      return args[i + 1];
+    }
+  }
+  return undefined;
+}
+
 export interface RunStartInfo {
   sessionKey: string;
   controllerEndpoint: string;
@@ -101,12 +111,16 @@ export async function runCommand(
   options?: {
     usePty?: boolean;
     sessionKey?: string;
+    profileSessionId?: string;
+    profileArgs?: string[];
     onSessionStart?: (info: RunStartInfo) => void;
   }
 ): Promise<number> {
   const { profile, cwd, env, args } = buildProfileEnv(profileName, extraArgs);
 
   const sessionKey = options?.sessionKey || generateSessionKey(profileName);
+  // Generate a distinct internal runtime id (opaque, not the sessionKey)
+  const runtimeId = `runtime_${sessionKey.slice(-12)}_${Date.now().toString(36)}`;
   const ptyWriteRef: { current: ((data: string) => void) | null } = { current: null };
   const controller = setupController(sessionKey, ptyWriteRef);
 
@@ -122,16 +136,21 @@ export async function runCommand(
     options.onSessionStart({ sessionKey, controllerEndpoint: controller.endpointPath });
   }
 
+  // Derive profileSessionId from extraArgs (resume <id> or -s <id>)
+  const detectedProfileSessionId = options?.profileSessionId || detectResumeSessionId(extraArgs);
+
   addSession(
     profileName,
-    sessionKey,
+    runtimeId,
     cwd,
     sessionKey,
     controller.endpointPath,
     undefined,
     getAirelayVersion(),
     CONTROLLER_PROTOCOL_VERSION,
-    Date.now()
+    Date.now(),
+    detectedProfileSessionId,
+    extraArgs.length > 0 ? extraArgs : undefined
   );
 
   // Inject session metadata into child process environment
@@ -183,7 +202,7 @@ export async function runCommand(
     throw e;
   } finally {
     await controller.stop();
-    deleteSession(profileName, sessionKey);
+    deleteSession(profileName, runtimeId);
   }
 }
 

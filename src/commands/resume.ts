@@ -4,14 +4,27 @@ import { findSessionByKey, getSessions } from './sessions';
 import Enquirer from 'enquirer';
 
 export async function resumeCommand(profileOrSessionKey: string): Promise<void> {
-  // First, try to find by session key or ID
   const found = findSessionByKey(profileOrSessionKey);
 
   if (found) {
-    // Resume the found session directly; reuse its sessionKey for stable controller binding
-    const args = [`-s`, found.session.id];
-    const exitCode = await runCommand(found.profile, args, {
+    const session = found.session;
+    // Use profileSessionId + profileArgs for restore when available
+    const resumeArgs =
+      session.profileArgs && session.profileArgs.length > 0
+        ? session.profileArgs
+        : [`-s`, session.id];
+
+    if (!session.profileSessionId) {
+      console.warn(
+        'Warning: This session has no profile session metadata. Restoring with internal id.'
+      );
+      console.warn('Restart the session and save again for better restore support.');
+    }
+
+    const exitCode = await runCommand(found.profile, resumeArgs, {
       sessionKey: found.session.sessionKey,
+      profileSessionId: session.profileSessionId,
+      profileArgs: session.profileArgs,
     });
     process.exit(exitCode);
     return;
@@ -34,11 +47,11 @@ export async function resumeCommand(profileOrSessionKey: string): Promise<void> 
 
   const sessionChoices = sessions.map((s) => {
     const cwdInfo = s.cwd ? ` ${s.cwd}` : '';
-    const nameInfo = s.name ? ` (${s.name})` : '';
     const keyInfo = s.sessionKey ? ` [${s.sessionKey}]` : '';
+    const pidInfo = s.profileSessionId ? ` (profile: ${s.profileSessionId})` : '';
     return {
       name: s.id,
-      message: `${s.id}${keyInfo}${cwdInfo}${nameInfo}`,
+      message: `${s.id}${keyInfo}${cwdInfo}${pidInfo}`,
     };
   });
 
@@ -51,10 +64,29 @@ export async function resumeCommand(profileOrSessionKey: string): Promise<void> 
   };
 
   const sessionResult = (await Enquirer.prompt(sessionPrompt)) as { session: string };
-  const args = [`-s`, sessionResult.session];
   const selectedSession = sessions.find((s) => s.id === sessionResult.session);
-  const exitCode = await runCommand(profileOrSessionKey, args, {
+
+  if (!selectedSession) {
+    console.error('Error: Selected session not found.');
+    process.exit(1);
+  }
+
+  const resumeArgs =
+    selectedSession.profileArgs && selectedSession.profileArgs.length > 0
+      ? selectedSession.profileArgs
+      : [`-s`, selectedSession.id];
+
+  if (!selectedSession.profileSessionId) {
+    console.warn(
+      'Warning: This session has no profile session metadata. Restoring with internal id.'
+    );
+    console.warn('Restart the session and save again for better restore support.');
+  }
+
+  const exitCode = await runCommand(profileOrSessionKey, resumeArgs, {
     sessionKey: selectedSession?.sessionKey,
+    profileSessionId: selectedSession.profileSessionId,
+    profileArgs: selectedSession.profileArgs,
   });
   process.exit(exitCode);
 }

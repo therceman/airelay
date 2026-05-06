@@ -157,4 +157,53 @@ describe('sessions', () => {
       '/new/endpoint.sock'
     );
   });
+
+  it('persists profileSessionId when provided', () => {
+    addSession(
+      'test-profile',
+      'ses_prof_ses',
+      undefined,
+      'prof_key',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'codex_resume_abc123'
+    );
+    const sessions = getSessions('test-profile');
+    const entry = sessions.find((s) => s.id === 'ses_prof_ses');
+    expect(entry).toBeDefined();
+    expect(entry!.profileSessionId).toBe('codex_resume_abc123');
+  });
+
+  it('persists profileArgs when provided', () => {
+    addSession(
+      'test-profile',
+      'ses_prof_args',
+      undefined,
+      'args_key',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      ['resume', 'abc123']
+    );
+    const sessions = getSessions('test-profile');
+    const entry = sessions.find((s) => s.id === 'ses_prof_args');
+    expect(entry).toBeDefined();
+    expect(entry!.profileArgs).toEqual(['resume', 'abc123']);
+  });
+
+  it('session id is distinct from sessionKey', () => {
+    addSession('test-profile', 'runtime_internal_id_xyz', undefined, 'my_user_key');
+    const sessions = getSessions('test-profile');
+    const entry = sessions.find((s) => s.id === 'runtime_internal_id_xyz');
+    expect(entry).toBeDefined();
+    expect(entry!.id).toBe('runtime_internal_id_xyz');
+    expect(entry!.sessionKey).toBe('my_user_key');
+    expect(entry!.id).not.toBe(entry!.sessionKey);
+  });
 });

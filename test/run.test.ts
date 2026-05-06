@@ -1,4 +1,4 @@
-import { runCommand } from '../src/commands/run';
+import { runCommand, detectResumeSessionId } from '../src/commands/run';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -345,5 +345,27 @@ profiles:
     expect(fs.existsSync(envPath)).toBe(true);
 
     fs.rmSync(tempDir, { recursive: true });
+  });
+
+  describe('detectResumeSessionId', () => {
+    it('returns session id for resume <id> args', () => {
+      expect(detectResumeSessionId(['resume', 'abc123'])).toBe('abc123');
+    });
+
+    it('returns session id for -s <id> args', () => {
+      expect(detectResumeSessionId(['-s', 'ses_xxx'])).toBe('ses_xxx');
+    });
+
+    it('returns undefined for empty args', () => {
+      expect(detectResumeSessionId([])).toBeUndefined();
+    });
+
+    it('returns undefined for args without resume flag', () => {
+      expect(detectResumeSessionId(['other', 'arg'])).toBeUndefined();
+    });
+
+    it('returns undefined when resume flag has no following arg', () => {
+      expect(detectResumeSessionId(['resume'])).toBeUndefined();
+    });
   });
 });
