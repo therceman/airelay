@@ -24,6 +24,3 @@ coverage/
 # Temporary files
 *.tmp
 .temp/
-
-# Local agent task workspace
-tasks/
