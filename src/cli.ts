@@ -421,11 +421,15 @@ async function runCli(): Promise<void> {
       case 'session-status':
         if (!profile) {
           console.error('Error: Session key or ID required');
-          console.error('Usage: airelay session-status <session>');
+          console.error('Usage: airelay session-status <session> [--field <name>]');
           process.exit(1);
         }
         {
-          const exitCode = await sessionStatusCommand(profile, { json: flags.json === true });
+          const field = flags.field as string | undefined;
+          const exitCode = await sessionStatusCommand(profile, {
+            json: flags.json === true,
+            field,
+          });
           process.exit(exitCode);
         }
 

@@ -126,7 +126,7 @@ function fetchSessionInfo(endpoint: string): Promise<{
 
 export async function sessionStatusCommand(
   sessionKeyOrId: string,
-  options?: { json?: boolean }
+  options?: { json?: boolean; field?: string }
 ): Promise<number> {
   const found = findSessionByKey(sessionKeyOrId);
   if (!found) {
@@ -160,6 +160,18 @@ export async function sessionStatusCommand(
     state = elapsed < ACTIVITY_WINDOW_MS ? 'busy' : 'free';
   }
 
+  const ALLOWED_FIELDS = [
+    'sessionId',
+    'profile',
+    'sessionKey',
+    'controllerReachable',
+    'pingLatencyMs',
+    'airelayVersion',
+    'controllerProtocolVersion',
+    'startedAt',
+    'state',
+  ] as const;
+
   const result: StatusResult = {
     sessionId: found.session.id,
     profile: found.profile,
@@ -177,6 +189,20 @@ export async function sessionStatusCommand(
 
   if (options?.json) {
     console.log(JSON.stringify(result, null, 2));
+  } else if (options?.field) {
+    const field = options.field;
+    if (!(ALLOWED_FIELDS as readonly string[]).includes(field)) {
+      console.error(
+        `Error: Unknown field "${field}". Allowed fields: ${ALLOWED_FIELDS.join(', ')}`
+      );
+      return 1;
+    }
+    const value = (result as unknown as Record<string, unknown>)[field];
+    if (value === undefined || value === null) {
+      console.error(`Error: Field "${field}" has no value.`);
+      return 1;
+    }
+    console.log(String(value));
   } else {
     console.log(`Session: ${result.sessionId}`);
     console.log(`  Profile: ${result.profile}`);

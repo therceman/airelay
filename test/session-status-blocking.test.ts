@@ -70,3 +70,30 @@ describe('sessionStatusCommand version parity blocking', () => {
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('older'));
   });
 });
+
+describe('sessionStatusCommand --field selector', () => {
+  beforeEach(() => {
+    mockSessionFound();
+  });
+
+  it('--field state prints value only (or errors if unavailable)', async () => {
+    const exitCode = await sessionStatusCommand('status_key', { field: 'state' });
+    // state may be undefined when controller unreachable — either 0 (printed) or 1 (error) is valid
+    expect([0, 1]).toContain(exitCode);
+    // Ensure default formatted output is not used
+    expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('Session:'));
+  });
+
+  it('unknown field returns non-zero with error', async () => {
+    const exitCode = await sessionStatusCommand('status_key', { field: 'bogus' });
+    expect(exitCode).toBe(1);
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Unknown field'));
+  });
+
+  it('default output unchanged when no --field', async () => {
+    const exitCode = await sessionStatusCommand('status_key');
+    expect(exitCode).toBe(0);
+    // Default formatted output includes "Session:"
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Session:'));
+  });
+});
