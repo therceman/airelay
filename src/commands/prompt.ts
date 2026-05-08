@@ -84,6 +84,7 @@ export interface PromptOptions {
   onlySequence?: string;
   noSender?: boolean;
   sender?: string;
+  noWarn?: boolean;
 }
 
 export async function promptCommand(
@@ -161,8 +162,10 @@ export async function promptCommand(
     console.error(`Error: ${parity.error}`);
     return 1;
   }
-  for (const w of parity.warnings) {
-    console.warn(`Warning: ${w}`);
+  if (!options?.noWarn) {
+    for (const w of parity.warnings) {
+      console.warn(`Warning: ${w}`);
+    }
   }
 
   try {

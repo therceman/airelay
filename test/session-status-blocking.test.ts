@@ -78,9 +78,7 @@ describe('sessionStatusCommand --field selector', () => {
 
   it('--field state prints value only (or errors if unavailable)', async () => {
     const exitCode = await sessionStatusCommand('status_key', { field: 'state' });
-    // state may be undefined when controller unreachable — either 0 (printed) or 1 (error) is valid
     expect([0, 1]).toContain(exitCode);
-    // Ensure default formatted output is not used
     expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('Session:'));
   });
 
@@ -93,7 +91,39 @@ describe('sessionStatusCommand --field selector', () => {
   it('default output unchanged when no --field', async () => {
     const exitCode = await sessionStatusCommand('status_key');
     expect(exitCode).toBe(0);
-    // Default formatted output includes "Session:"
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Session:'));
+  });
+});
+
+describe('sessionStatusCommand --no-warn flag', () => {
+  beforeEach(() => {
+    mockSessionFound();
+    (preflightVersionCheck as jest.Mock).mockResolvedValue({
+      ok: true,
+      warnings: ['Controller is older than CLI.'],
+    });
+  });
+
+  it('without flag, warning is printed', async () => {
+    const exitCode = await sessionStatusCommand('status_key');
+    expect(exitCode).toBe(0);
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('older'));
+  });
+
+  it('with --no-warn, warning is not printed', async () => {
+    const exitCode = await sessionStatusCommand('status_key', { noWarn: true });
+    expect(exitCode).toBe(0);
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('errors are still printed even with --no-warn', async () => {
+    (preflightVersionCheck as jest.Mock).mockResolvedValue({
+      ok: false,
+      error: 'Version incompatible',
+      warnings: [],
+    });
+    const exitCode = await sessionStatusCommand('status_key', { noWarn: true });
+    expect(exitCode).toBe(1);
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('incompatible'));
   });
 });

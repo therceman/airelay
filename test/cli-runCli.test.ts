@@ -221,6 +221,7 @@ describe('runCli', () => {
       onlySequence: '\\x1b[106;4u',
       noSender: false,
       sender: undefined,
+      noWarn: false,
     });
     expect(process.exit).toHaveBeenCalledWith(0);
   });
@@ -236,6 +237,7 @@ describe('runCli', () => {
       onlySequence: undefined,
       noSender: false,
       sender: undefined,
+      noWarn: false,
     });
     expect(process.exit).toHaveBeenCalledWith(0);
   });

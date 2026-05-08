@@ -126,7 +126,7 @@ function fetchSessionInfo(endpoint: string): Promise<{
 
 export async function sessionStatusCommand(
   sessionKeyOrId: string,
-  options?: { json?: boolean; field?: string }
+  options?: { json?: boolean; field?: string; noWarn?: boolean }
 ): Promise<number> {
   const found = findSessionByKey(sessionKeyOrId);
   if (!found) {
@@ -143,8 +143,10 @@ export async function sessionStatusCommand(
     console.error(`Error: ${parity.error}`);
     return 1;
   }
-  for (const w of parity.warnings) {
-    console.warn(`Warning: ${w}`);
+  if (!options?.noWarn) {
+    for (const w of parity.warnings) {
+      console.warn(`Warning: ${w}`);
+    }
   }
 
   const [ping, output, info] = await Promise.all([

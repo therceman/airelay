@@ -13,7 +13,7 @@ interface FindResult {
 export async function sessionFindCommand(
   sessionKeyOrId: string,
   pattern: string,
-  options?: { json?: boolean }
+  options?: { json?: boolean; noWarn?: boolean }
 ): Promise<number> {
   if (!pattern) {
     console.error('Error: Pattern is required.');
@@ -35,8 +35,10 @@ export async function sessionFindCommand(
     console.error(`Error: ${parity.error}`);
     return 1;
   }
-  for (const w of parity.warnings) {
-    console.warn(`Warning: ${w}`);
+  if (!options?.noWarn) {
+    for (const w of parity.warnings) {
+      console.warn(`Warning: ${w}`);
+    }
   }
 
   const output = await fetchSessionViewport(endpointPath);

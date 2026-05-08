@@ -400,12 +400,15 @@ async function runCli(): Promise<void> {
             process.exit(1);
           }
 
+          const noWarn = flags['no-warn'] === true || flags.nowarn === true;
+
           const exitCode = await promptCommand(profile, text, {
             enter: enterValue,
             onlyEnter,
             onlySequence,
             noSender,
             sender,
+            noWarn,
           });
           process.exit(exitCode);
         }
@@ -426,9 +429,11 @@ async function runCli(): Promise<void> {
         }
         {
           const field = flags.field as string | undefined;
+          const noWarn = flags['no-warn'] === true || flags.nowarn === true;
           const exitCode = await sessionStatusCommand(profile, {
             json: flags.json === true,
             field,
+            noWarn,
           });
           process.exit(exitCode);
         }
@@ -441,7 +446,8 @@ async function runCli(): Promise<void> {
         }
         {
           const pattern = args[0];
-          const exitCode = await sessionFindCommand(profile, pattern, { json: flags.json === true });
+          const noWarn = flags['no-warn'] === true || flags.nowarn === true;
+          const exitCode = await sessionFindCommand(profile, pattern, { json: flags.json === true, noWarn });
           process.exit(exitCode);
         }
 
