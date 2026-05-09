@@ -25,6 +25,7 @@ export async function resumeCommand(profileOrSessionKey: string): Promise<void> 
       sessionKey: found.session.sessionKey,
       profileSessionId: session.profileSessionId,
       profileArgs: session.profileArgs,
+      usePty: true,
     });
     process.exit(exitCode);
     return;
@@ -87,6 +88,7 @@ export async function resumeCommand(profileOrSessionKey: string): Promise<void> 
     sessionKey: selectedSession?.sessionKey,
     profileSessionId: selectedSession.profileSessionId,
     profileArgs: selectedSession.profileArgs,
+    usePty: true,
   });
   process.exit(exitCode);
 }
