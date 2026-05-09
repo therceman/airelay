@@ -251,6 +251,7 @@ Session options:
 Heartbeat options:
   --no-warn                Suppress version parity warnings
   --interval <ms>          Heartbeat interval in milliseconds (default: 300000)
+  --duration <ms>          Runtime limit in milliseconds (default: 3600000, i.e. 1h)
 `);
 }
 
@@ -456,7 +457,7 @@ async function runCli(): Promise<void> {
       case 'heartbeat':
         if (!profile) {
           console.error('Error: Session key or ID required');
-          console.error('Usage: airelay heartbeat <session> [--no-warn] [--interval <ms>]');
+          console.error('Usage: airelay heartbeat <session> [--no-warn] [--interval <ms>] [--duration <ms>]');
           process.exit(1);
         }
         {
@@ -466,8 +467,14 @@ async function runCli(): Promise<void> {
             console.error('Error: --interval must be a positive number (milliseconds).');
             process.exit(1);
           }
+          const durationFlag = flags.duration as string | undefined;
+          const durationMs = durationFlag ? parseInt(durationFlag, 10) : undefined;
+          if (durationFlag && (isNaN(durationMs!) || durationMs! <= 0)) {
+            console.error('Error: --duration must be a positive number (milliseconds).');
+            process.exit(1);
+          }
           const noWarn = flags['no-warn'] === true;
-          const exitCode = await heartbeatCommand(profile, { noWarn, intervalMs });
+          const exitCode = await heartbeatCommand(profile, { noWarn, intervalMs, durationMs });
           process.exit(exitCode);
         }
 
