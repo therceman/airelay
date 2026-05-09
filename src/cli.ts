@@ -213,6 +213,7 @@ Examples:
   airelay cleanup
   airelay prompt mysession "write a test"
   airelay prompt mysession --text "continue" --no-enter
+  airelay prompt mysession --stdin <<'EOF'
   airelay prompt mysession --only-enter
   airelay prompt mysession --only-sequence $'\x1b[106;4u'
   airelay sessions
@@ -230,6 +231,7 @@ Init options:
   -f, --force              Overwrite existing config
 
 Prompt options:
+  --stdin                  Read prompt text from stdin (pipe/heredoc)
   --text <text>            Text to send to the session
   --no-enter               Do not append newline after text (default: enter)
   --only-enter             Send Enter key only (no text)
@@ -382,6 +384,7 @@ async function runCli(): Promise<void> {
             (flags['only-sequence'] as string | undefined) ||
             (flags.sequence as string | undefined) ||
             args.find((a) => a.startsWith('sequence='))?.slice('sequence='.length);
+          const stdin = flags.stdin === true;
 
           if (onlyEnter && onlySequence) {
             console.error('Error: --only-enter and --only-sequence cannot be combined.');
@@ -389,6 +392,10 @@ async function runCli(): Promise<void> {
           }
           if ((onlyEnter || onlySequence) && text) {
             console.error('Error: Text argument cannot be combined with --only-enter or --only-sequence.');
+            process.exit(1);
+          }
+          if (stdin && text) {
+            console.error('Error: --stdin cannot be combined with inline text or --text.');
             process.exit(1);
           }
 
@@ -416,6 +423,7 @@ async function runCli(): Promise<void> {
             noSender,
             sender,
             noWarn,
+            stdin,
           });
           process.exit(exitCode);
         }

@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { Readable } from 'stream';
 import { promptCommand } from '../src/commands/prompt';
 
 // Capture the mock socket instances for each test
@@ -391,6 +392,99 @@ describe('promptCommand', () => {
         expect.stringContaining('ses_abcdef123456'),
         expect.any(Function)
       );
+    });
+  });
+
+  describe('stdin mode', () => {
+    const originalStdin = process.stdin;
+
+    afterEach(() => {
+      Object.defineProperty(process, 'stdin', {
+        value: originalStdin,
+        configurable: true,
+        writable: true,
+      });
+    });
+
+    function mockStdin(input: string, isTTY = false): void {
+      const stream = new Readable({
+        read() {
+          this.push(Buffer.from(input));
+          this.push(null);
+        },
+      });
+      (stream as unknown as { isTTY: boolean }).isTTY = isTTY;
+      Object.defineProperty(process, 'stdin', {
+        value: stream,
+        configurable: true,
+        writable: true,
+      });
+    }
+
+    function mockStdinEmpty(): void {
+      const stream = new Readable({
+        read() {
+          this.push(null);
+        },
+      });
+      (stream as unknown as { isTTY: boolean }).isTTY = false;
+      Object.defineProperty(process, 'stdin', {
+        value: stream,
+        configurable: true,
+        writable: true,
+      });
+    }
+
+    it('reads text from stdin and sends to session', async () => {
+      mockStdin('hello from stdin');
+      mockSessionFound();
+      const exitCodePromise = promptCommand('testprofile_1234', undefined, { stdin: true });
+
+      await emitData({ id: 'prompt-1', type: 'success', data: {} });
+
+      const exitCode = await exitCodePromise;
+      expect(exitCode).toBe(0);
+      const socket = mockSocketInstance;
+      const written = socket?.write.mock.calls[0][0];
+      expect(written).toContain('"text":"hello from stdin"');
+    });
+
+    it('preserves multi-line payload from stdin', async () => {
+      mockStdin('line one\nline two\nline three');
+      mockSessionFound();
+      const exitCodePromise = promptCommand('testprofile_1234', undefined, { stdin: true });
+
+      await emitData({ id: 'prompt-1', type: 'success', data: {} });
+
+      const exitCode = await exitCodePromise;
+      expect(exitCode).toBe(0);
+      const socket = mockSocketInstance;
+      const written = socket?.write.mock.calls[0][0];
+      expect(written).toContain('"text":"line one\\nline two\\nline three"');
+    });
+
+    it('returns error when stdin is empty', async () => {
+      mockStdinEmpty();
+      const exitCode = await promptCommand('testprofile_1234', undefined, { stdin: true });
+      expect(exitCode).toBe(1);
+      expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Empty input'));
+    });
+
+    it('returns error when --stdin combined with inline text', async () => {
+      const exitCode = await promptCommand('testprofile_1234', 'inline text', { stdin: true });
+      expect(exitCode).toBe(1);
+      expect(console.error).toHaveBeenCalledWith(expect.stringContaining('cannot be combined'));
+    });
+
+    it('existing non-stdin prompt still works', async () => {
+      mockSessionFound();
+      const exitCodePromise = promptCommand('testprofile_1234', 'normal text');
+      await emitData({ id: 'prompt-1', type: 'success', data: {} });
+      const exitCode = await exitCodePromise;
+      expect(exitCode).toBe(0);
+      const socket = mockSocketInstance;
+      const written = socket?.write.mock.calls[0][0];
+      expect(written).toContain('"text":"normal text"');
     });
   });
 });

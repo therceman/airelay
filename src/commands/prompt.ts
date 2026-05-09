@@ -8,6 +8,26 @@ import { preflightVersionCheck } from './session-ipc';
 
 const IPC_TIMEOUT = 5000;
 
+function readStdin(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (process.stdin.isTTY) {
+      resolve('');
+      return;
+    }
+    const chunks: Buffer[] = [];
+    process.stdin.on('data', (chunk: Buffer) => {
+      chunks.push(chunk);
+    });
+    process.stdin.on('end', () => {
+      resolve(Buffer.concat(chunks).toString('utf-8'));
+    });
+    process.stdin.on('error', (err: Error) => {
+      reject(err);
+    });
+    process.stdin.resume();
+  });
+}
+
 /**
  * Delay in ms between writing prompt text and writing the submit sequence.
  * Required for TUI apps (especially under tmux) to process text input
@@ -85,6 +105,7 @@ export interface PromptOptions {
   noSender?: boolean;
   sender?: string;
   noWarn?: boolean;
+  stdin?: boolean;
 }
 
 export async function promptCommand(
@@ -92,13 +113,34 @@ export async function promptCommand(
   text?: string,
   options?: PromptOptions
 ): Promise<number> {
-  const resolvedText = text || undefined;
   const onlyEnter = options?.onlyEnter === true;
   const onlySequence = options?.onlySequence;
+  const stdin = options?.stdin === true;
+
+  let resolvedText: string | undefined;
+
+  if (stdin) {
+    if (text) {
+      console.error('Error: --stdin cannot be combined with inline text or --text.');
+      return 1;
+    }
+    const stdinText = await readStdin();
+    if (!stdinText || stdinText.trim().length === 0) {
+      console.error('Error: Empty input from stdin.');
+      console.error('Usage: echo "message" | airelay prompt <session> --stdin');
+      return 1;
+    }
+    resolvedText = stdinText;
+  } else {
+    resolvedText = text || undefined;
+  }
 
   if (!resolvedText && !onlyEnter && !onlySequence) {
-    console.error('Error: Text is required unless --only-enter or --only-sequence is used.');
+    console.error(
+      'Error: Text is required unless --only-enter, --only-sequence, or --stdin is used.'
+    );
     console.error('Usage: airelay prompt <session> [text]');
+    console.error('       airelay prompt <session> --stdin');
     console.error('       airelay prompt <session> --only-enter');
     console.error('       airelay prompt <session> --only-sequence <seq>');
     return 1;

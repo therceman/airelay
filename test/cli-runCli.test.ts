@@ -222,6 +222,7 @@ describe('runCli', () => {
       noSender: false,
       sender: undefined,
       noWarn: false,
+      stdin: false,
     });
     expect(process.exit).toHaveBeenCalledWith(0);
   });
@@ -238,6 +239,7 @@ describe('runCli', () => {
       noSender: false,
       sender: undefined,
       noWarn: false,
+      stdin: false,
     });
     expect(process.exit).toHaveBeenCalledWith(0);
   });
