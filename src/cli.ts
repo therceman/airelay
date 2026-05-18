@@ -250,8 +250,9 @@ Session options:
 
 Heartbeat options:
   --no-warn                Suppress version parity warnings
-  --interval <ms>          Heartbeat interval in milliseconds (default: 300000)
-  --duration <ms>          Runtime limit in milliseconds (default: 3600000, i.e. 1h)
+  --interval <seconds>     Heartbeat interval in seconds (default: 300, i.e. 5m)
+  --duration <seconds>     Runtime limit in seconds (default: 3600, i.e. 1h)
+  --msg <text>             Override heartbeat message (default: [from=cron] heartbeat)
 `);
 }
 
@@ -457,24 +458,36 @@ async function runCli(): Promise<void> {
       case 'heartbeat':
         if (!profile) {
           console.error('Error: Session key or ID required');
-          console.error('Usage: airelay heartbeat <session> [--no-warn] [--interval <ms>] [--duration <ms>]');
+          console.error(
+            'Usage: airelay heartbeat <session> [--no-warn] [--msg <text>] [--interval <seconds>] [--duration <seconds>]'
+          );
           process.exit(1);
         }
         {
           const intervalFlag = flags.interval as string | undefined;
-          const intervalMs = intervalFlag ? parseInt(intervalFlag, 10) : undefined;
-          if (intervalFlag && (isNaN(intervalMs!) || intervalMs! <= 0)) {
-            console.error('Error: --interval must be a positive number (milliseconds).');
+          const intervalSeconds = intervalFlag ? parseInt(intervalFlag, 10) : undefined;
+          if (intervalFlag && (isNaN(intervalSeconds!) || intervalSeconds! <= 0)) {
+            console.error('Error: --interval must be a positive number (seconds).');
             process.exit(1);
           }
           const durationFlag = flags.duration as string | undefined;
-          const durationMs = durationFlag ? parseInt(durationFlag, 10) : undefined;
-          if (durationFlag && (isNaN(durationMs!) || durationMs! <= 0)) {
-            console.error('Error: --duration must be a positive number (milliseconds).');
+          const durationSeconds = durationFlag ? parseInt(durationFlag, 10) : undefined;
+          if (durationFlag && (isNaN(durationSeconds!) || durationSeconds! <= 0)) {
+            console.error('Error: --duration must be a positive number (seconds).');
+            process.exit(1);
+          }
+          const msg = flags.msg as string | undefined;
+          if (msg !== undefined && msg.trim().length === 0) {
+            console.error('Error: --msg cannot be empty.');
             process.exit(1);
           }
           const noWarn = flags['no-warn'] === true;
-          const exitCode = await heartbeatCommand(profile, { noWarn, intervalMs, durationMs });
+          const exitCode = await heartbeatCommand(profile, {
+            noWarn,
+            intervalMs: intervalSeconds ? intervalSeconds * 1000 : undefined,
+            durationMs: durationSeconds ? durationSeconds * 1000 : undefined,
+            msg,
+          });
           process.exit(exitCode);
         }
 

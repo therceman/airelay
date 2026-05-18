@@ -120,6 +120,22 @@ describe('heartbeatCommand', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Heartbeat duration reached'));
   });
 
+  it('uses --msg override when provided in options', async () => {
+    const exitPromise = heartbeatCommand('test_session', {
+      intervalMs: 5,
+      durationMs: 60000,
+      msg: '[from=cron] custom-heartbeat',
+    });
+    await tick(30);
+    process.emit('SIGINT');
+    await exitPromise;
+    expect(promptCommand).toHaveBeenCalledWith(
+      'test_session',
+      '[from=cron] custom-heartbeat',
+      expect.any(Object)
+    );
+  });
+
   it('early SIGINT still stops before duration expires', async () => {
     const exitPromise = heartbeatCommand('test_session', {
       intervalMs: 10000,

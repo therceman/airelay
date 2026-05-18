@@ -7,6 +7,7 @@ export interface HeartbeatOptions {
   noWarn?: boolean;
   intervalMs?: number;
   durationMs?: number;
+  msg?: string;
 }
 
 function formatDuration(ms: number): string {
@@ -30,6 +31,9 @@ export async function heartbeatCommand(
 ): Promise<number> {
   const intervalMs = options?.intervalMs || DEFAULT_INTERVAL_MS;
   const durationMs = options?.durationMs ?? DEFAULT_DURATION_MS;
+  const heartbeatMsg = options?.msg?.trim().length
+    ? (options.msg as string)
+    : '[from=cron] heartbeat';
   const startTime = Date.now();
 
   console.log(`Heartbeat started for session: ${sessionKeyOrId}`);
@@ -50,8 +54,7 @@ export async function heartbeatCommand(
   process.on('SIGTERM', shutdown);
 
   while (running) {
-    const text = '[from=cron] heartbeat';
-    const exitCode = await promptCommand(sessionKeyOrId, text, {
+    const exitCode = await promptCommand(sessionKeyOrId, heartbeatMsg, {
       enter: true,
       noWarn: options?.noWarn,
     });
