@@ -31,14 +31,16 @@ export async function heartbeatCommand(
 ): Promise<number> {
   const intervalMs = options?.intervalMs || DEFAULT_INTERVAL_MS;
   const durationMs = options?.durationMs ?? DEFAULT_DURATION_MS;
+  const intervalSeconds = Math.floor(intervalMs / 1000);
+  const durationSeconds = Math.floor(durationMs / 1000);
   const heartbeatMsg = options?.msg?.trim().length
     ? (options.msg as string)
     : '[from=cron] heartbeat';
   const startTime = Date.now();
 
   console.log(`Heartbeat started for session: ${sessionKeyOrId}`);
-  console.log(`Interval: ${intervalMs}ms`);
-  console.log(`Duration: ${formatDuration(durationMs)}`);
+  console.log(`Interval: ${intervalSeconds}s`);
+  console.log(`Duration: ${durationSeconds}s (${formatDuration(durationMs)})`);
   console.log('Press Ctrl+C to stop.\n');
 
   let running = true;

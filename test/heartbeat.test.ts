@@ -90,6 +90,8 @@ describe('heartbeatCommand', () => {
     process.emit('SIGINT');
     await exitPromise;
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Heartbeat started'));
+    expect(console.log).toHaveBeenCalledWith('Interval: 0s');
+    expect(console.log).toHaveBeenCalledWith('Duration: 60s (1m)');
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('heartbeat sent'));
   });
 
