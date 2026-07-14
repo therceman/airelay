@@ -8,6 +8,7 @@ import { migrateLegacyHomeDirIfNeeded } from '../config/migrate';
 import { runCommand } from './run';
 import { getSessions, addSession, deleteSession, getSessionsPath } from './sessions';
 import { createCommandInteractive } from './create-interactive';
+import { historyCommand } from './history';
 
 function getLastUsedDirPath(): string {
   if (!process.env.AIRELAY_LAST_USED) {
@@ -64,6 +65,17 @@ export function setLastUsedProfile(profileName: string): void {
   }
 }
 
+export function buildMainChoices(
+  hasAnySessions: boolean
+): Array<{ name: string; message: string }> {
+  return [
+    ...(hasAnySessions ? [{ name: 'Resume', message: 'Resume an existing profile session' }] : []),
+    { name: 'Show', message: 'Show profile session history' },
+    { name: 'Start', message: 'Start a new profile session' },
+    { name: 'Create', message: 'Create a new profile' },
+  ];
+}
+
 export async function selectCommand(): Promise<void> {
   const config = loadConfig();
   const profiles = Object.keys(config.profiles).sort();
@@ -76,11 +88,7 @@ export async function selectCommand(): Promise<void> {
   // Check if any profiles have sessions
   const hasAnySessions = sortedProfiles.some((name) => getSessions(name).length > 0);
 
-  const mainChoices = [
-    ...(hasAnySessions ? [{ name: 'Resume', message: 'Resume an existing profile session' }] : []),
-    { name: 'Start', message: 'Start a new profile session' },
-    { name: 'Create', message: 'Create a new profile' },
-  ];
+  const mainChoices = buildMainChoices(hasAnySessions);
 
   const mainPrompt = {
     type: 'select',
@@ -95,6 +103,11 @@ export async function selectCommand(): Promise<void> {
 
   if (action === 'Create') {
     await createCommandInteractive();
+    return;
+  }
+
+  if (action === 'Show') {
+    historyCommand({ cwd: true });
     return;
   }
 

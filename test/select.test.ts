@@ -1,4 +1,4 @@
-import { getLastUsedProfile, setLastUsedProfile } from '../src/commands/select';
+import { buildMainChoices, getLastUsedProfile, setLastUsedProfile } from '../src/commands/select';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -63,5 +63,24 @@ describe('last-used tracking', () => {
 
     process.env.AIRELAY_LAST_USED = savedEnv;
     fs.rmSync(nestedDir, { recursive: true });
+  });
+});
+
+describe('main selector choices', () => {
+  it('places profile session history after Resume and before Start/Create', () => {
+    expect(buildMainChoices(true)).toEqual([
+      { name: 'Resume', message: 'Resume an existing profile session' },
+      { name: 'Show', message: 'Show profile session history' },
+      { name: 'Start', message: 'Start a new profile session' },
+      { name: 'Create', message: 'Create a new profile' },
+    ]);
+  });
+
+  it('keeps history available when there are no active sessions', () => {
+    expect(buildMainChoices(false)).toEqual([
+      { name: 'Show', message: 'Show profile session history' },
+      { name: 'Start', message: 'Start a new profile session' },
+      { name: 'Create', message: 'Create a new profile' },
+    ]);
   });
 });
