@@ -6,6 +6,7 @@ import { spawnAndWait, SpawnOptions } from '../runtime/spawn';
 import { SessionController } from '../controller';
 import { IpcError, IpcErrorCodes } from '../types/controller';
 import { addSession, deleteSession, updateSessionPid } from './sessions';
+import { recordLaunchHistory } from './history';
 import { getAirelayVersion, CONTROLLER_PROTOCOL_VERSION } from '../utils/version';
 import fs from 'fs';
 
@@ -114,6 +115,9 @@ export async function runCommand(
     profileSessionId?: string;
     profileArgs?: string[];
     onSessionStart?: (info: RunStartInfo) => void;
+    recordLaunch?: boolean;
+    invocationCwd?: string;
+    launchArgv?: string[];
   }
 ): Promise<number> {
   const { profile, cwd, env, args } = buildProfileEnv(profileName, extraArgs);
@@ -138,6 +142,21 @@ export async function runCommand(
 
   // Derive profileSessionId from extraArgs (resume <id> or -s <id>)
   const detectedProfileSessionId = options?.profileSessionId || detectResumeSessionId(extraArgs);
+
+  if (options?.recordLaunch) {
+    const launchArgv = options.launchArgv || [
+      'start',
+      profileName,
+      ...(sessionKey ? ['--key', sessionKey] : []),
+      ...(extraArgs.length > 0 ? ['--', ...extraArgs] : []),
+    ];
+    recordLaunchHistory({
+      profile: profileName,
+      sessionKey,
+      invocationCwd: options.invocationCwd || process.cwd(),
+      argv: launchArgv,
+    });
+  }
 
   addSession(
     profileName,

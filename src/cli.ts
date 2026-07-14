@@ -17,6 +17,7 @@ import { sessionsListCommand } from './commands/sessions-list';
 import { sessionStatusCommand } from './commands/session-status';
 import { sessionFindCommand } from './commands/session-find';
 import { heartbeatCommand } from './commands/heartbeat';
+import { historyCommand } from './commands/history';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -49,6 +50,7 @@ const KNOWN_COMMANDS = [
   'session-status',
   'session-find',
   'heartbeat',
+  'history',
 ];
 const PROFILE_COMMANDS = ['run', 'which', 'doctor', 'start'];
 
@@ -197,6 +199,7 @@ Commands:
   session-status <key>  Show session health and UI status
   session-find <key>    Search recent session output for pattern
   heartbeat <session>   Send periodic heartbeat to a session
+  history               List executed airelay launch commands
   help                  Show this help message
 
 Examples:
@@ -221,6 +224,9 @@ Examples:
   airelay sessions --active
   airelay sessions --cwd
   airelay sessions --cwd --active --json
+  airelay history
+  airelay history --cwd
+  airelay history --json
 
 Create options:
   -e, --executable <name>  Executable name (opencode or codex)
@@ -310,7 +316,11 @@ async function runCli(): Promise<void> {
               process.exit(1);
             }
           }
-          await startCommand(profile, extraArgs, { key: sessionKey });
+          await startCommand(profile, extraArgs, {
+            key: sessionKey,
+            invocationCwd: process.cwd(),
+            launchArgv: process.argv.slice(2),
+          });
         }
         break;
 
@@ -436,6 +446,10 @@ async function runCli(): Promise<void> {
           active: flags.active === true,
           cwd: flags.cwd === true,
         });
+        break;
+
+      case 'history':
+        historyCommand({ cwd: flags.cwd === true, json: flags.json === true });
         break;
 
       case 'session-status':

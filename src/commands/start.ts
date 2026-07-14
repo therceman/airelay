@@ -2,6 +2,8 @@ import { runCommand } from './run';
 
 export interface StartOptions {
   key?: string;
+  invocationCwd?: string;
+  launchArgv?: string[];
 }
 
 export async function startCommand(
@@ -12,6 +14,9 @@ export async function startCommand(
   const exitCode = await runCommand(profile, extraArgs, {
     usePty: true,
     sessionKey: options?.key,
+    recordLaunch: true,
+    invocationCwd: options?.invocationCwd,
+    launchArgv: options?.launchArgv,
   });
   process.exit(exitCode);
 }

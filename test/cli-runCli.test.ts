@@ -33,6 +33,9 @@ jest.mock('../src/commands/select', () => ({
 jest.mock('../src/commands/prompt', () => ({
   promptCommand: jest.fn().mockResolvedValue(0),
 }));
+jest.mock('../src/commands/history', () => ({
+  historyCommand: jest.fn(),
+}));
 
 // Mock console methods
 const originalConsoleLog = console.log;
@@ -54,6 +57,14 @@ afterEach(() => {
 });
 
 describe('runCli', () => {
+  it('dispatches history filters and JSON output', async () => {
+    process.argv = ['node', 'cli.js', 'history', '--cwd', '--json'];
+    await runCli();
+
+    const { historyCommand } = require('../src/commands/history');
+    expect(historyCommand).toHaveBeenCalledWith({ cwd: true, json: true });
+  });
+
   it('executes help command and outputs help text', async () => {
     process.argv = ['node', 'cli.js', 'help'];
     await runCli();

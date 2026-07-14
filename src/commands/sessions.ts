@@ -54,13 +54,14 @@ export function addSession(
   profileArgs?: string[]
 ): void {
   const sessions = loadSessions();
+  const sessionTimestamp = startedAt ?? Date.now();
   if (!sessions[profile]) {
     sessions[profile] = [];
   }
 
   const existingIndex = sessions[profile].findIndex((s) => s.id === sessionId);
   if (existingIndex !== -1) {
-    sessions[profile][existingIndex].lastUsed = Date.now();
+    sessions[profile][existingIndex].lastUsed = sessionTimestamp;
     if (cwd) {
       sessions[profile][existingIndex].cwd = cwd;
     }
@@ -92,7 +93,7 @@ export function addSession(
     sessions[profile].push({
       id: sessionId,
       profile,
-      lastUsed: Date.now(),
+      lastUsed: sessionTimestamp,
       cwd,
       sessionKey,
       controllerEndpoint,

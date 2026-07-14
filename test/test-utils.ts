@@ -6,11 +6,13 @@ export interface TestEnv {
   testDir: string;
   configPath: string;
   sessionsPath: string;
+  historyPath: string;
   lastUsedPath: string;
   pidsPath: string;
   originalEnv: {
     AIRELAY_CONFIG?: string;
     AIRELAY_SESSIONS?: string;
+    AIRELAY_HISTORY?: string;
     AIRELAY_LAST_USED?: string;
     AIRELAY_PIDS?: string;
   };
@@ -38,12 +40,14 @@ export function setupTestEnv(): TestEnv {
   const testDir = path.join(os.tmpdir(), `airelay-test-${process.pid}-${Date.now()}`);
   const configPath = path.join(testDir, 'config.yaml');
   const sessionsPath = path.join(testDir, 'sessions.json');
+  const historyPath = path.join(testDir, 'launch-history.json');
   const lastUsedPath = path.join(testDir, 'last-used');
   const pidsPath = path.join(testDir, 'pids.json');
 
   const originalEnv = {
     AIRELAY_CONFIG: process.env.AIRELAY_CONFIG,
     AIRELAY_SESSIONS: process.env.AIRELAY_SESSIONS,
+    AIRELAY_HISTORY: process.env.AIRELAY_HISTORY,
     AIRELAY_LAST_USED: process.env.AIRELAY_LAST_USED,
     AIRELAY_PIDS: process.env.AIRELAY_PIDS,
   };
@@ -52,6 +56,7 @@ export function setupTestEnv(): TestEnv {
     testDir,
     configPath,
     sessionsPath,
+    historyPath,
     lastUsedPath,
     pidsPath,
     originalEnv,
@@ -68,6 +73,7 @@ export function setupEnv(env: TestEnv): void {
 
   process.env.AIRELAY_CONFIG = env.configPath;
   process.env.AIRELAY_SESSIONS = env.sessionsPath;
+  process.env.AIRELAY_HISTORY = env.historyPath;
   process.env.AIRELAY_LAST_USED = env.lastUsedPath;
   process.env.AIRELAY_PIDS = env.pidsPath;
 }
@@ -97,6 +103,12 @@ export function cleanupEnv(env: TestEnv): void {
     process.env.AIRELAY_SESSIONS = env.originalEnv.AIRELAY_SESSIONS;
   } else {
     delete process.env.AIRELAY_SESSIONS;
+  }
+
+  if (env.originalEnv.AIRELAY_HISTORY) {
+    process.env.AIRELAY_HISTORY = env.originalEnv.AIRELAY_HISTORY;
+  } else {
+    delete process.env.AIRELAY_HISTORY;
   }
 
   if (env.originalEnv.AIRELAY_LAST_USED) {
