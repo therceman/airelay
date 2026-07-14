@@ -35,6 +35,7 @@ jest.mock('../src/commands/prompt', () => ({
 }));
 jest.mock('../src/commands/history', () => ({
   historyCommand: jest.fn(),
+  removeHistoryCommand: jest.fn(),
 }));
 
 // Mock console methods
@@ -63,6 +64,14 @@ describe('runCli', () => {
 
     const { historyCommand } = require('../src/commands/history');
     expect(historyCommand).toHaveBeenCalledWith({ cwd: true, json: true });
+  });
+
+  it('dispatches history removal by session key', async () => {
+    process.argv = ['node', 'cli.js', 'history', 'remove', 'worker_key'];
+    await runCli();
+
+    const { removeHistoryCommand } = require('../src/commands/history');
+    expect(removeHistoryCommand).toHaveBeenCalledWith('worker_key');
   });
 
   it('executes help command and outputs help text', async () => {

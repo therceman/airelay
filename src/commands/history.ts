@@ -64,6 +64,30 @@ export function getLaunchHistory(): LaunchHistoryEntry[] {
   return loadHistory().sort((a, b) => b.startedAt - a.startedAt);
 }
 
+export function removeLaunchHistory(sessionKey: string, invocationCwd = process.cwd()): number {
+  const currentCwd = path.resolve(invocationCwd);
+  const history = loadHistory();
+  const remaining = history.filter(
+    (entry) => entry.sessionKey !== sessionKey || path.resolve(entry.invocationCwd) !== currentCwd
+  );
+  const removed = history.length - remaining.length;
+  if (removed > 0) {
+    store.save(remaining);
+  }
+  return removed;
+}
+
+export function removeHistoryCommand(sessionKey: string): void {
+  const removed = removeLaunchHistory(sessionKey);
+  if (removed > 0) {
+    console.log(
+      `Removed ${removed} history entr${removed === 1 ? 'y' : 'ies'} for key "${sessionKey}".`
+    );
+    return;
+  }
+  console.log(`No history entry found for key "${sessionKey}" in the current directory.`);
+}
+
 export interface HistoryCommandOptions {
   cwd?: boolean;
   json?: boolean;

@@ -17,7 +17,7 @@ import { sessionsListCommand } from './commands/sessions-list';
 import { sessionStatusCommand } from './commands/session-status';
 import { sessionFindCommand } from './commands/session-find';
 import { heartbeatCommand } from './commands/heartbeat';
-import { historyCommand } from './commands/history';
+import { historyCommand, removeHistoryCommand } from './commands/history';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -227,6 +227,7 @@ Examples:
   airelay history
   airelay history --cwd
   airelay history --json
+  airelay history remove <session-key>
 
 Create options:
   -e, --executable <name>  Executable name (opencode or codex)
@@ -312,7 +313,9 @@ async function runCli(): Promise<void> {
               process.exit(1);
             }
             if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(sessionKey)) {
-              console.error(`Error: Invalid key "${sessionKey}". Must start with a letter/digit and contain only letters, digits, -, _.`);
+              console.error(
+                `Error: Invalid key "${sessionKey}". Must start with a letter/digit and contain only letters, digits, -, _.`
+              );
               process.exit(1);
             }
           }
@@ -403,7 +406,9 @@ async function runCli(): Promise<void> {
             process.exit(1);
           }
           if ((onlyEnter || onlySequence) && text) {
-            console.error('Error: Text argument cannot be combined with --only-enter or --only-sequence.');
+            console.error(
+              'Error: Text argument cannot be combined with --only-enter or --only-sequence.'
+            );
             process.exit(1);
           }
           if (stdin && text) {
@@ -449,6 +454,18 @@ async function runCli(): Promise<void> {
         break;
 
       case 'history':
+        if (profile === 'remove') {
+          if (!args[0] || args.length > 1) {
+            console.error('Usage: airelay history remove <session-key>');
+            process.exit(1);
+          }
+          removeHistoryCommand(args[0]);
+          break;
+        }
+        if (profile || args.length > 0) {
+          console.error('Usage: airelay history [--cwd] [--json]');
+          process.exit(1);
+        }
         historyCommand({ cwd: flags.cwd === true, json: flags.json === true });
         break;
 
@@ -514,7 +531,10 @@ async function runCli(): Promise<void> {
         {
           const pattern = args[0];
           const noWarn = flags['no-warn'] === true;
-          const exitCode = await sessionFindCommand(profile, pattern, { json: flags.json === true, noWarn });
+          const exitCode = await sessionFindCommand(profile, pattern, {
+            json: flags.json === true,
+            noWarn,
+          });
           process.exit(exitCode);
         }
 

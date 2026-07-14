@@ -2,6 +2,8 @@ import fs from 'fs';
 import {
   historyCommand,
   getLaunchHistory,
+  removeHistoryCommand,
+  removeLaunchHistory,
   recordLaunchHistory,
   renderLaunchCommand,
 } from '../src/commands/history';
@@ -129,5 +131,31 @@ describe('launch history', () => {
 
   it('quotes empty arguments and preserves the command prefix', () => {
     expect(renderLaunchCommand(['start', 'worker', '--', ''])).toBe("airelay start worker -- ''");
+  });
+
+  it('removes matching entries only from the current invocation directory', () => {
+    recordLaunchHistory({
+      profile: 'worker',
+      sessionKey: 'remove_key',
+      invocationCwd: process.cwd(),
+      argv: ['start', 'worker', '--key', 'remove_key'],
+      startedAt: 500,
+    });
+    recordLaunchHistory({
+      profile: 'worker',
+      sessionKey: 'remove_key',
+      invocationCwd: '/tmp/other-project',
+      argv: ['start', 'worker', '--key', 'remove_key'],
+      startedAt: 600,
+    });
+
+    expect(removeLaunchHistory('remove_key')).toBe(1);
+    expect(getLaunchHistory()).toHaveLength(1);
+    expect(getLaunchHistory()[0].invocationCwd).toBe('/tmp/other-project');
+
+    removeHistoryCommand('missing_key');
+    expect(console.log).toHaveBeenCalledWith(
+      'No history entry found for key "missing_key" in the current directory.'
+    );
   });
 });
