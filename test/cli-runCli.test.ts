@@ -35,6 +35,7 @@ jest.mock('../src/commands/prompt', () => ({
 }));
 jest.mock('../src/commands/history', () => ({
   historyCommand: jest.fn(),
+  historyHelpCommand: jest.fn(),
   removeHistoryCommand: jest.fn(),
 }));
 
@@ -59,11 +60,19 @@ afterEach(() => {
 
 describe('runCli', () => {
   it('dispatches history filters and JSON output', async () => {
-    process.argv = ['node', 'cli.js', 'history', '--cwd', '--json'];
+    process.argv = ['node', 'cli.js', 'history', '--all', '--json'];
     await runCli();
 
     const { historyCommand } = require('../src/commands/history');
-    expect(historyCommand).toHaveBeenCalledWith({ cwd: true, json: true });
+    expect(historyCommand).toHaveBeenCalledWith({ all: true, json: true });
+  });
+
+  it('dispatches history help', async () => {
+    process.argv = ['node', 'cli.js', 'history', 'help'];
+    await runCli();
+
+    const { historyHelpCommand } = require('../src/commands/history');
+    expect(historyHelpCommand).toHaveBeenCalled();
   });
 
   it('dispatches history removal by session key', async () => {

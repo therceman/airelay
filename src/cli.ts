@@ -17,7 +17,7 @@ import { sessionsListCommand } from './commands/sessions-list';
 import { sessionStatusCommand } from './commands/session-status';
 import { sessionFindCommand } from './commands/session-find';
 import { heartbeatCommand } from './commands/heartbeat';
-import { historyCommand, removeHistoryCommand } from './commands/history';
+import { historyCommand, historyHelpCommand, removeHistoryCommand } from './commands/history';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -225,8 +225,9 @@ Examples:
   airelay sessions --cwd
   airelay sessions --cwd --active --json
   airelay history
-  airelay history --cwd
+  airelay history --all
   airelay history --json
+  airelay history help
   airelay history remove <session-key>
 
 Create options:
@@ -454,6 +455,14 @@ async function runCli(): Promise<void> {
         break;
 
       case 'history':
+        if (profile === 'help') {
+          if (args.length > 0) {
+            console.error('Usage: airelay history help');
+            process.exit(1);
+          }
+          historyHelpCommand();
+          break;
+        }
         if (profile === 'remove') {
           if (!args[0] || args.length > 1) {
             console.error('Usage: airelay history remove <session-key>');
@@ -463,10 +472,10 @@ async function runCli(): Promise<void> {
           break;
         }
         if (profile || args.length > 0) {
-          console.error('Usage: airelay history [--cwd] [--json]');
+          console.error('Usage: airelay history [--all] [--json]');
           process.exit(1);
         }
-        historyCommand({ cwd: flags.cwd === true, json: flags.json === true });
+        historyCommand({ all: flags.all === true, json: flags.json === true });
         break;
 
       case 'session-status':

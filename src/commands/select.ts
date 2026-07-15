@@ -107,7 +107,7 @@ export async function selectCommand(): Promise<void> {
   }
 
   if (action === 'Show') {
-    historyCommand({ cwd: true });
+    historyCommand();
     return;
   }
 

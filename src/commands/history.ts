@@ -55,8 +55,9 @@ export function recordLaunchHistory(input: {
   };
 
   const history = loadHistory();
-  history.unshift(entry);
-  store.save(history.slice(0, 1000));
+  const withoutKey = history.filter((existing) => existing.sessionKey !== entry.sessionKey);
+  withoutKey.unshift(entry);
+  store.save(withoutKey.slice(0, 1000));
   return entry;
 }
 
@@ -89,8 +90,26 @@ export function removeHistoryCommand(sessionKey: string): void {
 }
 
 export interface HistoryCommandOptions {
-  cwd?: boolean;
+  all?: boolean;
   json?: boolean;
+}
+
+export function historyHelpCommand(): void {
+  console.log(`
+airelay history - list executed airelay launch commands
+
+Usage:
+  airelay history                  List launches from the current directory
+  airelay history --all            List launches from all directories
+  airelay history --json           Output current-directory history as JSON
+  airelay history --all --json     Output all history as JSON
+  airelay history remove <key>     Remove the current-directory entry by key
+  airelay history help             Show this help
+
+History entries are unique by session key. Running a new start with an existing
+key replaces its previous history entry. The remove command only affects the
+entry for the current directory.
+`);
 }
 
 function normalizeCwd(cwd: string): string {
@@ -104,7 +123,7 @@ function normalizeCwd(cwd: string): string {
 
 export function historyCommand(options?: HistoryCommandOptions): void {
   let history = getLaunchHistory();
-  if (options?.cwd) {
+  if (!options?.all) {
     const currentCwd = path.resolve(process.cwd());
     history = history.filter((entry) => path.resolve(entry.invocationCwd) === currentCwd);
   }
@@ -123,7 +142,6 @@ export function historyCommand(options?: HistoryCommandOptions): void {
     console.log(
       `${entry.profile} (key: ${entry.sessionKey}) @ ${normalizeCwd(entry.invocationCwd)}`
     );
-    console.log(`  started: ${new Date(entry.startedAt).toISOString()}`);
-    console.log(`  command: ${entry.command}`);
+    console.log(`> ${entry.command}`);
   }
 }
