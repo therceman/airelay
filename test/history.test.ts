@@ -175,6 +175,28 @@ describe('launch history', () => {
     });
   });
 
+  it('cleans legacy duplicate keys when history is loaded', () => {
+    const older = recordLaunchHistory({
+      profile: 'worker',
+      sessionKey: 'legacy_key',
+      invocationCwd: '/tmp/old-project',
+      argv: ['start', 'worker', '--key', 'legacy_key'],
+      startedAt: 900,
+    });
+    const newer = {
+      ...older,
+      id: 'newer-entry',
+      invocationCwd: '/tmp/new-project',
+      startedAt: 1000,
+      argv: ['start', 'worker', '--key', 'legacy_key', '--', '-s', 'ses_new'],
+      command: 'airelay start worker --key legacy_key -- -s ses_new',
+    };
+    fs.writeFileSync(testEnv.historyPath, JSON.stringify([older, newer]), 'utf8');
+
+    expect(getLaunchHistory()).toEqual([newer]);
+    expect(JSON.parse(fs.readFileSync(testEnv.historyPath, 'utf8'))).toEqual([newer]);
+  });
+
   it('shows history-specific help', () => {
     historyHelpCommand();
 

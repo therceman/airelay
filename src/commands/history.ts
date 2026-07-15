@@ -18,8 +18,25 @@ const store = createJsonStore<LaunchHistoryEntry[]>({
 });
 
 function loadHistory(): LaunchHistoryEntry[] {
-  const history = store.load();
-  return Array.isArray(history) ? history : [];
+  const loaded = store.load();
+  if (!Array.isArray(loaded)) {
+    return [];
+  }
+
+  const sorted = [...loaded].sort((a, b) => b.startedAt - a.startedAt);
+  const seenKeys = new Set<string>();
+  const unique = sorted.filter((entry) => {
+    if (seenKeys.has(entry.sessionKey)) {
+      return false;
+    }
+    seenKeys.add(entry.sessionKey);
+    return true;
+  });
+
+  if (unique.length !== loaded.length) {
+    store.save(unique);
+  }
+  return unique;
 }
 
 function shellQuote(value: string): string {
