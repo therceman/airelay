@@ -8,6 +8,8 @@ import { IpcError, IpcErrorCodes } from '../types/controller';
 import { addSession, deleteSession, updateSessionPid } from './sessions';
 import { recordLaunchHistory } from './history';
 import { getAirelayVersion, CONTROLLER_PROTOCOL_VERSION } from '../utils/version';
+import { detectHarness, getHarnessCapabilities } from '../utils/harness';
+import { CapacityContinuationWatcher } from '../runtime/capacity-watcher';
 import fs from 'fs';
 
 function generateSessionKey(profileName: string): string {
@@ -126,6 +128,18 @@ export async function runCommand(
   // Generate a distinct internal runtime id (opaque, not the sessionKey)
   const runtimeId = `runtime_${sessionKey.slice(-12)}_${Date.now().toString(36)}`;
   const ptyWriteRef: { current: ((data: string) => void) | null } = { current: null };
+  const harnessCapabilities = getHarnessCapabilities(detectHarness(profile.executable));
+  const continuation = harnessCapabilities.capacityContinuation;
+  const capacityWatcher = continuation
+    ? new CapacityContinuationWatcher({
+        continuationText: continuation.text,
+        capacityMessage: continuation.message,
+        quietPeriodMs: continuation.quietPeriodMs,
+        submitDelayMs: continuation.submitDelayMs,
+        submitValue: harnessCapabilities.submitValue,
+        write: () => ptyWriteRef.current,
+      })
+    : null;
   const controller = setupController(sessionKey, ptyWriteRef);
 
   let controllerStarted = false;
@@ -203,6 +217,7 @@ export async function runCommand(
   // Feed PTY output to the controller's ring buffer for session-find / ui_hint
   spawnOpts.onOutput = (chunk: string) => {
     controller.feedOutput(chunk);
+    capacityWatcher?.observe(chunk);
   };
 
   try {
@@ -220,6 +235,7 @@ export async function runCommand(
     }
     throw e;
   } finally {
+    capacityWatcher?.dispose();
     await controller.stop();
     deleteSession(profileName, runtimeId);
   }

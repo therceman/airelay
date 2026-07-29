@@ -59,6 +59,14 @@ export interface HarnessCapabilities {
    * whether the session appears responsive.
    */
   uiWorkingHint: string;
+
+  /** Automatic continuation for a verified capacity interruption, if supported. */
+  capacityContinuation?: {
+    message: string;
+    text: string;
+    submitDelayMs: number;
+    quietPeriodMs: number;
+  };
 }
 
 const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
@@ -73,6 +81,12 @@ const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
     submitValue: '\r',
     submitDelayMs: 0,
     uiWorkingHint: 'esc to interrupt',
+    capacityContinuation: {
+      message: 'Selected model is at capacity. Please try a different model.',
+      text: 'continue',
+      submitDelayMs: 2000,
+      quietPeriodMs: 10000,
+    },
   },
   unknown: {
     submitMode: 'byte',
