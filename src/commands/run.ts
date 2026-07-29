@@ -10,6 +10,7 @@ import { recordLaunchHistory } from './history';
 import { getAirelayVersion, CONTROLLER_PROTOCOL_VERSION } from '../utils/version';
 import { detectHarness, getHarnessCapabilities } from '../utils/harness';
 import { CapacityContinuationWatcher } from '../runtime/capacity-watcher';
+import { InputSubmitWatcher } from '../runtime/input-submit-watcher';
 import fs from 'fs';
 
 function generateSessionKey(profileName: string): string {
@@ -65,7 +66,8 @@ function buildProfileEnv(
 
 function setupController(
   sessionKey: string,
-  ptyWrite: { current: ((data: string) => void) | null }
+  ptyWrite: { current: ((data: string) => void) | null },
+  onInputInjected?: (text: string, submitValue: string) => void
 ) {
   const controller = new SessionController(sessionKey);
 
@@ -99,6 +101,7 @@ function setupController(
         }
         const byte = typeof submit === 'string' ? submit : '\r';
         ptyWrite.current(byte);
+        onInputInjected?.(text, byte);
       }
       return { delivered: true, sessionKey };
     }
@@ -128,6 +131,7 @@ export async function runCommand(
   // Generate a distinct internal runtime id (opaque, not the sessionKey)
   const runtimeId = `runtime_${sessionKey.slice(-12)}_${Date.now().toString(36)}`;
   const ptyWriteRef: { current: ((data: string) => void) | null } = { current: null };
+  const usePty = options?.usePty === true;
   const harnessCapabilities = getHarnessCapabilities(detectHarness(profile.executable));
   const continuation = harnessCapabilities.capacityContinuation;
   const capacityWatcher = continuation
@@ -140,7 +144,28 @@ export async function runCommand(
         write: () => ptyWriteRef.current,
       })
     : null;
-  const controller = setupController(sessionKey, ptyWriteRef);
+  let controllerRef: SessionController | null = null;
+  const inputRetry = harnessCapabilities.inputSubmitRetry;
+  const inputWatcher =
+    usePty && inputRetry
+      ? new InputSubmitWatcher({
+          ...inputRetry,
+          write: () => ptyWriteRef.current,
+          isInputVisible: (text) => {
+            const normalizedText = text.replace(/\s+/g, ' ').trim();
+            const viewport = controllerRef
+              ?.getLiveViewportLines()
+              .join(' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+            return !!normalizedText && !!viewport?.includes(normalizedText);
+          },
+        })
+      : null;
+  const controller = setupController(sessionKey, ptyWriteRef, (text, submitValue) =>
+    inputWatcher?.track(text, submitValue)
+  );
+  controllerRef = controller;
 
   let controllerStarted = false;
   try {
@@ -194,8 +219,6 @@ export async function runCommand(
   env.AIRELAY_VERSION = getAirelayVersion();
   env.AIRELAY_CONTROLLER_PROTOCOL_VERSION = String(CONTROLLER_PROTOCOL_VERSION);
 
-  const usePty = options?.usePty === true;
-
   const spawnOpts: SpawnOptions = {
     executable: profile.executable,
     args,
@@ -218,6 +241,7 @@ export async function runCommand(
   spawnOpts.onOutput = (chunk: string) => {
     controller.feedOutput(chunk);
     capacityWatcher?.observe(chunk);
+    inputWatcher?.observeOutput(chunk);
   };
 
   try {
@@ -236,6 +260,7 @@ export async function runCommand(
     throw e;
   } finally {
     capacityWatcher?.dispose();
+    inputWatcher?.dispose();
     await controller.stop();
     deleteSession(profileName, runtimeId);
   }

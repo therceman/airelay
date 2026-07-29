@@ -92,7 +92,7 @@ export class SessionController {
 
   /** Capture a snapshot of current viewport lines into the rolling window. */
   takeSnapshot(): void {
-    const current = this.getLiveViewport();
+    const current = this.getLiveViewportLines();
     for (const line of current) {
       if (!this.snapshotLineSet.has(line)) {
         this.snapshotLineSet.add(line);
@@ -106,7 +106,7 @@ export class SessionController {
   }
 
   /** Read current visible viewport lines from the xterm terminal buffer. */
-  private getLiveViewport(): string[] {
+  getLiveViewportLines(): string[] {
     const buffer = this.terminal.buffer.active;
     const rows: string[] = [];
     for (let y = buffer.baseY; y < buffer.baseY + this.terminal.rows; y++) {
@@ -123,7 +123,7 @@ export class SessionController {
 
   /** Return rolling snapshot window (which includes recent historical viewport + current). */
   getViewportSnapshot(): string[] {
-    const current = this.getLiveViewport();
+    const current = this.getLiveViewportLines();
     // Merge: snapshot window first (historical), then current viewport lines not in snapshot
     const result = [...this.snapshotWindow];
     const seen = new Set(this.snapshotWindow);
