@@ -59,3 +59,26 @@ export function readTranscript(sessionKey: string): TranscriptSnapshot[] {
       }
     });
 }
+
+export function getTranscriptStats(sessionKey: string): {
+  path: string;
+  bytes: number;
+  snapshots: number;
+  lines: number;
+  oldestTimestamp?: number;
+  newestTimestamp?: number;
+  maxBytes: number;
+} {
+  const filePath = getTranscriptPath(sessionKey);
+  const snapshots = readTranscript(sessionKey);
+  const stat = fs.existsSync(filePath) ? fs.statSync(filePath) : undefined;
+  return {
+    path: filePath,
+    bytes: stat?.size || 0,
+    snapshots: snapshots.length,
+    lines: snapshots.reduce((total, snapshot) => total + snapshot.lines.length, 0),
+    oldestTimestamp: snapshots[0]?.timestamp,
+    newestTimestamp: snapshots.at(-1)?.timestamp,
+    maxBytes: getTranscriptMaxBytes(),
+  };
+}
