@@ -5,7 +5,7 @@ import { preflightVersionCheck } from './session-ipc';
 
 export async function tailCommand(
   sessionKeyOrId: string,
-  options?: { lines?: number; json?: boolean; noWarn?: boolean }
+  options?: { lines?: number; skip?: number; json?: boolean; noWarn?: boolean }
 ): Promise<number> {
   await pruneStaleSessions();
   const found = findSessionByKey(sessionKeyOrId);
@@ -31,7 +31,10 @@ export async function tailCommand(
     return 1;
   }
 
-  const lines = viewportResult.lines.slice(-(options?.lines || 20));
+  const count = options?.lines || 20;
+  const skip = options?.skip || 0;
+  const end = skip === 0 ? undefined : -skip;
+  const lines = viewportResult.lines.slice(-(count + skip), end);
   if (options?.json) {
     console.log(JSON.stringify({ session: sessionKeyOrId, lines }, null, 2));
   } else {

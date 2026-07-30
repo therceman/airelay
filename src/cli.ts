@@ -553,7 +553,9 @@ async function runCli(): Promise<void> {
       case 'tail':
         if (!profile) {
           console.error('Error: Session key or ID required');
-          console.error('Usage: airelay tail <session> [--lines <count>] [--json] [--no-warn]');
+          console.error(
+            'Usage: airelay tail <session> [--lines <count>] [--skip <count>] [--json] [--no-warn]'
+          );
           process.exit(1);
         }
         {
@@ -563,8 +565,15 @@ async function runCli(): Promise<void> {
             console.error('Error: --lines must be a positive integer.');
             process.exit(1);
           }
+          const skipFlag = flags.skip as string | undefined;
+          const skip = skipFlag === undefined ? undefined : parseInt(skipFlag, 10);
+          if (skip !== undefined && (!Number.isInteger(skip) || skip < 0)) {
+            console.error('Error: --skip must be a non-negative integer.');
+            process.exit(1);
+          }
           const exitCode = await tailCommand(profile, {
             lines,
+            skip,
             json: flags.json === true,
             noWarn: flags['no-warn'] === true,
           });
