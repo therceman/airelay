@@ -14,12 +14,12 @@ export async function transcriptCommand(
   const count = options?.lines || 20;
   const page = options?.page || 1;
   const snapshots = readTranscript(sessionKeyOrId);
-  const allLines = snapshots.flatMap((snapshot) =>
+  const orderedSnapshots = options?.order === 'desc' ? [...snapshots].reverse() : snapshots;
+  const allLines = orderedSnapshots.flatMap((snapshot) =>
     snapshot.lines.map((text) => ({ timestamp: snapshot.timestamp, text }))
   );
-  const ordered = options?.order === 'desc' ? [...allLines].reverse() : allLines;
   const start = (page - 1) * count;
-  const lines = ordered.slice(start, start + count);
+  const lines = allLines.slice(start, start + count);
 
   if (options?.json) {
     console.log(
