@@ -13,7 +13,13 @@ export async function transcriptCommand(
   }
 ): Promise<number> {
   await pruneStaleSessions();
-  if (!findSessionByKey(sessionKeyOrId)) {
+  const stats = getTranscriptStats(sessionKeyOrId);
+  if (
+    !findSessionByKey(sessionKeyOrId) &&
+    stats.bytes === 0 &&
+    !options?.stats &&
+    !options?.purge
+  ) {
     console.error(`Error: Session not found: ${sessionKeyOrId}`);
     return 1;
   }
@@ -31,7 +37,6 @@ export async function transcriptCommand(
   }
 
   if (options?.stats) {
-    const stats = getTranscriptStats(sessionKeyOrId);
     if (options.json) {
       console.log(JSON.stringify({ session: sessionKeyOrId, ...stats }, null, 2));
     } else {

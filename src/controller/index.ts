@@ -40,8 +40,7 @@ export class SessionController {
   private snapshotTimer: ReturnType<typeof setInterval> | null = null;
   /** Timestamp of last output change (for activity state) */
   private lastOutputChangeAt: number = Date.now();
-  private transcriptCursor = 0;
-  private transcriptInitialized = false;
+  private lastTranscriptLines: string[] | null = null;
 
   /** Test accessor for lastOutputChangeAt. */
   lastOutputChangeAtForTest(): number {
@@ -110,24 +109,32 @@ export class SessionController {
       const removed = this.snapshotWindow.shift();
       if (removed) this.snapshotLineSet.delete(removed);
     }
-    const buffer = this.terminal.buffer.active;
-    if (!this.transcriptInitialized) {
-      this.transcriptCursor = buffer.length;
-      this.transcriptInitialized = true;
+    const rendered = this.getTranscriptViewportLines();
+    if (!this.lastTranscriptLines) {
+      this.lastTranscriptLines = rendered;
       return;
     }
 
-    if (buffer.length > this.transcriptCursor) {
-      const lines: string[] = [];
-      for (let y = this.transcriptCursor; y < buffer.length; y++) {
-        const line = buffer.getLine(y);
-        lines.push(line ? line.translateToString(true).trimEnd() : '');
+    const changedLines: string[] = [];
+    for (let i = 0; i < rendered.length; i++) {
+      if (rendered[i] !== this.lastTranscriptLines[i] && rendered[i].length > 0) {
+        changedLines.push(rendered[i]);
       }
-      if (lines.some((line) => line.length > 0)) {
-        appendTranscriptSnapshot(this.sessionKey, lines);
-      }
-      this.transcriptCursor = buffer.length;
     }
+    if (changedLines.length > 0) {
+      appendTranscriptSnapshot(this.sessionKey, changedLines);
+    }
+    this.lastTranscriptLines = rendered;
+  }
+
+  private getTranscriptViewportLines(): string[] {
+    const buffer = this.terminal.buffer.active;
+    const rows: string[] = [];
+    for (let y = buffer.baseY; y < buffer.baseY + this.terminal.rows; y++) {
+      const line = buffer.getLine(y);
+      rows.push(line ? line.translateToString(true).trimEnd() : '');
+    }
+    return rows;
   }
 
   /** Read current visible viewport lines from the xterm terminal buffer. */
