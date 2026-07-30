@@ -125,17 +125,6 @@ export class SessionController {
     return rows;
   }
 
-  /** Read the rendered viewport without dropping indentation or blank rows. */
-  getRenderedViewportLines(): string[] {
-    const buffer = this.terminal.buffer.active;
-    const rows: string[] = [];
-    for (let y = buffer.baseY; y < buffer.baseY + this.terminal.rows; y++) {
-      const line = buffer.getLine(y);
-      rows.push(line ? line.translateToString(true).trimEnd() : '');
-    }
-    return rows;
-  }
-
   /** Return rolling snapshot window (which includes recent historical viewport + current). */
   getViewportSnapshot(): string[] {
     const current = this.getLiveViewportLines();
@@ -215,7 +204,7 @@ export class SessionController {
         response = createSuccessResponse(request.id, { lines: this.outputBuf });
       } else if (request.method === 'session.viewport') {
         await this.flushViewport();
-        response = createSuccessResponse(request.id, { lines: this.getRenderedViewportLines() });
+        response = createSuccessResponse(request.id, { lines: this.getLiveViewportLines() });
       } else if (this.handler) {
         const data = await this.handler(request);
         response = createSuccessResponse(request.id, data);

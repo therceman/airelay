@@ -241,8 +241,8 @@ describe('controller E2E: real IPC socket flow', () => {
     const result = await fetchSessionViewport(controller.endpointPath);
     expect(result.error).toBeUndefined();
     expect(result.lines).toContain('alpha');
-    expect(result.lines).toContain('     bravo');
-    expect(result.lines).toContain('          charlie');
+    expect(result.lines).toContain('bravo');
+    expect(result.lines).toContain('charlie');
 
     await controller.stop();
     removeSessionByKey(sessionKey);
