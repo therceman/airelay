@@ -21,7 +21,11 @@ const TRANSCRIPT_STABILITY_DELAY = 10000;
 const MAX_SNAPSHOT_LINES = 120;
 
 function isTranscriptStatusFooter(line: string): boolean {
-  return /·\s*Context\s+\d+%\s+left\s+·.*·\s*weekly\s+\d+%\s+left\s*$/.test(line.trim());
+  const normalized = line.trim();
+  return (
+    /·\s*Context\s+\d+%\s+left\s+·.*·\s*weekly\s+\d+%\s+left\s*$/.test(normalized) ||
+    /^›\s/.test(normalized)
+  );
 }
 
 export type IpcHandler = (request: IpcRequest) => Promise<unknown> | unknown;
