@@ -22,18 +22,14 @@ export async function transcriptCommand(
     if (options.json) {
       console.log(JSON.stringify({ session: sessionKeyOrId, ...stats }, null, 2));
     } else {
-      console.log(`Transcript: ${sessionKeyOrId}`);
-      console.log(`  Path:      ${stats.path}`);
-      console.log(`  Size:      ${stats.bytes} bytes`);
-      console.log(`  Snapshots: ${stats.snapshots}`);
-      console.log(`  Lines:     ${stats.lines}`);
-      console.log(`  Limit:     ${stats.maxBytes} bytes`);
-      if (stats.oldestTimestamp) {
-        console.log(`  Oldest:    ${new Date(stats.oldestTimestamp).toISOString()}`);
-      }
-      if (stats.newestTimestamp) {
-        console.log(`  Newest:    ${new Date(stats.newestTimestamp).toISOString()}`);
-      }
+      const duration =
+        stats.oldestTimestamp && stats.newestTimestamp
+          ? formatDuration(stats.newestTimestamp - stats.oldestTimestamp)
+          : '0s';
+      console.log(
+        `Transcript ${sessionKeyOrId}: ${formatBytes(stats.bytes)} / ${formatBytes(stats.maxBytes)} ` +
+          `| ${stats.snapshots} snapshots | ${stats.lines} lines | ${duration}`
+      );
     }
     return 0;
   }
@@ -68,4 +64,21 @@ export async function transcriptCommand(
     }
   }
   return 0;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KiB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(2)} MiB`;
+  return `${(bytes / 1024 ** 3).toFixed(2)} GiB`;
+}
+
+function formatDuration(milliseconds: number): string {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = seconds % 60;
+  if (hours > 0) return `${hours}h${minutes}m`;
+  if (minutes > 0) return `${minutes}m${remainder}s`;
+  return `${remainder}s`;
 }
