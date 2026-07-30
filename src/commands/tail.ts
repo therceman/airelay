@@ -43,7 +43,14 @@ export async function tailCommand(
   const rawOutput = outputResult.lines.map(stripTerminalSequences).join('\n');
   if (rawOutput.includes(capacityMessage)) {
     const warningIndex = lines.findIndex((line) => line.trim() === '⚠');
-    if (warningIndex >= 0) lines[warningIndex] = `⚠ ${capacityMessage}`;
+    const filteredLines = lines.filter(
+      (line, index) => !line.trim().startsWith('⚠') || index === warningIndex
+    );
+    if (warningIndex >= 0) {
+      const filteredWarningIndex = filteredLines.findIndex((line) => line.trim() === '⚠');
+      filteredLines[filteredWarningIndex] = `⚠ ${capacityMessage}`;
+    }
+    lines.splice(0, lines.length, ...filteredLines);
   }
   if (options?.json) {
     console.log(JSON.stringify({ session: sessionKeyOrId, lines }, null, 2));
