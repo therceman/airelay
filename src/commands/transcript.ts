@@ -30,8 +30,13 @@ export async function transcriptCommand(
       )
     );
   } else {
+    let lastTimestamp: number | undefined;
     for (const line of lines) {
-      console.log(`[${new Date(line.timestamp).toISOString()}] ${line.text}`);
+      if (line.timestamp !== lastTimestamp) {
+        console.log(`[${new Date(line.timestamp).toISOString()}]`);
+        lastTimestamp = line.timestamp;
+      }
+      console.log(line.text);
     }
   }
   return 0;
