@@ -13,7 +13,7 @@ function getTranscriptDir(): string {
 
 function getTranscriptMaxBytes(): number {
   const configured = Number(process.env.AIRELAY_TRANSCRIPT_MAX_BYTES);
-  return Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : 50 * 1024 * 1024;
+  return Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : 100 * 1024 * 1024;
 }
 
 export function getTranscriptPath(sessionKey: string): string {
@@ -29,7 +29,8 @@ export function appendTranscriptSnapshot(sessionKey: string, lines: string[]): v
   fs.appendFileSync(filePath, record, 'utf8');
 
   const maxBytes = getTranscriptMaxBytes();
-  if (fs.statSync(filePath).size > maxBytes) {
+  // Compact in batches so normal output only appends and does not rewrite a large file.
+  if (fs.statSync(filePath).size > maxBytes + Math.floor(maxBytes * 0.1)) {
     const records = fs.readFileSync(filePath, 'utf8').split('\n').filter(Boolean);
     let size = 0;
     const retained: string[] = [];
