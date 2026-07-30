@@ -52,6 +52,7 @@ export class SessionController {
   private lastTranscriptLines: string[] | null = null;
   private pendingTranscriptLines: string[] | null = null;
   private pendingTranscriptTimer: ReturnType<typeof setTimeout> | null = null;
+  private transcriptPersistenceEnabled = false;
 
   /** Test accessor for lastOutputChangeAt. */
   lastOutputChangeAtForTest(): number {
@@ -120,6 +121,8 @@ export class SessionController {
       const removed = this.snapshotWindow.shift();
       if (removed) this.snapshotLineSet.delete(removed);
     }
+    if (!this.transcriptPersistenceEnabled) return;
+
     const rendered = this.getTranscriptViewportLines();
     if (!this.lastTranscriptLines) {
       this.lastTranscriptLines = rendered;
@@ -209,6 +212,8 @@ export class SessionController {
       fs.unlinkSync(this.socketPath);
     }
 
+    this.transcriptPersistenceEnabled = true;
+
     // Start periodic snapshot timer
     this.snapshotTimer = setInterval(() => {
       this.takeSnapshot();
@@ -286,6 +291,7 @@ export class SessionController {
   }
 
   async stop(): Promise<void> {
+    this.transcriptPersistenceEnabled = false;
     if (this.snapshotTimer) {
       clearInterval(this.snapshotTimer);
       this.snapshotTimer = null;
