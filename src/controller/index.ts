@@ -16,7 +16,7 @@ import { appendTranscriptSnapshot } from '../utils/transcript';
 
 const VIEWPORT_ROWS = 30;
 const VIEWPORT_COLS = 120;
-const SNAPSHOT_INTERVAL = 10000;
+const SNAPSHOT_INTERVAL = 5000;
 const TRANSCRIPT_STABILITY_DELAY = 10000;
 const MAX_SNAPSHOT_LINES = 120;
 
