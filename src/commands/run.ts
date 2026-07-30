@@ -232,6 +232,9 @@ export async function runCommand(
   if (usePty) {
     spawnOpts.onPtyReady = (pty) => {
       ptyWriteRef.current = pty.write;
+      const cols = process.stdout.isTTY ? process.stdout.columns : 80;
+      const rows = process.stdout.isTTY ? process.stdout.rows : 24;
+      controller.resize(cols, rows);
       // Record runtime PID for liveness pruning
       updateSessionPid(sessionKey, pty.pid);
     };

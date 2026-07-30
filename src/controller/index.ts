@@ -62,6 +62,10 @@ export class SessionController {
     return this.socketPath;
   }
 
+  resize(cols: number, rows: number): void {
+    if (cols > 0 && rows > 0) this.terminal.resize(cols, rows);
+  }
+
   /** Flush pending xterm writes, returning when all data is processed. */
   flushViewport(): Promise<void> {
     return new Promise((resolve) => {
@@ -199,7 +203,8 @@ export class SessionController {
       } else if (request.method === 'session.output') {
         response = createSuccessResponse(request.id, { lines: this.outputBuf });
       } else if (request.method === 'session.viewport') {
-        response = createSuccessResponse(request.id, { lines: this.getViewportSnapshot() });
+        await this.flushViewport();
+        response = createSuccessResponse(request.id, { lines: this.getLiveViewportLines() });
       } else if (this.handler) {
         const data = await this.handler(request);
         response = createSuccessResponse(request.id, data);
