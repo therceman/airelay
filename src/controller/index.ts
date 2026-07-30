@@ -17,6 +17,7 @@ import { appendTranscriptSnapshot } from '../utils/transcript';
 const VIEWPORT_ROWS = 30;
 const VIEWPORT_COLS = 120;
 const SNAPSHOT_INTERVAL = 10000;
+const TRANSCRIPT_STABILITY_DELAY = 10000;
 const MAX_SNAPSHOT_LINES = 120;
 
 export type IpcHandler = (request: IpcRequest) => Promise<unknown> | unknown;
@@ -41,6 +42,8 @@ export class SessionController {
   /** Timestamp of last output change (for activity state) */
   private lastOutputChangeAt: number = Date.now();
   private lastTranscriptLines: string[] | null = null;
+  private pendingTranscriptLines: string[] | null = null;
+  private pendingTranscriptTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Test accessor for lastOutputChangeAt. */
   lastOutputChangeAtForTest(): number {
@@ -122,9 +125,21 @@ export class SessionController {
       }
     }
     if (changedLines.length > 0) {
-      appendTranscriptSnapshot(this.sessionKey, changedLines);
+      this.queueTranscriptLines(changedLines);
     }
     this.lastTranscriptLines = rendered;
+  }
+
+  private queueTranscriptLines(lines: string[]): void {
+    this.pendingTranscriptLines = lines;
+    if (this.pendingTranscriptTimer) clearTimeout(this.pendingTranscriptTimer);
+    this.pendingTranscriptTimer = setTimeout(() => {
+      this.pendingTranscriptTimer = null;
+      if (this.pendingTranscriptLines) {
+        appendTranscriptSnapshot(this.sessionKey, this.pendingTranscriptLines);
+        this.pendingTranscriptLines = null;
+      }
+    }, TRANSCRIPT_STABILITY_DELAY);
   }
 
   private getTranscriptViewportLines(): string[] {
@@ -262,6 +277,10 @@ export class SessionController {
     if (this.snapshotTimer) {
       clearInterval(this.snapshotTimer);
       this.snapshotTimer = null;
+    }
+    if (this.pendingTranscriptTimer) {
+      clearTimeout(this.pendingTranscriptTimer);
+      this.pendingTranscriptTimer = null;
     }
     return new Promise((resolve) => {
       if (this.server) {
