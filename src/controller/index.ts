@@ -20,6 +20,10 @@ const SNAPSHOT_INTERVAL = 10000;
 const TRANSCRIPT_STABILITY_DELAY = 10000;
 const MAX_SNAPSHOT_LINES = 120;
 
+function isTranscriptStatusFooter(line: string): boolean {
+  return /·\s*Context\s+\d+%\s+left\s+·.*·\s*weekly\s+\d+%\s+left\s*$/.test(line.trim());
+}
+
 export type IpcHandler = (request: IpcRequest) => Promise<unknown> | unknown;
 
 export class SessionController {
@@ -120,7 +124,11 @@ export class SessionController {
 
     const changedLines: string[] = [];
     for (let i = 0; i < rendered.length; i++) {
-      if (rendered[i] !== this.lastTranscriptLines[i] && rendered[i].length > 0) {
+      if (
+        rendered[i] !== this.lastTranscriptLines[i] &&
+        rendered[i].length > 0 &&
+        !isTranscriptStatusFooter(rendered[i])
+      ) {
         changedLines.push(rendered[i]);
       }
     }
