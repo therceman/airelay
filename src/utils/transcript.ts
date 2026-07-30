@@ -82,3 +82,10 @@ export function getTranscriptStats(sessionKey: string): {
     maxBytes: getTranscriptMaxBytes(),
   };
 }
+
+export function purgeTranscript(sessionKey: string): boolean {
+  const filePath = getTranscriptPath(sessionKey);
+  if (!fs.existsSync(filePath)) return false;
+  fs.unlinkSync(filePath);
+  return true;
+}

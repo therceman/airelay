@@ -1,5 +1,5 @@
 import { findSessionByKey, pruneStaleSessions } from './sessions';
-import { getTranscriptStats, readTranscript } from '../utils/transcript';
+import { getTranscriptStats, purgeTranscript, readTranscript } from '../utils/transcript';
 
 export async function transcriptCommand(
   sessionKeyOrId: string,
@@ -9,12 +9,25 @@ export async function transcriptCommand(
     order?: 'asc' | 'desc';
     json?: boolean;
     stats?: boolean;
+    purge?: boolean;
   }
 ): Promise<number> {
   await pruneStaleSessions();
   if (!findSessionByKey(sessionKeyOrId)) {
     console.error(`Error: Session not found: ${sessionKeyOrId}`);
     return 1;
+  }
+
+  if (options?.purge) {
+    const purged = purgeTranscript(sessionKeyOrId);
+    if (options.json) {
+      console.log(JSON.stringify({ session: sessionKeyOrId, purged }, null, 2));
+    } else {
+      console.log(
+        purged ? `Purged transcript: ${sessionKeyOrId}` : `Transcript is empty: ${sessionKeyOrId}`
+      );
+    }
+    return 0;
   }
 
   if (options?.stats) {

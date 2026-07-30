@@ -586,7 +586,7 @@ async function runCli(): Promise<void> {
         if (!profile) {
           console.error('Error: Session key or ID required');
           console.error(
-            'Usage: airelay transcript <session> [--lines <count>] [--skip <count>] [--order asc|desc] [--stats]'
+            'Usage: airelay transcript <session> [--lines <count>] [--skip <count>] [--order asc|desc] [--stats] [--purge]'
           );
           process.exit(1);
         }
@@ -614,6 +614,7 @@ async function runCli(): Promise<void> {
             order: order as 'asc' | 'desc' | undefined,
             json: flags.json === true,
             stats: flags.stats === true,
+            purge: flags.purge === true,
           });
           process.exit(exitCode);
         }
