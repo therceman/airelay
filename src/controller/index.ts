@@ -16,7 +16,7 @@ import { appendTranscriptSnapshot } from '../utils/transcript';
 
 const VIEWPORT_ROWS = 30;
 const VIEWPORT_COLS = 120;
-const SNAPSHOT_INTERVAL = 1000;
+const SNAPSHOT_INTERVAL = 10000;
 const MAX_SNAPSHOT_LINES = 120;
 
 export type IpcHandler = (request: IpcRequest) => Promise<unknown> | unknown;
