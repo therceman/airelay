@@ -12,6 +12,7 @@ import {
 } from './protocol';
 import { getIpcEndpointPath } from '../utils/ipc-path';
 import { getAirelayVersion, CONTROLLER_PROTOCOL_VERSION } from '../utils/version';
+import { appendTranscriptSnapshot } from '../utils/transcript';
 
 const VIEWPORT_ROWS = 30;
 const VIEWPORT_COLS = 120;
@@ -39,6 +40,7 @@ export class SessionController {
   private snapshotTimer: ReturnType<typeof setInterval> | null = null;
   /** Timestamp of last output change (for activity state) */
   private lastOutputChangeAt: number = Date.now();
+  private lastTranscriptSnapshot = '';
 
   /** Test accessor for lastOutputChangeAt. */
   lastOutputChangeAtForTest(): number {
@@ -107,6 +109,22 @@ export class SessionController {
       const removed = this.snapshotWindow.shift();
       if (removed) this.snapshotLineSet.delete(removed);
     }
+    const rendered = this.getTranscriptViewportLines();
+    const transcript = rendered.join('\n');
+    if (transcript !== this.lastTranscriptSnapshot && rendered.some((line) => line.length > 0)) {
+      appendTranscriptSnapshot(this.sessionKey, rendered);
+      this.lastTranscriptSnapshot = transcript;
+    }
+  }
+
+  private getTranscriptViewportLines(): string[] {
+    const buffer = this.terminal.buffer.active;
+    const rows: string[] = [];
+    for (let y = buffer.baseY; y < buffer.baseY + this.terminal.rows; y++) {
+      const line = buffer.getLine(y);
+      rows.push(line ? line.translateToString(true).trimEnd() : '');
+    }
+    return rows;
   }
 
   /** Read current visible viewport lines from the xterm terminal buffer. */

@@ -1,6 +1,6 @@
 {
   "name": "airelay",
-  "version": "0.1.36",
+  "version": "0.1.37",
   "description": "Cross-platform CLI for launching profile-isolated opencode/codex instances",
   "main": "./dist/index.js",
   "bin": {

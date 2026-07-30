@@ -19,6 +19,7 @@ import { sessionFindCommand } from './commands/session-find';
 import { tailCommand } from './commands/tail';
 import { heartbeatCommand } from './commands/heartbeat';
 import { historyCommand, historyHelpCommand, removeHistoryCommand } from './commands/history';
+import { transcriptCommand } from './commands/transcript';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -53,6 +54,7 @@ const KNOWN_COMMANDS = [
   'tail',
   'heartbeat',
   'history',
+  'transcript',
 ];
 const PROFILE_COMMANDS = ['run', 'which', 'doctor', 'start'];
 
@@ -576,6 +578,41 @@ async function runCli(): Promise<void> {
             skip,
             json: flags.json === true,
             noWarn: flags['no-warn'] === true,
+          });
+          process.exit(exitCode);
+        }
+
+      case 'transcript':
+        if (!profile) {
+          console.error('Error: Session key or ID required');
+          console.error(
+            'Usage: airelay transcript <session> [--lines <count>] [--order asc|desc] [--page <n>]'
+          );
+          process.exit(1);
+        }
+        {
+          const linesFlag = flags.lines as string | undefined;
+          const lines = linesFlag === undefined ? undefined : parseInt(linesFlag, 10);
+          const pageFlag = flags.page as string | undefined;
+          const page = pageFlag === undefined ? undefined : parseInt(pageFlag, 10);
+          const order = flags.order as string | undefined;
+          if (lines !== undefined && (!Number.isInteger(lines) || lines <= 0)) {
+            console.error('Error: --lines must be a positive integer.');
+            process.exit(1);
+          }
+          if (page !== undefined && (!Number.isInteger(page) || page <= 0)) {
+            console.error('Error: --page must be a positive integer.');
+            process.exit(1);
+          }
+          if (order !== undefined && order !== 'asc' && order !== 'desc') {
+            console.error('Error: --order must be asc or desc.');
+            process.exit(1);
+          }
+          const exitCode = await transcriptCommand(profile, {
+            lines,
+            page,
+            order: order as 'asc' | 'desc' | undefined,
+            json: flags.json === true,
           });
           process.exit(exitCode);
         }
