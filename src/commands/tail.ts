@@ -1,6 +1,6 @@
 import { findSessionByKey, pruneStaleSessions } from './sessions';
 import { getIpcEndpointPath } from '../utils/ipc-path';
-import { fetchSessionOutput } from './session-output';
+import { fetchSessionViewport } from './session-viewport';
 import { preflightVersionCheck } from './session-ipc';
 
 export async function tailCommand(
@@ -25,17 +25,30 @@ export async function tailCommand(
     for (const warning of parity.warnings) console.warn(`Warning: ${warning}`);
   }
 
-  const result = await fetchSessionOutput(endpointPath);
+  const result = await fetchSessionViewport(endpointPath);
   if (result.error) {
     console.error(`Error: ${result.error}`);
     return 1;
   }
 
-  const lines = result.lines.slice(-(options?.lines || 20));
+  const lines = result.lines
+    .map((line) => stripTerminalSequences(line).trimEnd())
+    .filter((line) => line.length > 0)
+    .slice(-(options?.lines || 20));
   if (options?.json) {
     console.log(JSON.stringify({ session: sessionKeyOrId, lines }, null, 2));
   } else {
     for (const line of lines) console.log(line);
   }
   return 0;
+}
+
+const ANSI_SEQUENCE = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g');
+const OSC_SEQUENCE = new RegExp(
+  `${String.fromCharCode(27)}\\][^\\u0007]*(?:\\u0007|${String.fromCharCode(27)}\\\\)`,
+  'g'
+);
+
+function stripTerminalSequences(line: string): string {
+  return line.replace(ANSI_SEQUENCE, '').replace(OSC_SEQUENCE, '');
 }
