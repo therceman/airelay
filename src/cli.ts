@@ -586,22 +586,22 @@ async function runCli(): Promise<void> {
         if (!profile) {
           console.error('Error: Session key or ID required');
           console.error(
-            'Usage: airelay transcript <session> [--lines <count>] [--order asc|desc] [--page <n>]'
+            'Usage: airelay transcript <session> [--lines <count>] [--skip <count>] [--order asc|desc]'
           );
           process.exit(1);
         }
         {
           const linesFlag = flags.lines as string | undefined;
           const lines = linesFlag === undefined ? undefined : parseInt(linesFlag, 10);
-          const pageFlag = flags.page as string | undefined;
-          const page = pageFlag === undefined ? undefined : parseInt(pageFlag, 10);
+          const skipFlag = flags.skip as string | undefined;
+          const skip = skipFlag === undefined ? undefined : parseInt(skipFlag, 10);
           const order = flags.order as string | undefined;
           if (lines !== undefined && (!Number.isInteger(lines) || lines <= 0)) {
             console.error('Error: --lines must be a positive integer.');
             process.exit(1);
           }
-          if (page !== undefined && (!Number.isInteger(page) || page <= 0)) {
-            console.error('Error: --page must be a positive integer.');
+          if (skip !== undefined && (!Number.isInteger(skip) || skip < 0)) {
+            console.error('Error: --skip must be a non-negative integer.');
             process.exit(1);
           }
           if (order !== undefined && order !== 'asc' && order !== 'desc') {
@@ -610,7 +610,7 @@ async function runCli(): Promise<void> {
           }
           const exitCode = await transcriptCommand(profile, {
             lines,
-            page,
+            skip,
             order: order as 'asc' | 'desc' | undefined,
             json: flags.json === true,
           });

@@ -3,7 +3,7 @@ import { readTranscript } from '../utils/transcript';
 
 export async function transcriptCommand(
   sessionKeyOrId: string,
-  options?: { lines?: number; order?: 'asc' | 'desc'; page?: number; json?: boolean }
+  options?: { lines?: number; skip?: number; order?: 'asc' | 'desc'; json?: boolean }
 ): Promise<number> {
   await pruneStaleSessions();
   if (!findSessionByKey(sessionKeyOrId)) {
@@ -12,19 +12,20 @@ export async function transcriptCommand(
   }
 
   const count = options?.lines || 20;
-  const page = options?.page || 1;
+  const skip = options?.skip || 0;
   const snapshots = readTranscript(sessionKeyOrId);
-  const orderedSnapshots = options?.order === 'desc' ? [...snapshots].reverse() : snapshots;
-  const allLines = orderedSnapshots.flatMap((snapshot) =>
+  const allLines = snapshots.flatMap((snapshot) =>
     snapshot.lines.map((text) => ({ timestamp: snapshot.timestamp, text }))
   );
-  const start = (page - 1) * count;
-  const lines = allLines.slice(start, start + count);
+  const end = Math.max(0, allLines.length - skip);
+  const start = Math.max(0, end - count);
+  const selected = allLines.slice(start, end);
+  const lines = options?.order === 'desc' ? selected.reverse() : selected;
 
   if (options?.json) {
     console.log(
       JSON.stringify(
-        { session: sessionKeyOrId, lines, page, order: options?.order || 'asc' },
+        { session: sessionKeyOrId, lines, skip, order: options?.order || 'asc' },
         null,
         2
       )
