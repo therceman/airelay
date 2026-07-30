@@ -16,6 +16,7 @@ import { promptCommand } from './commands/prompt';
 import { sessionsListCommand } from './commands/sessions-list';
 import { sessionStatusCommand } from './commands/session-status';
 import { sessionFindCommand } from './commands/session-find';
+import { tailCommand } from './commands/tail';
 import { heartbeatCommand } from './commands/heartbeat';
 import { historyCommand, historyHelpCommand, removeHistoryCommand } from './commands/history';
 import * as path from 'path';
@@ -49,6 +50,7 @@ const KNOWN_COMMANDS = [
   'sessions',
   'session-status',
   'session-find',
+  'tail',
   'heartbeat',
   'history',
 ];
@@ -197,7 +199,8 @@ Commands:
   prompt <session>      Send input to an active session
   sessions              List saved sessions
   session-status <key>  Show session health and UI status
-  session-find <key>    Search recent session output for pattern
+  session-find <key>    Search current visible session output for pattern
+  tail <key>            Show the last session output lines
   heartbeat <session>   Send periodic heartbeat to a session
   history               List executed airelay launch commands
   help                  Show this help message
@@ -543,6 +546,27 @@ async function runCli(): Promise<void> {
           const exitCode = await sessionFindCommand(profile, pattern, {
             json: flags.json === true,
             noWarn,
+          });
+          process.exit(exitCode);
+        }
+
+      case 'tail':
+        if (!profile) {
+          console.error('Error: Session key or ID required');
+          console.error('Usage: airelay tail <session> [--lines <count>] [--json] [--no-warn]');
+          process.exit(1);
+        }
+        {
+          const linesFlag = flags.lines as string | undefined;
+          const lines = linesFlag === undefined ? undefined : parseInt(linesFlag, 10);
+          if (lines !== undefined && (!Number.isInteger(lines) || lines <= 0)) {
+            console.error('Error: --lines must be a positive integer.');
+            process.exit(1);
+          }
+          const exitCode = await tailCommand(profile, {
+            lines,
+            json: flags.json === true,
+            noWarn: flags['no-warn'] === true,
           });
           process.exit(exitCode);
         }

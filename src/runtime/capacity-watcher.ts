@@ -16,6 +16,10 @@ function normalizeOutput(chunk: string): string {
   return chunk.replace(ANSI_SEQUENCE, '').replace(/\r/g, '\n');
 }
 
+function normalizeCapacityLine(line: string): string {
+  return line.replace(/^(?:\u26a0|\uFE0F)\s*/, '').trim();
+}
+
 export function getLastMeaningfulLine(chunk: string): string {
   const lines = normalizeOutput(chunk)
     .split('\n')
@@ -41,7 +45,7 @@ export class CapacityContinuationWatcher {
     if (this.disposed) return;
 
     this.outputBuffer = `${this.outputBuffer}${chunk}`.slice(-4096);
-    const lastLine = getLastMeaningfulLine(this.outputBuffer);
+    const lastLine = normalizeCapacityLine(getLastMeaningfulLine(this.outputBuffer));
     const capacityMessage = this.options.capacityMessage || MODEL_CAPACITY_MESSAGE;
     if (lastLine !== capacityMessage) {
       this.capacityVisible = false;

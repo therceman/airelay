@@ -37,6 +37,25 @@ describe('capacity continuation watcher', () => {
     expect(writes).toEqual(['continue']);
   });
 
+  it('recognizes the warning-prefixed capacity message emitted by Codex', () => {
+    jest.useFakeTimers();
+    const writes: string[] = [];
+    const watcher = new CapacityContinuationWatcher({
+      continuationText: 'continue',
+      submitValue: '\r',
+      quietPeriodMs: 10000,
+      submitDelayMs: 2000,
+      write: () => (data: string) => writes.push(data),
+    });
+
+    watcher.observe('⚠ Selected model is at capacity. Please try a different model.\r\n');
+    jest.advanceTimersByTime(10000);
+
+    expect(writes).toEqual(['continue']);
+    watcher.dispose();
+    jest.useRealTimers();
+  });
+
   it('sends continue once after quiet time and then submits it', () => {
     const writes: string[] = [];
     const watcher = new CapacityContinuationWatcher({
