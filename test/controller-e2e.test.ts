@@ -10,17 +10,20 @@ import { fetchSessionViewport } from '../src/commands/session-viewport';
 const testDir = path.join(os.tmpdir(), 'airelay-e2e-test-' + process.pid + '-' + Date.now());
 const testSessionsPath = path.join(testDir, 'sessions.json');
 const testSocketsDir = path.join(testDir, 'sockets');
+const testTranscriptsDir = path.join(testDir, 'transcripts');
 
 beforeAll(() => {
   fs.mkdirSync(testSocketsDir, { recursive: true });
   process.env.AIRELAY_SESSIONS = testSessionsPath;
   process.env.AIRELAY_SOCKETS_DIR = testSocketsDir;
+  process.env.AIRELAY_TRANSCRIPTS_DIR = testTranscriptsDir;
 });
 
 afterAll(() => {
   fs.rmSync(testDir, { recursive: true, force: true });
   delete process.env.AIRELAY_SESSIONS;
   delete process.env.AIRELAY_SOCKETS_DIR;
+  delete process.env.AIRELAY_TRANSCRIPTS_DIR;
   delete process.env.AIRELAY_SESSION_KEY;
 });
 
