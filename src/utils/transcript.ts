@@ -11,6 +11,11 @@ function getTranscriptDir(): string {
   return process.env.AIRELAY_TRANSCRIPTS_DIR || path.join(os.homedir(), '.airelay', 'transcripts');
 }
 
+function getTranscriptMaxBytes(): number {
+  const configured = Number(process.env.AIRELAY_TRANSCRIPT_MAX_BYTES);
+  return Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : 50 * 1024 * 1024;
+}
+
 export function getTranscriptPath(sessionKey: string): string {
   const safeKey = sessionKey.replace(/[^a-zA-Z0-9_-]/g, '_');
   return path.join(getTranscriptDir(), `${safeKey}.jsonl`);
@@ -20,7 +25,21 @@ export function appendTranscriptSnapshot(sessionKey: string, lines: string[]): v
   const filePath = getTranscriptPath(sessionKey);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const snapshot: TranscriptSnapshot = { timestamp: Date.now(), lines };
-  fs.appendFileSync(filePath, `${JSON.stringify(snapshot)}\n`, 'utf8');
+  const record = `${JSON.stringify(snapshot)}\n`;
+  fs.appendFileSync(filePath, record, 'utf8');
+
+  const maxBytes = getTranscriptMaxBytes();
+  if (fs.statSync(filePath).size > maxBytes) {
+    const records = fs.readFileSync(filePath, 'utf8').split('\n').filter(Boolean);
+    let size = 0;
+    const retained: string[] = [];
+    for (let i = records.length - 1; i >= 0 && size < maxBytes; i--) {
+      const recordSize = Buffer.byteLength(`${records[i]}\n`, 'utf8');
+      retained.unshift(records[i]);
+      size += recordSize;
+    }
+    fs.writeFileSync(filePath, `${retained.join('\n')}\n`, 'utf8');
+  }
 }
 
 export function readTranscript(sessionKey: string): TranscriptSnapshot[] {
