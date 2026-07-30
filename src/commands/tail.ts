@@ -1,6 +1,7 @@
 import { findSessionByKey, pruneStaleSessions } from './sessions';
 import { getIpcEndpointPath } from '../utils/ipc-path';
 import { fetchSessionViewport } from './session-viewport';
+import { fetchSessionOutput } from './session-output';
 import { preflightVersionCheck } from './session-ipc';
 
 export async function tailCommand(
@@ -25,16 +26,25 @@ export async function tailCommand(
     for (const warning of parity.warnings) console.warn(`Warning: ${warning}`);
   }
 
-  const result = await fetchSessionViewport(endpointPath);
-  if (result.error) {
-    console.error(`Error: ${result.error}`);
+  const [viewportResult, outputResult] = await Promise.all([
+    fetchSessionViewport(endpointPath),
+    fetchSessionOutput(endpointPath),
+  ]);
+  if (viewportResult.error) {
+    console.error(`Error: ${viewportResult.error}`);
     return 1;
   }
 
-  const lines = result.lines
+  const lines = viewportResult.lines
     .map((line) => stripTerminalSequences(line).trimEnd())
     .filter((line) => line.length > 0)
     .slice(-(options?.lines || 20));
+  const capacityMessage = 'Selected model is at capacity. Please try a different model.';
+  const rawOutput = outputResult.lines.map(stripTerminalSequences).join('\n');
+  if (rawOutput.includes(capacityMessage)) {
+    const warningIndex = lines.findIndex((line) => line.trim() === '⚠');
+    if (warningIndex >= 0) lines[warningIndex] = `⚠ ${capacityMessage}`;
+  }
   if (options?.json) {
     console.log(JSON.stringify({ session: sessionKeyOrId, lines }, null, 2));
   } else {
