@@ -1,6 +1,6 @@
 import { findSessionByKey, pruneStaleSessions } from './sessions';
 import { getIpcEndpointPath } from '../utils/ipc-path';
-import { fetchSessionOutput } from './session-output';
+import { fetchSessionViewport } from './session-viewport';
 import { preflightVersionCheck } from './session-ipc';
 
 export async function tailCommand(
@@ -25,7 +25,7 @@ export async function tailCommand(
     for (const warning of parity.warnings) console.warn(`Warning: ${warning}`);
   }
 
-  const result = await fetchSessionOutput(endpointPath);
+  const result = await fetchSessionViewport(endpointPath);
   if (result.error) {
     console.error(`Error: ${result.error}`);
     return 1;
