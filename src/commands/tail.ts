@@ -1,6 +1,6 @@
 import { findSessionByKey, pruneStaleSessions } from './sessions';
 import { getIpcEndpointPath } from '../utils/ipc-path';
-import { fetchSessionViewport } from './session-viewport';
+import { fetchSessionOutput } from './session-output';
 import { preflightVersionCheck } from './session-ipc';
 
 export async function tailCommand(
@@ -25,7 +25,7 @@ export async function tailCommand(
     for (const warning of parity.warnings) console.warn(`Warning: ${warning}`);
   }
 
-  const result = await fetchSessionViewport(endpointPath);
+  const result = await fetchSessionOutput(endpointPath);
   if (result.error) {
     console.error(`Error: ${result.error}`);
     return 1;
@@ -48,7 +48,14 @@ const OSC_SEQUENCE = new RegExp(
   `${String.fromCharCode(27)}\\][^\\u0007]*(?:\\u0007|${String.fromCharCode(27)}\\\\)`,
   'g'
 );
+const CONTROL_SEQUENCE = new RegExp(
+  `[${String.fromCharCode(0)}-${String.fromCharCode(31)}${String.fromCharCode(127)}]`,
+  'g'
+);
 
 function stripTerminalSequences(line: string): string {
-  return line.replace(ANSI_SEQUENCE, '').replace(OSC_SEQUENCE, '');
+  return line
+    .replace(ANSI_SEQUENCE, '')
+    .replace(OSC_SEQUENCE, '')
+    .replace(CONTROL_SEQUENCE, (character) => (character === '\t' ? ' ' : ''));
 }
