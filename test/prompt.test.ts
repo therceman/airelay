@@ -378,7 +378,7 @@ describe('promptCommand', () => {
       const written = socket?.write.mock.calls[0][0];
       // codex now uses Enter (\r) with a delay
       expect(written).toContain('"enter":"\\r"');
-      expect(written).toContain('"submitDelayMs":500');
+      expect(written).toContain('"submitDelayMs":2000');
     });
 
     it('falls back to session.id when sessionKey is missing', async () => {
