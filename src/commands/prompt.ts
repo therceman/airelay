@@ -221,7 +221,7 @@ export async function promptCommand(
       params: {
         text: finalText,
         enter: submitByte,
-        submitDelayMs: fastEnter ? 50 : submitDelayMs,
+        submitDelayMs: fastEnter ? 0 : submitDelayMs,
       },
     });
 

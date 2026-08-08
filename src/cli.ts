@@ -247,7 +247,7 @@ Prompt options:
   --stdin                  Read prompt text from stdin (pipe/heredoc)
   --text <text>            Text to send to the session
   --no-enter               Do not append newline after text (default: enter)
-  --fast-enter             Reproduce fast-submit behavior with a 50ms text-to-Enter delay
+  --fast-enter             Reproduce fast-submit behavior with a 0ms text-to-Enter delay
   --only-enter             Send Enter key only (no text)
   --only-sequence <seq>    Send raw sequence only (no text)
   --sequence <seq>         Override submit sequence, e.g. $'\\x1b[106;4u'
