@@ -247,6 +247,7 @@ Prompt options:
   --stdin                  Read prompt text from stdin (pipe/heredoc)
   --text <text>            Text to send to the session
   --no-enter               Do not append newline after text (default: enter)
+  --defer-enter            Write text and let submit watcher send Enter after 10s
   --only-enter             Send Enter key only (no text)
   --only-sequence <seq>    Send raw sequence only (no text)
   --sequence <seq>         Override submit sequence, e.g. $'\\x1b[106;4u'
@@ -423,7 +424,12 @@ async function runCli(): Promise<void> {
           }
 
           const noEnter = flags['no-enter'] === true;
-          const enterValue = noEnter ? false : true;
+          const deferEnter = flags['defer-enter'] === true;
+          if (noEnter && deferEnter) {
+            console.error('Error: --no-enter and --defer-enter cannot be combined.');
+            process.exit(1);
+          }
+          const enterValue = noEnter || deferEnter ? false : true;
 
           const noSender = flags['no-sender'] === true;
           const sender = flags['sender'] as string | undefined;
@@ -447,6 +453,7 @@ async function runCli(): Promise<void> {
             sender,
             noWarn,
             stdin,
+            deferEnter,
           });
           process.exit(exitCode);
         }
