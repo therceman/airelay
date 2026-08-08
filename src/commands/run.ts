@@ -83,7 +83,6 @@ function setupController(
       const params = request.params as {
         text?: string;
         enter?: string | boolean;
-        retrySubmit?: string;
         submitDelayMs?: number;
       };
       const text = params.text || '';
@@ -103,8 +102,6 @@ function setupController(
         const byte = typeof submit === 'string' ? submit : '\r';
         ptyWrite.current(byte);
         onInputInjected?.(text, byte);
-      } else if (typeof params.retrySubmit === 'string') {
-        onInputInjected?.(text, params.retrySubmit);
       }
       return { delivered: true, sessionKey };
     }

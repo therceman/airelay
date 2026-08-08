@@ -106,7 +106,7 @@ export interface PromptOptions {
   sender?: string;
   noWarn?: boolean;
   stdin?: boolean;
-  deferEnter?: boolean;
+  fastEnter?: boolean;
 }
 
 export async function promptCommand(
@@ -117,7 +117,7 @@ export async function promptCommand(
   const onlyEnter = options?.onlyEnter === true;
   const onlySequence = options?.onlySequence;
   const stdin = options?.stdin === true;
-  const deferEnter = options?.deferEnter === true;
+  const fastEnter = options?.fastEnter === true;
 
   let resolvedText: string | undefined;
 
@@ -171,10 +171,6 @@ export async function promptCommand(
 
   // Determine submit byte based on mode and profile harness
   const callerEnter = options?.enter;
-  if (deferEnter && (onlyEnter || onlySequence || callerEnter === false)) {
-    console.error('Error: --defer-enter requires text and a normal submit key.');
-    return 1;
-  }
   let submitByte: string | boolean;
   let submitDelayMs = 0;
 
@@ -224,9 +220,8 @@ export async function promptCommand(
       method: 'session.input',
       params: {
         text: finalText,
-        enter: deferEnter ? false : submitByte,
-        retrySubmit: deferEnter ? submitByte : undefined,
-        submitDelayMs,
+        enter: submitByte,
+        submitDelayMs: fastEnter ? 50 : submitDelayMs,
       },
     });
 
