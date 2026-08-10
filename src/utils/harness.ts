@@ -94,7 +94,7 @@ const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
       quietPeriodMs: 10000,
     },
     inputSubmitRetry: {
-      retryDelayMs: 10000,
+      retryDelayMs: 5000,
       maxRetries: 3,
     },
   },

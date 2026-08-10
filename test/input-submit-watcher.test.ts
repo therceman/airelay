@@ -11,19 +11,19 @@ describe('input submit watcher', () => {
 
   function createWatcher(visible: () => boolean, writes: string[]): InputSubmitWatcher {
     return new InputSubmitWatcher({
-      retryDelayMs: 10000,
+      retryDelayMs: 5000,
       maxRetries: 3,
       write: () => (data) => writes.push(data),
       isInputVisible: visible,
     });
   }
 
-  it('retries only the submit key after 10 seconds when input remains visible', () => {
+  it('retries only the submit key after 5 seconds when input remains visible', () => {
     const writes: string[] = [];
     const watcher = createWatcher(() => true, writes);
 
     watcher.track('hello', '\r');
-    jest.advanceTimersByTime(9999);
+    jest.advanceTimersByTime(4999);
     expect(writes).toEqual([]);
 
     jest.advanceTimersByTime(1);
@@ -37,7 +37,7 @@ describe('input submit watcher', () => {
 
     watcher.track('hello', '\r');
     visible = false;
-    jest.advanceTimersByTime(10000);
+    jest.advanceTimersByTime(5000);
 
     expect(writes).toEqual([]);
   });
@@ -47,12 +47,12 @@ describe('input submit watcher', () => {
     const watcher = createWatcher(() => true, writes);
 
     watcher.track('hello', '\r');
-    jest.advanceTimersByTime(9000);
+    jest.advanceTimersByTime(4000);
     watcher.observeOutput('agent progress');
     jest.advanceTimersByTime(2000);
     expect(writes).toEqual([]);
 
-    jest.advanceTimersByTime(8000);
+    jest.advanceTimersByTime(3000);
     expect(writes).toEqual(['\r']);
   });
 
@@ -61,7 +61,7 @@ describe('input submit watcher', () => {
     const watcher = createWatcher(() => true, writes);
 
     watcher.track('hello', '\r');
-    jest.advanceTimersByTime(40000);
+    jest.advanceTimersByTime(20000);
 
     expect(writes).toEqual(['\r', '\r', '\r']);
   });
@@ -72,7 +72,7 @@ describe('input submit watcher', () => {
 
     watcher.track('hello', '\r');
     watcher.dispose();
-    jest.advanceTimersByTime(10000);
+    jest.advanceTimersByTime(5000);
 
     expect(writes).toEqual([]);
   });
