@@ -56,6 +56,28 @@ describe('capacity continuation watcher', () => {
     jest.useRealTimers();
   });
 
+  it('ignores Codex OSC redraw sequences after the capacity message', () => {
+    jest.useFakeTimers();
+    const writes: string[] = [];
+    const watcher = new CapacityContinuationWatcher({
+      continuationText: 'continue',
+      submitValue: '\r',
+      quietPeriodMs: 10000,
+      submitDelayMs: 2000,
+      write: () => (data: string) => writes.push(data),
+    });
+
+    watcher.observe(
+      '\u001b[38;5;3m⚠ Selected model is at capacity. Please try a different model.\u001b[39m\n' +
+        '\u001b]10;?\u001b\\\n\u001b]11;?\u001b\\\n\u001b[?25h'
+    );
+    jest.advanceTimersByTime(10000);
+
+    expect(writes).toEqual(['continue']);
+    watcher.dispose();
+    jest.useRealTimers();
+  });
+
   it('sends continue once after quiet time and then submits it', () => {
     const writes: string[] = [];
     const watcher = new CapacityContinuationWatcher({

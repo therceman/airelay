@@ -246,6 +246,7 @@ describe('runCli', () => {
     const { promptCommand } = require('../src/commands/prompt');
     expect(promptCommand).toHaveBeenCalledWith('sess_1', undefined, {
       enter: true,
+      fastEnter: false,
       onlyEnter: false,
       onlySequence: '\\x1b[106;4u',
       noSender: false,
@@ -263,6 +264,7 @@ describe('runCli', () => {
     const { promptCommand } = require('../src/commands/prompt');
     expect(promptCommand).toHaveBeenCalledWith('sess_1', undefined, {
       enter: true,
+      fastEnter: false,
       onlyEnter: true,
       onlySequence: undefined,
       noSender: false,

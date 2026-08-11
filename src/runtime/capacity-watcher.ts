@@ -11,9 +11,13 @@ export interface CapacityWatcherOptions {
 }
 
 const ANSI_SEQUENCE = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g');
+const OSC_SEQUENCE = new RegExp(
+  `${String.fromCharCode(27)}\\][^${String.fromCharCode(7)}]*(?:${String.fromCharCode(7)}|${String.fromCharCode(27)}\\\\)`,
+  'g'
+);
 
 function normalizeOutput(chunk: string): string {
-  return chunk.replace(ANSI_SEQUENCE, '').replace(/\r/g, '\n');
+  return chunk.replace(ANSI_SEQUENCE, '').replace(OSC_SEQUENCE, '').replace(/\r/g, '\n');
 }
 
 function normalizeCapacityLine(line: string): string {
