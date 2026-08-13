@@ -288,6 +288,53 @@ describe('controller E2E: real IPC socket flow', () => {
     expect(lines).toContain('line 49');
   });
 
+  it('tail reads the live viewport when scrolled up (viewportY differs from baseY)', async () => {
+    const sessionKey = 'e2e_vp_live_scroll';
+    const controller = new SessionController(sessionKey);
+
+    // Enough output to create scrollback (rows = 30). CR/LF avoids xterm LF-only wrap artifacts.
+    let out = '';
+    for (let i = 0; i < 50; i++) out += `line ${i}\r\n`;
+    controller.feedOutput(out);
+    await controller.flushViewport();
+
+    // Fully scrolled down: viewportY equals baseY.
+    const atBottom = controller.viewportPositionForTest();
+    expect(atBottom.viewportY).toBe(atBottom.baseY);
+
+    // Scroll up so the live viewport differs from the top of the bottom scrollback page.
+    controller.scrollViewportForTest(-5);
+    await controller.flushViewport();
+
+    const scrolled = controller.viewportPositionForTest();
+    expect(scrolled.viewportY).toBeLessThan(scrolled.baseY);
+
+    // getLiveViewportLines must start at the actual visible section, not baseY.
+    const live = controller.getLiveViewportLines();
+    expect(live[0]).toBe('line 16');
+    expect(live).toContain('line 20');
+    expect(live).not.toContain('line 49');
+
+    // Exercise the full tail -> session.viewport IPC path against the scrolled view.
+    controller.onRequest(async () => ({ handled: false }));
+    await controller.start();
+    addSession(
+      'e2e-profile',
+      'e2e_vp_live_scroll_ses',
+      undefined,
+      sessionKey,
+      controller.endpointPath
+    );
+
+    const result = await fetchSessionViewport(controller.endpointPath);
+    expect(result.error).toBeUndefined();
+    expect(result.lines).toContain('line 20');
+    expect(result.lines).not.toContain('line 49');
+
+    await controller.stop();
+    removeSessionByKey(sessionKey);
+  });
+
   it('snapshot window retains recently-visible term after it is replaced', async () => {
     const controller = new SessionController('vp_snap_retain');
 

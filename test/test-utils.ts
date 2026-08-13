@@ -9,12 +9,16 @@ export interface TestEnv {
   historyPath: string;
   lastUsedPath: string;
   pidsPath: string;
+  socketsDir: string;
+  transcriptsDir: string;
   originalEnv: {
     AIRELAY_CONFIG?: string;
     AIRELAY_SESSIONS?: string;
     AIRELAY_HISTORY?: string;
     AIRELAY_LAST_USED?: string;
     AIRELAY_PIDS?: string;
+    AIRELAY_SOCKETS_DIR?: string;
+    AIRELAY_TRANSCRIPTS_DIR?: string;
   };
 }
 
@@ -43,6 +47,8 @@ export function setupTestEnv(): TestEnv {
   const historyPath = path.join(testDir, 'launch-history.json');
   const lastUsedPath = path.join(testDir, 'last-used');
   const pidsPath = path.join(testDir, 'pids.json');
+  const socketsDir = path.join(testDir, 'sockets');
+  const transcriptsDir = path.join(testDir, 'transcripts');
 
   const originalEnv = {
     AIRELAY_CONFIG: process.env.AIRELAY_CONFIG,
@@ -50,6 +56,8 @@ export function setupTestEnv(): TestEnv {
     AIRELAY_HISTORY: process.env.AIRELAY_HISTORY,
     AIRELAY_LAST_USED: process.env.AIRELAY_LAST_USED,
     AIRELAY_PIDS: process.env.AIRELAY_PIDS,
+    AIRELAY_SOCKETS_DIR: process.env.AIRELAY_SOCKETS_DIR,
+    AIRELAY_TRANSCRIPTS_DIR: process.env.AIRELAY_TRANSCRIPTS_DIR,
   };
 
   return {
@@ -59,6 +67,8 @@ export function setupTestEnv(): TestEnv {
     historyPath,
     lastUsedPath,
     pidsPath,
+    socketsDir,
+    transcriptsDir,
     originalEnv,
   };
 }
@@ -76,6 +86,8 @@ export function setupEnv(env: TestEnv): void {
   process.env.AIRELAY_HISTORY = env.historyPath;
   process.env.AIRELAY_LAST_USED = env.lastUsedPath;
   process.env.AIRELAY_PIDS = env.pidsPath;
+  process.env.AIRELAY_SOCKETS_DIR = env.socketsDir;
+  process.env.AIRELAY_TRANSCRIPTS_DIR = env.transcriptsDir;
 }
 
 /**
@@ -121,6 +133,18 @@ export function cleanupEnv(env: TestEnv): void {
     process.env.AIRELAY_PIDS = env.originalEnv.AIRELAY_PIDS;
   } else {
     delete process.env.AIRELAY_PIDS;
+  }
+
+  if (env.originalEnv.AIRELAY_SOCKETS_DIR) {
+    process.env.AIRELAY_SOCKETS_DIR = env.originalEnv.AIRELAY_SOCKETS_DIR;
+  } else {
+    delete process.env.AIRELAY_SOCKETS_DIR;
+  }
+
+  if (env.originalEnv.AIRELAY_TRANSCRIPTS_DIR) {
+    process.env.AIRELAY_TRANSCRIPTS_DIR = env.originalEnv.AIRELAY_TRANSCRIPTS_DIR;
+  } else {
+    delete process.env.AIRELAY_TRANSCRIPTS_DIR;
   }
 }
 

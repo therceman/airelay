@@ -59,6 +59,17 @@ export class SessionController {
     return this.lastOutputChangeAt;
   }
 
+  /** Test accessor: current headless terminal viewport coordinates. */
+  viewportPositionForTest(): { viewportY: number; baseY: number } {
+    const buffer = this.terminal.buffer.active;
+    return { viewportY: buffer.viewportY, baseY: buffer.baseY };
+  }
+
+  /** Test accessor: scroll the headless terminal viewport (simulates a scrolled-up live view). */
+  scrollViewportForTest(amount: number): void {
+    this.terminal.scrollLines(amount);
+  }
+
   constructor(sessionKey: string) {
     this.sessionKey = sessionKey;
     this.socketPath = getIpcEndpointPath(sessionKey);
@@ -167,11 +178,15 @@ export class SessionController {
     return rows;
   }
 
-  /** Read current visible viewport lines from the xterm terminal buffer. */
+  /**
+   * Read current visible viewport lines from the xterm terminal buffer.
+   * Starts at buffer.viewportY (top of the currently displayed viewport),
+   * not baseY (top of the bottom scrollback page) which may be scrolled off.
+   */
   getLiveViewportLines(): string[] {
     const buffer = this.terminal.buffer.active;
     const rows: string[] = [];
-    for (let y = buffer.baseY; y < buffer.baseY + this.terminal.rows; y++) {
+    for (let y = buffer.viewportY; y < buffer.viewportY + this.terminal.rows; y++) {
       const line = buffer.getLine(y);
       if (line) {
         const text = line.translateToString().trim();
