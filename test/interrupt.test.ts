@@ -1,4 +1,5 @@
 import { InterruptController } from '../src/runtime/interrupt';
+import { DEFAULT_INTERRUPT_SEQUENCE, getHarnessCapabilities } from '../src/utils/harness';
 
 describe('interrupt controller', () => {
   beforeEach(() => {
@@ -23,7 +24,7 @@ describe('interrupt controller', () => {
 
   it('distinguishes no active and already idle turns', async () => {
     const noActive = await new InterruptController({
-      value: '\x03',
+      value: DEFAULT_INTERRUPT_SEQUENCE,
       ackTimeoutMs: 100,
       pollIntervalMs: 10,
       write: () => () => undefined,
@@ -31,7 +32,7 @@ describe('interrupt controller', () => {
       isWorking: () => false,
     }).request();
     const idle = await new InterruptController({
-      value: '\x03',
+      value: DEFAULT_INTERRUPT_SEQUENCE,
       ackTimeoutMs: 100,
       pollIntervalMs: 10,
       write: () => () => undefined,
@@ -49,7 +50,7 @@ describe('interrupt controller', () => {
     const writes: string[] = [];
     const onAcknowledged = jest.fn();
     const controller = new InterruptController({
-      value: '\x03',
+      value: DEFAULT_INTERRUPT_SEQUENCE,
       ackTimeoutMs: 100,
       pollIntervalMs: 10,
       write: () => (data) => {
@@ -69,17 +70,19 @@ describe('interrupt controller', () => {
 
     expect(result).toMatchObject({ outcome: 'interrupt_acknowledged', requested: true });
     expect(repeated.outcome).toBe('no_active_turn');
-    expect(writes).toEqual(['\x03']);
+    expect(writes).toEqual([DEFAULT_INTERRUPT_SEQUENCE]);
     expect(onAcknowledged).toHaveBeenCalledTimes(1);
   });
 
   it('returns the same in-flight result for a repeated interrupt request', async () => {
     let working = true;
+    const writes: string[] = [];
     const controller = new InterruptController({
-      value: '\x03',
+      value: DEFAULT_INTERRUPT_SEQUENCE,
       ackTimeoutMs: 100,
       pollIntervalMs: 10,
-      write: () => () => {
+      write: () => (data) => {
+        writes.push(data);
         working = false;
       },
       getActiveTurnId: () => 1,
@@ -91,6 +94,7 @@ describe('interrupt controller', () => {
 
     expect(repeated).toBe(first);
     expect((await repeated).outcome).toBe('interrupt_acknowledged');
+    expect(writes).toEqual([DEFAULT_INTERRUPT_SEQUENCE]);
   });
 
   it('can interrupt a later turn on the same controller after acknowledgement', async () => {
@@ -99,7 +103,7 @@ describe('interrupt controller', () => {
     let working = true;
     const writes: string[] = [];
     const controller = new InterruptController({
-      value: '\x03',
+      value: DEFAULT_INTERRUPT_SEQUENCE,
       ackTimeoutMs: 100,
       pollIntervalMs: 10,
       write: () => (data) => {
@@ -118,7 +122,7 @@ describe('interrupt controller', () => {
     turnActive = true;
     working = true;
     expect((await controller.request()).outcome).toBe('interrupt_acknowledged');
-    expect(writes).toEqual(['\x03', '\x03']);
+    expect(writes).toEqual([DEFAULT_INTERRUPT_SEQUENCE, DEFAULT_INTERRUPT_SEQUENCE]);
   });
 
   it('rejects a stale turn A interrupt when turn B replaces it before polling', async () => {
@@ -127,7 +131,7 @@ describe('interrupt controller', () => {
     const writes: string[] = [];
     const onAcknowledged = jest.fn();
     const controller = new InterruptController({
-      value: '\x03',
+      value: DEFAULT_INTERRUPT_SEQUENCE,
       ackTimeoutMs: 100,
       pollIntervalMs: 10,
       write: () => (data) => {
@@ -153,10 +157,11 @@ describe('interrupt controller', () => {
     expect(onAcknowledged).not.toHaveBeenCalled();
     expect(activeTurn).toBe(2);
     expect(working).toBe(true);
+    expect(writes).toEqual([DEFAULT_INTERRUPT_SEQUENCE]);
 
     const turnB = await controller.request();
     expect(turnB).toMatchObject({ outcome: 'interrupt_acknowledged', requested: true });
-    expect(writes).toEqual(['\x03', '\x03']);
+    expect(writes).toEqual([DEFAULT_INTERRUPT_SEQUENCE, DEFAULT_INTERRUPT_SEQUENCE]);
     expect(onAcknowledged).toHaveBeenCalledTimes(1);
   });
 
@@ -164,7 +169,7 @@ describe('interrupt controller', () => {
     let activeTurn = 1;
     let working = true;
     const controller = new InterruptController({
-      value: '\x03',
+      value: DEFAULT_INTERRUPT_SEQUENCE,
       ackTimeoutMs: 100,
       pollIntervalMs: 10,
       write: () => () => undefined,
@@ -188,7 +193,7 @@ describe('interrupt controller', () => {
 
   it('returns failed when the PTY write throws', async () => {
     const result = await new InterruptController({
-      value: '\x03',
+      value: DEFAULT_INTERRUPT_SEQUENCE,
       ackTimeoutMs: 100,
       pollIntervalMs: 10,
       write: () => () => {
@@ -202,11 +207,12 @@ describe('interrupt controller', () => {
   });
 
   it('returns timed_out without falsely acknowledging', async () => {
+    const writes: string[] = [];
     const resultPromise = new InterruptController({
-      value: '\x03',
+      value: DEFAULT_INTERRUPT_SEQUENCE,
       ackTimeoutMs: 100,
       pollIntervalMs: 10,
-      write: () => () => undefined,
+      write: () => (data) => writes.push(data),
       getActiveTurnId: () => 1,
       isWorking: () => true,
     }).request();
@@ -215,6 +221,15 @@ describe('interrupt controller', () => {
     const result = await resultPromise;
 
     expect(result).toMatchObject({ outcome: 'timed_out', requested: true });
+    expect(writes).toEqual([DEFAULT_INTERRUPT_SEQUENCE]);
     expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('resolves the default ESC interrupt for every supported harness', () => {
+    for (const harness of ['opencode', 'codex', 'unknown'] as const) {
+      expect(getHarnessCapabilities(harness).interrupt).toMatchObject({
+        value: DEFAULT_INTERRUPT_SEQUENCE,
+      });
+    }
   });
 });

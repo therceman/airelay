@@ -1,5 +1,8 @@
 export type HarnessType = 'opencode' | 'codex' | 'unknown';
 
+/** Default single-key interrupt sequence for every PTY-backed harness. */
+export const DEFAULT_INTERRUPT_SEQUENCE = '\x1b';
+
 const HARNESS_PATTERNS: Record<string, string[]> = {
   opencode: ['opencode'],
   codex: ['codex', 'o1', 'o3'],
@@ -78,9 +81,9 @@ export interface HarnessCapabilities {
 
   /** Native terminal control used to interrupt an active turn without killing the PTY. */
   interrupt?: {
-    value: string;
-    ackTimeoutMs: number;
-    pollIntervalMs: number;
+    value?: string;
+    ackTimeoutMs?: number;
+    pollIntervalMs?: number;
   };
 }
 
@@ -108,11 +111,6 @@ const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
       retryDelayMs: 5000,
       maxRetries: 3,
     },
-    interrupt: {
-      value: '\x03',
-      ackTimeoutMs: 2000,
-      pollIntervalMs: 50,
-    },
   },
   unknown: {
     submitMode: 'byte',
@@ -127,14 +125,22 @@ const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
  * Unknown harnesses default to Enter semantics for broadest compatibility.
  */
 export function getHarnessCapabilities(harness: HarnessType): HarnessCapabilities {
-  return (
-    HARNESS_CAPABILITIES[harness] || {
-      submitMode: 'byte',
-      submitValue: '\r',
-      submitDelayMs: 0,
-      uiWorkingHint: '',
-    }
-  );
+  const capabilities = HARNESS_CAPABILITIES[harness] || {
+    submitMode: 'byte' as const,
+    submitValue: '\r',
+    submitDelayMs: 0,
+    uiWorkingHint: '',
+  };
+
+  return {
+    ...capabilities,
+    interrupt: {
+      value: DEFAULT_INTERRUPT_SEQUENCE,
+      ackTimeoutMs: 2000,
+      pollIntervalMs: 50,
+      ...capabilities.interrupt,
+    },
+  };
 }
 
 export function getArgsHelpMessage(harness: HarnessType, hasSession: boolean): string {

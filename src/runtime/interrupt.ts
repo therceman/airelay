@@ -63,7 +63,8 @@ export class InterruptController {
   }
 
   private async perform(turnId: number | undefined): Promise<InterruptResult> {
-    if (!this.options.value || !this.options.write()) {
+    const write = this.options.write();
+    if (!this.options.value || !write) {
       return { outcome: 'unsupported', requested: false };
     }
     if (turnId === undefined || this.options.getActiveTurnId() === undefined) {
@@ -84,7 +85,7 @@ export class InterruptController {
 
     const startedAt = Date.now();
     try {
-      this.options.write()!(this.options.value);
+      write(this.options.value);
     } catch (error) {
       return {
         outcome: 'failed',
