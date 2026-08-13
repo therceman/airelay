@@ -11,6 +11,7 @@ export interface InterruptResult {
   requested: boolean;
   elapsedMs?: number;
   error?: string;
+  reason?: 'turn_changed';
 }
 
 export interface InterruptControllerOptions {
@@ -18,9 +19,14 @@ export interface InterruptControllerOptions {
   ackTimeoutMs: number;
   pollIntervalMs: number;
   write: () => ((data: string) => void) | null;
-  isActive: () => boolean;
-  isWorking: () => boolean;
-  onAcknowledged?: () => void;
+  getActiveTurnId: () => number | undefined;
+  isWorking: (turnId: number) => boolean;
+  onAcknowledged?: (turnId: number) => void;
+}
+
+interface InFlightInterrupt {
+  turnId: number;
+  promise: Promise<InterruptResult>;
 }
 
 const sleep = (delayMs: number): Promise<void> =>
@@ -29,29 +35,51 @@ const sleep = (delayMs: number): Promise<void> =>
 /** Coordinates one bounded PTY interrupt and never destroys the underlying session. */
 export class InterruptController {
   private readonly options: InterruptControllerOptions;
-  private inFlight: Promise<InterruptResult> | null = null;
+  private inFlight: InFlightInterrupt | null = null;
 
   constructor(options: InterruptControllerOptions) {
     this.options = options;
   }
 
   request(): Promise<InterruptResult> {
-    if (this.inFlight) return this.inFlight;
-    this.inFlight = this.perform().finally(() => {
-      this.inFlight = null;
+    const turnId = this.options.getActiveTurnId();
+    const inFlight = this.inFlight;
+    if (inFlight !== null && inFlight.turnId === turnId && turnId !== undefined) {
+      return inFlight.promise;
+    }
+
+    const record = {} as InFlightInterrupt;
+    const promise = this.perform(turnId).finally(() => {
+      if (this.inFlight === record) {
+        this.inFlight = null;
+      }
     });
-    return this.inFlight;
+    record.turnId = turnId as number;
+    record.promise = promise;
+    if (turnId !== undefined) {
+      this.inFlight = record;
+    }
+    return promise;
   }
 
-  private async perform(): Promise<InterruptResult> {
+  private async perform(turnId: number | undefined): Promise<InterruptResult> {
     if (!this.options.value || !this.options.write()) {
       return { outcome: 'unsupported', requested: false };
     }
-    if (!this.options.isActive()) {
+    if (turnId === undefined || this.options.getActiveTurnId() === undefined) {
       return { outcome: 'no_active_turn', requested: false };
     }
-    if (!this.options.isWorking()) {
+    if (this.options.getActiveTurnId() !== turnId) {
+      return { outcome: 'failed', requested: false, reason: 'turn_changed' };
+    }
+    if (!this.options.isWorking(turnId)) {
       return { outcome: 'already_idle', requested: false };
+    }
+
+    // Re-check immediately before the PTY write. No await occurs between this
+    // check and the write, so a different turn cannot inherit the request.
+    if (this.options.getActiveTurnId() !== turnId) {
+      return { outcome: 'failed', requested: false, reason: 'turn_changed' };
     }
 
     const startedAt = Date.now();
@@ -68,8 +96,11 @@ export class InterruptController {
 
     const deadline = startedAt + Math.max(0, this.options.ackTimeoutMs);
     while (Date.now() <= deadline) {
-      if (!this.options.isWorking()) {
-        this.options.onAcknowledged?.();
+      if (this.options.getActiveTurnId() !== turnId) {
+        return { outcome: 'failed', requested: true, reason: 'turn_changed' };
+      }
+      if (!this.options.isWorking(turnId)) {
+        this.options.onAcknowledged?.(turnId);
         return {
           outcome: 'interrupt_acknowledged',
           requested: true,

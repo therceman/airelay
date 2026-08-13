@@ -14,7 +14,7 @@ describe('interrupt controller', () => {
       ackTimeoutMs: 100,
       pollIntervalMs: 10,
       write: () => null,
-      isActive: () => true,
+      getActiveTurnId: () => 1,
       isWorking: () => true,
     }).request();
 
@@ -27,7 +27,7 @@ describe('interrupt controller', () => {
       ackTimeoutMs: 100,
       pollIntervalMs: 10,
       write: () => () => undefined,
-      isActive: () => false,
+      getActiveTurnId: () => undefined,
       isWorking: () => false,
     }).request();
     const idle = await new InterruptController({
@@ -35,7 +35,7 @@ describe('interrupt controller', () => {
       ackTimeoutMs: 100,
       pollIntervalMs: 10,
       write: () => () => undefined,
-      isActive: () => true,
+      getActiveTurnId: () => 1,
       isWorking: () => false,
     }).request();
 
@@ -56,8 +56,8 @@ describe('interrupt controller', () => {
         writes.push(data);
         working = false;
       },
-      isActive: () => active,
-      isWorking: () => working,
+      getActiveTurnId: () => (active ? 1 : undefined),
+      isWorking: (turnId) => turnId === 1 && working,
       onAcknowledged: () => {
         active = false;
         onAcknowledged();
@@ -82,8 +82,8 @@ describe('interrupt controller', () => {
       write: () => () => {
         working = false;
       },
-      isActive: () => true,
-      isWorking: () => working,
+      getActiveTurnId: () => 1,
+      isWorking: (turnId) => turnId === 1 && working,
     });
 
     const first = controller.request();
@@ -95,6 +95,7 @@ describe('interrupt controller', () => {
 
   it('can interrupt a later turn on the same controller after acknowledgement', async () => {
     let turnActive = true;
+    let turnId = 1;
     let working = true;
     const writes: string[] = [];
     const controller = new InterruptController({
@@ -105,18 +106,84 @@ describe('interrupt controller', () => {
         writes.push(data);
         working = false;
       },
-      isActive: () => turnActive,
-      isWorking: () => working,
+      getActiveTurnId: () => (turnActive ? turnId : undefined),
+      isWorking: (activeTurnId) => activeTurnId === turnId && working,
       onAcknowledged: () => {
         turnActive = false;
       },
     });
 
     expect((await controller.request()).outcome).toBe('interrupt_acknowledged');
+    turnId = 2;
     turnActive = true;
     working = true;
     expect((await controller.request()).outcome).toBe('interrupt_acknowledged');
     expect(writes).toEqual(['\x03', '\x03']);
+  });
+
+  it('rejects a stale turn A interrupt when turn B replaces it before polling', async () => {
+    let activeTurn = 1;
+    let working = true;
+    const writes: string[] = [];
+    const onAcknowledged = jest.fn();
+    const controller = new InterruptController({
+      value: '\x03',
+      ackTimeoutMs: 100,
+      pollIntervalMs: 10,
+      write: () => (data) => {
+        writes.push(data);
+        if (writes.length >= 2) working = false;
+      },
+      getActiveTurnId: () => activeTurn,
+      isWorking: (turnId) => turnId === activeTurn && working,
+      onAcknowledged,
+    });
+
+    const turnAPromise = controller.request();
+    activeTurn = 2;
+    working = true;
+    await jest.advanceTimersByTimeAsync(10);
+    const turnA = await turnAPromise;
+
+    expect(turnA).toMatchObject({
+      outcome: 'failed',
+      requested: true,
+      reason: 'turn_changed',
+    });
+    expect(onAcknowledged).not.toHaveBeenCalled();
+    expect(activeTurn).toBe(2);
+    expect(working).toBe(true);
+
+    const turnB = await controller.request();
+    expect(turnB).toMatchObject({ outcome: 'interrupt_acknowledged', requested: true });
+    expect(writes).toEqual(['\x03', '\x03']);
+    expect(onAcknowledged).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let turn A cleanup clear turn B in-flight state', async () => {
+    let activeTurn = 1;
+    let working = true;
+    const controller = new InterruptController({
+      value: '\x03',
+      ackTimeoutMs: 100,
+      pollIntervalMs: 10,
+      write: () => () => undefined,
+      getActiveTurnId: () => activeTurn,
+      isWorking: (turnId) => turnId === activeTurn && working,
+    });
+
+    const turnA = controller.request();
+    activeTurn = 2;
+    const turnB = controller.request();
+    expect(controller.request()).toBe(turnB);
+
+    await jest.advanceTimersByTimeAsync(10);
+    expect((await turnA).reason).toBe('turn_changed');
+    expect(controller.request()).toBe(turnB);
+
+    working = false;
+    await jest.advanceTimersByTimeAsync(10);
+    expect((await turnB).outcome).toBe('interrupt_acknowledged');
   });
 
   it('returns failed when the PTY write throws', async () => {
@@ -127,7 +194,7 @@ describe('interrupt controller', () => {
       write: () => () => {
         throw new Error('pty closed');
       },
-      isActive: () => true,
+      getActiveTurnId: () => 1,
       isWorking: () => true,
     }).request();
 
@@ -140,7 +207,7 @@ describe('interrupt controller', () => {
       ackTimeoutMs: 100,
       pollIntervalMs: 10,
       write: () => () => undefined,
-      isActive: () => true,
+      getActiveTurnId: () => 1,
       isWorking: () => true,
     }).request();
 

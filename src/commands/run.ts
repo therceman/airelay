@@ -170,6 +170,8 @@ export async function runCommand(
   const harnessCapabilities = getHarnessCapabilities(detectHarness(profile.executable));
   const deliveryTracker = new DeliveryTracker();
   let currentDeliveryId: string | undefined;
+  let turnGeneration = 0;
+  let activeTurnGeneration: number | undefined;
   let workingSeen = false;
   let completionTimer: ReturnType<typeof setTimeout> | null = null;
   let controllerRef: SessionController | null = null;
@@ -236,6 +238,8 @@ export async function runCommand(
     ptyWriteRef,
     deliveryTracker,
     (deliveryId, text, submitValue) => {
+      turnGeneration += 1;
+      activeTurnGeneration = turnGeneration;
       currentDeliveryId = deliveryId;
       workingSeen = false;
       if (completionTimer) {
@@ -256,15 +260,16 @@ export async function runCommand(
     ackTimeoutMs: interrupt?.ackTimeoutMs || 0,
     pollIntervalMs: interrupt?.pollIntervalMs || 50,
     write: () => ptyWriteRef.current,
-    isActive: () => currentDeliveryId !== undefined,
-    isWorking: () => {
-      if (!currentDeliveryId || !interrupt) return false;
+    getActiveTurnId: () => activeTurnGeneration,
+    isWorking: (turnId) => {
+      if (activeTurnGeneration !== turnId || !currentDeliveryId || !interrupt) return false;
       return controller
         .getLiveViewportLines()
         .join(' ')
         .includes(harnessCapabilities.uiWorkingHint);
     },
-    onAcknowledged: () => {
+    onAcknowledged: (turnId) => {
+      if (activeTurnGeneration !== turnId) return;
       if (currentDeliveryId) {
         deliveryTracker.markInterrupted(currentDeliveryId, controller.getLiveViewportLines());
       }
@@ -273,6 +278,7 @@ export async function runCommand(
         clearTimeout(completionTimer);
         completionTimer = null;
       }
+      activeTurnGeneration = undefined;
       currentDeliveryId = undefined;
       workingSeen = false;
     },
@@ -308,6 +314,7 @@ export async function runCommand(
           const current = currentDeliveryId ? deliveryTracker.get(currentDeliveryId) : undefined;
           if (current && workingSeen && !inputWatcher?.hasPending()) {
             deliveryTracker.markResponseReceived(current.deliveryId, preview());
+            activeTurnGeneration = undefined;
             currentDeliveryId = undefined;
             workingSeen = false;
           }
