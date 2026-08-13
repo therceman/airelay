@@ -66,6 +66,46 @@ describe('input submit watcher', () => {
     expect(writes).toEqual(['\r', '\r', '\r']);
   });
 
+  it('reports retry and exhaustion without writing the original text again', () => {
+    const writes: string[] = [];
+    const onRetry = jest.fn();
+    const onExhausted = jest.fn();
+    const watcher = new InputSubmitWatcher({
+      retryDelayMs: 5000,
+      maxRetries: 1,
+      write: () => (data) => writes.push(data),
+      isInputVisible: () => true,
+      onRetry,
+      onExhausted,
+    });
+
+    watcher.track('hello', '\r', 'delivery-1');
+    jest.advanceTimersByTime(5000);
+    jest.advanceTimersByTime(5000);
+
+    expect(writes).toEqual(['\r']);
+    expect(onRetry).toHaveBeenCalledWith('delivery-1');
+    expect(onExhausted).toHaveBeenCalledWith('delivery-1');
+  });
+
+  it('reports acknowledgement when the input disappears', () => {
+    let visible = true;
+    const onAcknowledged = jest.fn();
+    const watcher = new InputSubmitWatcher({
+      retryDelayMs: 5000,
+      maxRetries: 3,
+      write: () => () => undefined,
+      isInputVisible: () => visible,
+      onAcknowledged,
+    });
+
+    watcher.track('hello', '\r', 'delivery-1');
+    visible = false;
+    jest.advanceTimersByTime(5000);
+
+    expect(onAcknowledged).toHaveBeenCalledWith('delivery-1');
+  });
+
   it('cleans pending retry on disposal', () => {
     const writes: string[] = [];
     const watcher = createWatcher(() => true, writes);

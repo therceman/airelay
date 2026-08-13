@@ -104,6 +104,14 @@ async function emitError(err: Error & { code?: string }): Promise<void> {
   sock.emit('error', err);
 }
 
+async function emitRetryableErrorTwice(err: Error & { code?: string }): Promise<void> {
+  await emitError(err);
+  while (mockSocketInstances.length < 2) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  await emitError(err);
+}
+
 describe('promptCommand', () => {
   describe('validation', () => {
     it('returns error when no text provided', async () => {
@@ -155,6 +163,42 @@ describe('promptCommand', () => {
       const socket = mockSocketInstance;
       expect(socket?.write).toHaveBeenCalledWith(expect.stringContaining('"enter":false'));
     });
+
+    it('reuses the same delivery id across a transport retry', async () => {
+      mockSessionFound();
+      const exitCodePromise = promptCommand('testprofile_1234', 'hello', {
+        deliveryId: 'delivery-1',
+      });
+
+      while (mockSocketInstances.length < 1) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      const firstSocket = mockSocketInstances[0];
+      while (!firstSocket?.write.mock.calls.length) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      const transportError = new Error('connect ECONNREFUSED') as Error & { code?: string };
+      transportError.code = 'ECONNREFUSED';
+      firstSocket.emit('error', transportError);
+
+      while (mockSocketInstances.length < 2) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      const secondSocket = mockSocketInstances[1];
+      while (!secondSocket?.write.mock.calls.length) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      const firstRequest = JSON.parse(firstSocket.write.mock.calls[0][0] as string);
+      const secondRequest = JSON.parse(secondSocket.write.mock.calls[0][0] as string);
+      expect(secondRequest.params.deliveryId).toBe('delivery-1');
+      expect(secondRequest.id).toBe(firstRequest.id);
+
+      secondSocket.emit(
+        'data',
+        Buffer.from(JSON.stringify({ id: secondRequest.id, type: 'success' }) + '\n')
+      );
+      expect(await exitCodePromise).toBe(0);
+    });
   });
 
   describe('IPC errors', () => {
@@ -181,7 +225,7 @@ describe('promptCommand', () => {
 
       const err = new Error('connect ENOENT') as Error & { code?: string };
       err.code = 'ENOENT';
-      await emitError(err);
+      await emitRetryableErrorTwice(err);
 
       const exitCode = await exitCodePromise;
       expect(exitCode).toBe(1);
@@ -196,7 +240,7 @@ describe('promptCommand', () => {
         code?: string;
       };
       err.code = 'ECONNREFUSED';
-      await emitError(err);
+      await emitRetryableErrorTwice(err);
 
       const exitCode = await exitCodePromise;
       expect(exitCode).toBe(1);
@@ -208,7 +252,7 @@ describe('promptCommand', () => {
       const exitCodePromise = promptCommand('testprofile_1234', 'hello');
 
       const err = new Error('IPC request timed out');
-      await emitError(err);
+      await emitRetryableErrorTwice(err);
 
       const exitCode = await exitCodePromise;
       expect(exitCode).toBe(1);

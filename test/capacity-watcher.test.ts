@@ -111,7 +111,7 @@ describe('capacity continuation watcher', () => {
       write: () => (data) => writes.push(data),
     });
 
-    watcher.observe(MODEL_CAPACITY_MESSAGE);
+    watcher.observe(`${MODEL_CAPACITY_MESSAGE}\n`);
     watcher.observe('agent is working');
     jest.advanceTimersByTime(3500);
     expect(writes).toEqual([]);
@@ -127,9 +127,41 @@ describe('capacity continuation watcher', () => {
       write: () => (data) => writes.push(data),
     });
 
-    watcher.observe(MODEL_CAPACITY_MESSAGE);
+    watcher.observe(`${MODEL_CAPACITY_MESSAGE}\n`);
     watcher.dispose();
     jest.advanceTimersByTime(4000);
     expect(writes).toEqual([]);
+  });
+
+  it('bounds continuation attempts and reports exhaustion', () => {
+    const writes: string[] = [];
+    const onDetected = jest.fn();
+    const onContinuation = jest.fn();
+    const onExhausted = jest.fn();
+    const watcher = new CapacityContinuationWatcher({
+      continuationText: 'continue',
+      submitValue: '\r',
+      quietPeriodMs: 10,
+      submitDelayMs: 0,
+      retryDelaysMs: [10, 10],
+      maxAttempts: 2,
+      write: () => (data) => writes.push(data),
+      onDetected,
+      onContinuation,
+      onExhausted,
+    });
+
+    watcher.observe(`${MODEL_CAPACITY_MESSAGE}\n`);
+    jest.advanceTimersByTime(10);
+    jest.advanceTimersByTime(1);
+    watcher.observe(`${MODEL_CAPACITY_MESSAGE}\n`);
+    jest.advanceTimersByTime(10);
+    jest.advanceTimersByTime(1);
+    watcher.observe(`${MODEL_CAPACITY_MESSAGE}\n`);
+
+    expect(writes).toEqual(['continue', '\r', 'continue', '\r']);
+    expect(onDetected).toHaveBeenCalledTimes(2);
+    expect(onContinuation).toHaveBeenCalledTimes(2);
+    expect(onExhausted).toHaveBeenCalledTimes(1);
   });
 });

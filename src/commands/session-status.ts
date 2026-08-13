@@ -3,6 +3,7 @@ import { findSessionByKey, pruneStaleSessions } from './sessions';
 import { getIpcEndpointPath } from '../utils/ipc-path';
 import { fetchSessionOutput } from './session-output';
 import { preflightVersionCheck } from './session-ipc';
+import type { DeliveryStatus } from '../runtime/delivery';
 
 const IPC_TIMEOUT = 3000;
 const ACTIVITY_WINDOW_MS = 10000;
@@ -20,6 +21,7 @@ interface StatusResult {
   controllerProtocolVersion?: number;
   startedAt?: number;
   compatError?: string;
+  delivery?: DeliveryStatus;
 }
 
 function pingController(endpoint: string): Promise<{ reachable: boolean; latencyMs?: number }> {
@@ -68,6 +70,7 @@ function fetchSessionInfo(endpoint: string): Promise<{
   startedAt?: number;
   lastOutputChangeAt?: number;
   compatError?: string;
+  delivery?: DeliveryStatus;
 }> {
   return new Promise((resolve) => {
     const socket = new net.Socket();
@@ -103,6 +106,7 @@ function fetchSessionInfo(endpoint: string): Promise<{
               controllerProtocolVersion: parsed.data.controllerProtocolVersion as number,
               startedAt: parsed.data.startedAt as number,
               lastOutputChangeAt: parsed.data.lastOutputChangeAt as number | undefined,
+              delivery: parsed.data.delivery as DeliveryStatus | undefined,
             });
           } else if (parsed.type === 'error') {
             resolve({
@@ -174,6 +178,7 @@ export async function sessionStatusCommand(
     'controllerProtocolVersion',
     'startedAt',
     'state',
+    'deliveryState',
   ] as const;
 
   const result: StatusResult = {
@@ -189,6 +194,7 @@ export async function sessionStatusCommand(
     controllerProtocolVersion: info.controllerProtocolVersion,
     startedAt: info.startedAt,
     compatError: info.compatError,
+    delivery: info.delivery,
   };
 
   if (options?.json) {
@@ -201,7 +207,10 @@ export async function sessionStatusCommand(
       );
       return 1;
     }
-    const value = (result as unknown as Record<string, unknown>)[field];
+    const value =
+      field === 'deliveryState'
+        ? result.delivery?.state
+        : (result as unknown as Record<string, unknown>)[field];
     if (value === undefined || value === null) {
       console.error(`Error: Field "${field}" has no value.`);
       return 1;
@@ -223,6 +232,9 @@ export async function sessionStatusCommand(
     }
     if (result.state) {
       console.log(`  State: ${result.state}`);
+    }
+    if (result.delivery) {
+      console.log(`  Delivery: ${result.delivery.state} (${result.delivery.deliveryId})`);
     }
     if (result.compatError) {
       console.log(`  ⚠ ${result.compatError}`);

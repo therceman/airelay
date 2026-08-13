@@ -3,11 +3,15 @@ export interface InputSubmitWatcherOptions {
   maxRetries: number;
   write: () => ((data: string) => void) | null;
   isInputVisible: (text: string) => boolean;
+  onAcknowledged?: (deliveryId?: string) => void;
+  onRetry?: (deliveryId?: string) => void;
+  onExhausted?: (deliveryId?: string) => void;
 }
 
 interface PendingInput {
   text: string;
   submitValue: string;
+  deliveryId?: string;
   retries: number;
 }
 
@@ -23,16 +27,21 @@ export class InputSubmitWatcher {
     this.options = options;
   }
 
-  track(text: string, submitValue: string): void {
+  track(text: string, submitValue: string, deliveryId?: string): void {
     if (this.disposed || !text.trim()) return;
-    this.pending = { text, submitValue, retries: 0 };
+    this.pending = { text, submitValue, deliveryId, retries: 0 };
     this.lastActivityAt = Date.now();
     this.schedule(this.options.retryDelayMs);
   }
 
   observeOutput(chunk: string): void {
-    if (!this.disposed && chunk.trim()) {
-      this.lastActivityAt = Date.now();
+    if (this.disposed || !chunk.trim() || !this.pending) return;
+    this.lastActivityAt = Date.now();
+    if (!this.options.isInputVisible(this.pending.text)) {
+      const deliveryId = this.pending.deliveryId;
+      this.pending = null;
+      this.clearTimer();
+      this.options.onAcknowledged?.(deliveryId);
     }
   }
 
@@ -40,6 +49,10 @@ export class InputSubmitWatcher {
     this.disposed = true;
     this.pending = null;
     this.clearTimer();
+  }
+
+  hasPending(): boolean {
+    return this.pending !== null;
   }
 
   private schedule(delayMs: number): void {
@@ -60,11 +73,13 @@ export class InputSubmitWatcher {
 
     if (!this.options.isInputVisible(pending.text)) {
       this.pending = null;
+      this.options.onAcknowledged?.(pending.deliveryId);
       return;
     }
 
     if (pending.retries >= this.options.maxRetries) {
       this.pending = null;
+      this.options.onExhausted?.(pending.deliveryId);
       return;
     }
 
@@ -76,6 +91,7 @@ export class InputSubmitWatcher {
 
     write(pending.submitValue);
     pending.retries += 1;
+    this.options.onRetry?.(pending.deliveryId);
     this.lastActivityAt = Date.now();
     this.schedule(this.options.retryDelayMs);
   }

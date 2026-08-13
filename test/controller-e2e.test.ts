@@ -6,6 +6,8 @@ import { promptCommand } from '../src/commands/prompt';
 import { addSession, removeSessionByKey, findSessionByKey } from '../src/commands/sessions';
 
 import { fetchSessionViewport } from '../src/commands/session-viewport';
+import { fetchControllerInfo } from '../src/commands/session-ipc';
+import { DeliveryTracker } from '../src/runtime/delivery';
 
 const testDir = path.join(os.tmpdir(), 'airelay-e2e-test-' + process.pid + '-' + Date.now());
 const testSessionsPath = path.join(testDir, 'sessions.json');
@@ -42,6 +44,28 @@ beforeEach(() => {
 });
 
 describe('controller E2E: real IPC socket flow', () => {
+  it('exposes bounded delivery state through session.info', async () => {
+    const sessionKey = 'e2e_delivery_info';
+    const controller = new SessionController(sessionKey);
+    const tracker = new DeliveryTracker();
+    tracker.begin('delivery-1');
+    tracker.markSubmitSent('delivery-1');
+    tracker.markSubmitAcknowledged('delivery-1');
+    tracker.markWorking('delivery-1', ['working']);
+    controller.setDeliveryStatusProvider(() => tracker.get());
+    controller.onRequest(async () => ({ handled: false }));
+    await controller.start();
+
+    const info = await fetchControllerInfo(controller.endpointPath);
+
+    expect(info.delivery).toMatchObject({
+      deliveryId: 'delivery-1',
+      state: 'submitted_working',
+    });
+
+    await controller.stop();
+  });
+
   it('prompt delivers input to controller handler via real socket', async () => {
     const sessionKey = 'e2e_test_key';
     const controller = new SessionController(sessionKey);

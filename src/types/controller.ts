@@ -1,3 +1,5 @@
+import type { DeliveryStatus } from '../runtime/delivery';
+
 export type IpcMethod =
   | 'ping'
   | 'session.info'
@@ -17,6 +19,8 @@ export interface SessionInfoParams {
 
 export interface SessionInputParams {
   text: string;
+  /** Stable client-generated identity for transport retry/idempotency. */
+  deliveryId?: string;
   /**
    * Submit byte/sequence to append after text.
    * - "\r" (0x0D) = Enter (default for all harnesses)
@@ -80,4 +84,5 @@ export interface SessionInfoData {
   controllerProtocolVersion: number;
   startedAt: number;
   lastOutputChangeAt?: number;
+  delivery?: DeliveryStatus;
 }

@@ -1,4 +1,5 @@
 import net from 'net';
+import { randomUUID } from 'crypto';
 import { findSessionByKey, pruneStaleSessions } from './sessions';
 import { getIpcEndpointPath } from '../utils/ipc-path';
 import { readLines } from '../controller/protocol';
@@ -44,10 +45,11 @@ interface IpcClientRequest {
 
 interface IpcClientResponse {
   type: string;
+  data?: unknown;
   error?: { code: string; message: string };
 }
 
-function sendIpcRequest(
+function sendIpcRequestOnce(
   endpointPath: string,
   request: IpcClientRequest
 ): Promise<IpcClientResponse> {
@@ -98,6 +100,36 @@ function sendIpcRequest(
   });
 }
 
+function isRetryableTransportError(error: unknown): boolean {
+  const candidate = error as Error & { code?: string };
+  return (
+    candidate.code === 'ENOENT' ||
+    candidate.code === 'ECONNREFUSED' ||
+    candidate.code === 'ENOTCONN' ||
+    candidate.message?.includes('timed out') === true ||
+    candidate.message?.includes('Connection closed') === true
+  );
+}
+
+/** Retry transport loss with the same request and delivery identity. */
+async function sendIpcRequest(
+  endpointPath: string,
+  request: IpcClientRequest,
+  maxAttempts = 2
+): Promise<IpcClientResponse> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await sendIpcRequestOnce(endpointPath, request);
+    } catch (error) {
+      lastError = error;
+      if (attempt === maxAttempts || !isRetryableTransportError(error)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('IPC request failed');
+}
+
 export interface PromptOptions {
   enter?: boolean | string;
   onlyEnter?: boolean;
@@ -107,6 +139,7 @@ export interface PromptOptions {
   noWarn?: boolean;
   stdin?: boolean;
   fastEnter?: boolean;
+  deliveryId?: string;
 }
 
 export async function promptCommand(
@@ -168,6 +201,7 @@ export async function promptCommand(
 
   const sessionKey = found.session.sessionKey || found.session.id;
   const endpointPath = found.session.controllerEndpoint || getIpcEndpointPath(sessionKey);
+  const deliveryId = options?.deliveryId || randomUUID();
 
   // Determine submit byte based on mode and profile harness
   const callerEnter = options?.enter;
@@ -216,10 +250,11 @@ export async function promptCommand(
 
   try {
     const response = await sendIpcRequest(endpointPath, {
-      id: 'prompt-1',
+      id: `prompt-${deliveryId}`,
       method: 'session.input',
       params: {
         text: finalText,
+        deliveryId,
         enter: submitByte,
         submitDelayMs: fastEnter ? 0 : submitDelayMs,
       },

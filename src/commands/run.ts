@@ -11,6 +11,7 @@ import { getAirelayVersion, CONTROLLER_PROTOCOL_VERSION } from '../utils/version
 import { detectHarness, getHarnessCapabilities } from '../utils/harness';
 import { CapacityContinuationWatcher } from '../runtime/capacity-watcher';
 import { InputSubmitWatcher } from '../runtime/input-submit-watcher';
+import { DeliveryTracker } from '../runtime/delivery';
 import fs from 'fs';
 
 function generateSessionKey(profileName: string): string {
@@ -67,9 +68,11 @@ function buildProfileEnv(
 function setupController(
   sessionKey: string,
   ptyWrite: { current: ((data: string) => void) | null },
-  onInputInjected?: (text: string, submitValue: string) => void
+  deliveryTracker: DeliveryTracker,
+  onInputInjected?: (deliveryId: string, text: string, submitValue: string) => void
 ) {
   const controller = new SessionController(sessionKey);
+  controller.setDeliveryStatusProvider(() => deliveryTracker.get());
 
   controller.onRequest(async (request) => {
     if (request.method === 'session.input') {
@@ -82,11 +85,26 @@ function setupController(
 
       const params = request.params as {
         text?: string;
+        deliveryId?: string;
         enter?: string | boolean;
         submitDelayMs?: number;
       };
       const text = params.text || '';
-      ptyWrite.current(text);
+      const deliveryId =
+        typeof params.deliveryId === 'string' && params.deliveryId.trim()
+          ? params.deliveryId
+          : `legacy_${request.id}_${Date.now()}`;
+      const begin = deliveryTracker.begin(deliveryId);
+      if (begin.duplicate) {
+        return { delivered: true, duplicate: true, sessionKey, delivery: begin.status };
+      }
+
+      try {
+        ptyWrite.current(text);
+      } catch (error) {
+        deliveryTracker.markFailure(deliveryId, controller.getLiveViewportLines());
+        throw error;
+      }
       const submit = params.enter;
       if (submit !== false && submit !== undefined) {
         // Small delay before submit to let the app process text input first.
@@ -100,10 +118,22 @@ function setupController(
           await new Promise((resolve) => setTimeout(resolve, delayMs));
         }
         const byte = typeof submit === 'string' ? submit : '\r';
-        ptyWrite.current(byte);
-        onInputInjected?.(text, byte);
+        try {
+          ptyWrite.current(byte);
+        } catch (error) {
+          deliveryTracker.markFailure(deliveryId, controller.getLiveViewportLines());
+          throw error;
+        }
+        deliveryTracker.markSubmitSent(deliveryId);
+        onInputInjected?.(deliveryId, text, byte);
       }
-      return { delivered: true, sessionKey };
+      return {
+        delivered: true,
+        duplicate: false,
+        sessionKey,
+        deliveryId,
+        delivery: deliveryTracker.get(deliveryId),
+      };
     }
     return { handled: false };
   });
@@ -133,6 +163,11 @@ export async function runCommand(
   const ptyWriteRef: { current: ((data: string) => void) | null } = { current: null };
   const usePty = options?.usePty === true;
   const harnessCapabilities = getHarnessCapabilities(detectHarness(profile.executable));
+  const deliveryTracker = new DeliveryTracker();
+  let currentDeliveryId: string | undefined;
+  let workingSeen = false;
+  let completionTimer: ReturnType<typeof setTimeout> | null = null;
+  let controllerRef: SessionController | null = null;
   const continuation = harnessCapabilities.capacityContinuation;
   const capacityWatcher = continuation
     ? new CapacityContinuationWatcher({
@@ -142,15 +177,43 @@ export async function runCommand(
         submitDelayMs: continuation.submitDelayMs,
         submitValue: harnessCapabilities.submitValue,
         write: () => ptyWriteRef.current,
+        maxAttempts: continuation.maxAttempts,
+        retryDelaysMs: continuation.retryDelaysMs,
+        onDetected: () => {
+          if (currentDeliveryId) {
+            deliveryTracker.markCapacity(
+              currentDeliveryId,
+              controllerRef?.getLiveViewportLines() || []
+            );
+          }
+        },
+        onExhausted: () => {
+          if (currentDeliveryId) {
+            deliveryTracker.markFailure(
+              currentDeliveryId,
+              controllerRef?.getLiveViewportLines() || []
+            );
+          }
+        },
       })
     : null;
-  let controllerRef: SessionController | null = null;
   const inputRetry = harnessCapabilities.inputSubmitRetry;
   const inputWatcher =
     usePty && inputRetry
       ? new InputSubmitWatcher({
           ...inputRetry,
           write: () => ptyWriteRef.current,
+          onAcknowledged: (deliveryId) => {
+            if (deliveryId) deliveryTracker.markSubmitAcknowledged(deliveryId);
+          },
+          onRetry: (deliveryId) => {
+            if (deliveryId) deliveryTracker.markSubmitRetry(deliveryId);
+          },
+          onExhausted: (deliveryId) => {
+            if (deliveryId) {
+              deliveryTracker.markFailure(deliveryId, controllerRef?.getLiveViewportLines() || []);
+            }
+          },
           isInputVisible: (text) => {
             const normalizedText = text.replace(/\s+/g, ' ').trim();
             const viewport = controllerRef
@@ -162,10 +225,59 @@ export async function runCommand(
           },
         })
       : null;
-  const controller = setupController(sessionKey, ptyWriteRef, (text, submitValue) =>
-    inputWatcher?.track(text, submitValue)
+  const controller = setupController(
+    sessionKey,
+    ptyWriteRef,
+    deliveryTracker,
+    (deliveryId, text, submitValue) => {
+      currentDeliveryId = deliveryId;
+      workingSeen = false;
+      if (completionTimer) {
+        clearTimeout(completionTimer);
+        completionTimer = null;
+      }
+      inputWatcher?.track(text, submitValue, deliveryId);
+    }
   );
   controllerRef = controller;
+
+  const preview = (): string[] => controller.getLiveViewportLines();
+  const observeDeliveryState = (): void => {
+    if (!currentDeliveryId) return;
+    const status = deliveryTracker.get(currentDeliveryId);
+    if (!status || status.state === 'terminal_delivery_failure') return;
+
+    const lines = preview();
+    deliveryTracker.updatePreview(currentDeliveryId, lines);
+    const rendered = lines.join(' ');
+    const isWorking =
+      !!harnessCapabilities.uiWorkingHint && rendered.includes(harnessCapabilities.uiWorkingHint);
+
+    if (isWorking) {
+      workingSeen = true;
+      deliveryTracker.markSubmitAcknowledged(currentDeliveryId);
+      if (completionTimer) {
+        clearTimeout(completionTimer);
+        completionTimer = null;
+      }
+      deliveryTracker.markWorking(currentDeliveryId, lines);
+      return;
+    }
+
+    if (workingSeen && status.submitAcknowledgedAt && !inputWatcher?.hasPending()) {
+      if (!completionTimer) {
+        completionTimer = setTimeout(() => {
+          completionTimer = null;
+          const current = currentDeliveryId ? deliveryTracker.get(currentDeliveryId) : undefined;
+          if (current && workingSeen && !inputWatcher?.hasPending()) {
+            deliveryTracker.markResponseReceived(current.deliveryId, preview());
+            currentDeliveryId = undefined;
+            workingSeen = false;
+          }
+        }, 500);
+      }
+    }
+  };
 
   let controllerStarted = false;
   try {
@@ -245,6 +357,7 @@ export async function runCommand(
     controller.feedOutput(chunk);
     capacityWatcher?.observe(chunk);
     inputWatcher?.observeOutput(chunk);
+    observeDeliveryState();
   };
 
   try {
@@ -262,6 +375,7 @@ export async function runCommand(
     }
     throw e;
   } finally {
+    if (completionTimer) clearTimeout(completionTimer);
     capacityWatcher?.dispose();
     inputWatcher?.dispose();
     await controller.stop();

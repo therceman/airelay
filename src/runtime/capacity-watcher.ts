@@ -8,6 +8,11 @@ export interface CapacityWatcherOptions {
   submitDelayMs: number;
   write: () => ((data: string) => void) | null;
   capacityMessage?: string;
+  maxAttempts?: number;
+  retryDelaysMs?: number[];
+  onDetected?: (attempt: number) => void;
+  onContinuation?: (attempt: number) => void;
+  onExhausted?: () => void;
 }
 
 const ANSI_SEQUENCE = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g');
@@ -40,6 +45,8 @@ export class CapacityContinuationWatcher {
   private capacityVisible = false;
   private disposed = false;
   private outputBuffer = '';
+  private attempts = 0;
+  private exhausted = false;
 
   constructor(options: CapacityWatcherOptions) {
     this.options = options;
@@ -54,15 +61,33 @@ export class CapacityContinuationWatcher {
     if (lastLine !== capacityMessage) {
       this.capacityVisible = false;
       this.clearPendingTimer();
+      if (!this.submitTimer) {
+        this.attempts = 0;
+        this.exhausted = false;
+      }
       return;
     }
 
     if (this.capacityVisible || this.pendingTimer || this.submitTimer) return;
+    const maxAttempts = this.options.maxAttempts ?? 3;
+    if (this.attempts >= maxAttempts) {
+      if (!this.exhausted) {
+        this.exhausted = true;
+        this.options.onExhausted?.();
+      }
+      return;
+    }
     this.capacityVisible = true;
+    const attempt = this.attempts + 1;
+    this.options.onDetected?.(attempt);
+    const retryDelays = this.options.retryDelaysMs;
+    const delay = retryDelays?.length
+      ? retryDelays[Math.min(this.attempts, retryDelays.length - 1)]
+      : this.options.quietPeriodMs;
     this.pendingTimer = setTimeout(() => {
       this.pendingTimer = null;
-      this.sendContinuation();
-    }, this.options.quietPeriodMs);
+      this.sendContinuation(attempt);
+    }, delay);
   }
 
   dispose(): void {
@@ -74,14 +99,18 @@ export class CapacityContinuationWatcher {
     }
   }
 
-  private sendContinuation(): void {
+  private sendContinuation(attempt: number): void {
     if (this.disposed) return;
     const write = this.options.write();
     if (!write) {
       this.capacityVisible = false;
+      this.exhausted = true;
+      this.options.onExhausted?.();
       return;
     }
 
+    this.attempts = attempt;
+    this.options.onContinuation?.(attempt);
     write(this.options.continuationText);
     this.capacityVisible = false;
     this.submitTimer = setTimeout(() => {

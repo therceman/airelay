@@ -66,6 +66,8 @@ export interface HarnessCapabilities {
     text: string;
     submitDelayMs: number;
     quietPeriodMs: number;
+    maxAttempts: number;
+    retryDelaysMs: number[];
   };
 
   /** Retry only the submit key when injected text remains visible and idle. */
@@ -92,6 +94,8 @@ const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
       text: 'continue',
       submitDelayMs: 2000,
       quietPeriodMs: 10000,
+      maxAttempts: 3,
+      retryDelaysMs: [10000, 20000, 40000],
     },
     inputSubmitRetry: {
       retryDelayMs: 5000,

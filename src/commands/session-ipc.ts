@@ -1,5 +1,6 @@
 import net from 'net';
 import { getAirelayVersion } from '../utils/version';
+import type { DeliveryStatus } from '../runtime/delivery';
 
 const IPC_TIMEOUT = 5000;
 const PREFLIGHT_TIMEOUT = 2000;
@@ -8,6 +9,7 @@ export interface ControllerInfo {
   airelayVersion?: string;
   controllerProtocolVersion?: number;
   startedAt?: number;
+  delivery?: DeliveryStatus;
 }
 
 export interface ParityResult {
@@ -65,6 +67,7 @@ export function fetchControllerInfo(
               airelayVersion: parsed.data.airelayVersion as string,
               controllerProtocolVersion: parsed.data.controllerProtocolVersion as number,
               startedAt: parsed.data.startedAt as number,
+              delivery: parsed.data.delivery as DeliveryStatus | undefined,
             });
           } else if (parsed.type === 'error') {
             reject(new Error('Controller rejected request'));

@@ -13,6 +13,7 @@ import {
 import { getIpcEndpointPath } from '../utils/ipc-path';
 import { getAirelayVersion, CONTROLLER_PROTOCOL_VERSION } from '../utils/version';
 import { appendTranscriptSnapshot } from '../utils/transcript';
+import type { DeliveryStatus } from '../runtime/delivery';
 
 const VIEWPORT_ROWS = 30;
 const VIEWPORT_COLS = 120;
@@ -53,6 +54,7 @@ export class SessionController {
   private pendingTranscriptLines: string[] | null = null;
   private pendingTranscriptTimer: ReturnType<typeof setTimeout> | null = null;
   private transcriptPersistenceEnabled = false;
+  private deliveryStatusProvider: (() => DeliveryStatus | undefined) | null = null;
 
   /** Test accessor for lastOutputChangeAt. */
   lastOutputChangeAtForTest(): number {
@@ -217,6 +219,10 @@ export class SessionController {
     this.handler = handler;
   }
 
+  setDeliveryStatusProvider(provider: () => DeliveryStatus | undefined): void {
+    this.deliveryStatusProvider = provider;
+  }
+
   async start(): Promise<void> {
     const dir = path.dirname(this.socketPath);
     if (!fs.existsSync(dir)) {
@@ -274,6 +280,7 @@ export class SessionController {
           controllerProtocolVersion: this.protocolVersion,
           startedAt: this.startedAt,
           lastOutputChangeAt: this.lastOutputChangeAt,
+          delivery: this.deliveryStatusProvider?.(),
         });
       } else if (request.method === 'session.output') {
         response = createSuccessResponse(request.id, { lines: this.outputBuf });
