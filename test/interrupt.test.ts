@@ -73,6 +73,52 @@ describe('interrupt controller', () => {
     expect(onAcknowledged).toHaveBeenCalledTimes(1);
   });
 
+  it('returns the same in-flight result for a repeated interrupt request', async () => {
+    let working = true;
+    const controller = new InterruptController({
+      value: '\x03',
+      ackTimeoutMs: 100,
+      pollIntervalMs: 10,
+      write: () => () => {
+        working = false;
+      },
+      isActive: () => true,
+      isWorking: () => working,
+    });
+
+    const first = controller.request();
+    const repeated = controller.request();
+
+    expect(repeated).toBe(first);
+    expect((await repeated).outcome).toBe('interrupt_acknowledged');
+  });
+
+  it('can interrupt a later turn on the same controller after acknowledgement', async () => {
+    let turnActive = true;
+    let working = true;
+    const writes: string[] = [];
+    const controller = new InterruptController({
+      value: '\x03',
+      ackTimeoutMs: 100,
+      pollIntervalMs: 10,
+      write: () => (data) => {
+        writes.push(data);
+        working = false;
+      },
+      isActive: () => turnActive,
+      isWorking: () => working,
+      onAcknowledged: () => {
+        turnActive = false;
+      },
+    });
+
+    expect((await controller.request()).outcome).toBe('interrupt_acknowledged');
+    turnActive = true;
+    working = true;
+    expect((await controller.request()).outcome).toBe('interrupt_acknowledged');
+    expect(writes).toEqual(['\x03', '\x03']);
+  });
+
   it('returns failed when the PTY write throws', async () => {
     const result = await new InterruptController({
       value: '\x03',
@@ -102,5 +148,6 @@ describe('interrupt controller', () => {
     const result = await resultPromise;
 
     expect(result).toMatchObject({ outcome: 'timed_out', requested: true });
+    expect(jest.getTimerCount()).toBe(0);
   });
 });

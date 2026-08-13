@@ -18,6 +18,17 @@ describe('delivery tracker', () => {
     expect(duplicate.status.submitAttempts).toBe(1);
   });
 
+  it('allows identical prompt text under a different delivery id', () => {
+    const tracker = new DeliveryTracker();
+    const first = tracker.begin('delivery-1');
+    const second = tracker.begin('delivery-2');
+
+    expect(first.duplicate).toBe(false);
+    expect(second.duplicate).toBe(false);
+    expect(tracker.get('delivery-1')?.deliveryId).toBe('delivery-1');
+    expect(tracker.get('delivery-2')?.deliveryId).toBe('delivery-2');
+  });
+
   it('keeps only bounded session-scoped records and preview data', () => {
     const tracker = new DeliveryTracker();
     const longLine = 'x'.repeat(3000);

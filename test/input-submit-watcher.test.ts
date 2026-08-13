@@ -64,6 +64,7 @@ describe('input submit watcher', () => {
     jest.advanceTimersByTime(20000);
 
     expect(writes).toEqual(['\r', '\r', '\r']);
+    expect(jest.getTimerCount()).toBe(0);
   });
 
   it('reports retry and exhaustion without writing the original text again', () => {
@@ -86,6 +87,7 @@ describe('input submit watcher', () => {
     expect(writes).toEqual(['\r']);
     expect(onRetry).toHaveBeenCalledWith('delivery-1');
     expect(onExhausted).toHaveBeenCalledWith('delivery-1');
+    expect(jest.getTimerCount()).toBe(0);
   });
 
   it('reports acknowledgement when the input disappears', () => {

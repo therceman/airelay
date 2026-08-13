@@ -117,6 +117,26 @@ describe('capacity continuation watcher', () => {
     expect(writes).toEqual([]);
   });
 
+  it('does not classify arbitrary agent text containing the capacity phrase as capacity', () => {
+    const writes: string[] = [];
+    const onDetected = jest.fn();
+    const watcher = new CapacityContinuationWatcher({
+      continuationText: 'continue',
+      submitValue: '\r',
+      quietPeriodMs: 1500,
+      submitDelayMs: 2000,
+      write: () => (data) => writes.push(data),
+      onDetected,
+    });
+
+    watcher.observe(`The agent quoted: ${MODEL_CAPACITY_MESSAGE}\n`);
+    jest.advanceTimersByTime(5000);
+
+    expect(writes).toEqual([]);
+    expect(onDetected).not.toHaveBeenCalled();
+    watcher.dispose();
+  });
+
   it('does not send after disposal', () => {
     const writes: string[] = [];
     const watcher = new CapacityContinuationWatcher({
@@ -163,5 +183,6 @@ describe('capacity continuation watcher', () => {
     expect(onDetected).toHaveBeenCalledTimes(2);
     expect(onContinuation).toHaveBeenCalledTimes(2);
     expect(onExhausted).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
   });
 });
