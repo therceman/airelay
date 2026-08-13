@@ -13,7 +13,7 @@ function getTranscriptDir(): string {
 
 function getTranscriptMaxBytes(): number {
   const configured = Number(process.env.AIRELAY_TRANSCRIPT_MAX_BYTES);
-  return Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : 100 * 1024 * 1024;
+  return Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : 50 * 1024 * 1024;
 }
 
 export function getTranscriptPath(sessionKey: string): string {
