@@ -14,6 +14,7 @@ const VALID_METHODS: IpcMethod[] = [
   'session.input',
   'session.output',
   'session.viewport',
+  'session.interrupt',
 ];
 
 export function parseRequest(raw: string): IpcRequest {

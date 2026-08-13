@@ -287,6 +287,17 @@ export class SessionController {
       } else if (request.method === 'session.viewport') {
         await this.flushViewport();
         response = createSuccessResponse(request.id, { lines: this.getLiveViewportLines() });
+      } else if (request.method === 'session.interrupt') {
+        if (!this.handler) {
+          response = createErrorResponse(
+            request.id,
+            IpcErrorCodes.INTERNAL_ERROR,
+            'No handler registered for this controller'
+          );
+        } else {
+          const data = await this.handler(request);
+          response = createSuccessResponse(request.id, data);
+        }
       } else if (this.handler) {
         const data = await this.handler(request);
         response = createSuccessResponse(request.id, data);

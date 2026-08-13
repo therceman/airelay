@@ -51,6 +51,11 @@ export class InputSubmitWatcher {
     this.clearTimer();
   }
 
+  cancel(): void {
+    this.pending = null;
+    this.clearTimer();
+  }
+
   hasPending(): boolean {
     return this.pending !== null;
   }

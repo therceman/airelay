@@ -5,7 +5,8 @@ export type IpcMethod =
   | 'session.info'
   | 'session.input'
   | 'session.output'
-  | 'session.viewport';
+  | 'session.viewport'
+  | 'session.interrupt';
 
 export interface IpcRequest {
   id: string;

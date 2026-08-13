@@ -75,6 +75,13 @@ export interface HarnessCapabilities {
     retryDelayMs: number;
     maxRetries: number;
   };
+
+  /** Native terminal control used to interrupt an active turn without killing the PTY. */
+  interrupt?: {
+    value: string;
+    ackTimeoutMs: number;
+    pollIntervalMs: number;
+  };
 }
 
 const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
@@ -100,6 +107,11 @@ const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
     inputSubmitRetry: {
       retryDelayMs: 5000,
       maxRetries: 3,
+    },
+    interrupt: {
+      value: '\x03',
+      ackTimeoutMs: 2000,
+      pollIntervalMs: 50,
     },
   },
   unknown: {

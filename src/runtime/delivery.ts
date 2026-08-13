@@ -3,6 +3,7 @@ export type DeliveryState =
   | 'submitted_working'
   | 'transient_capacity'
   | 'terminal_delivery_failure'
+  | 'interrupted'
   | 'response_received';
 
 export interface DeliveryStatus {
@@ -28,7 +29,11 @@ const MAX_PREVIEW_LINES = 8;
 const MAX_PREVIEW_BYTES = 2048;
 
 function isTerminalState(state: DeliveryState): boolean {
-  return state === 'terminal_delivery_failure' || state === 'response_received';
+  return (
+    state === 'terminal_delivery_failure' ||
+    state === 'interrupted' ||
+    state === 'response_received'
+  );
 }
 
 function cloneStatus(status: DeliveryStatus): DeliveryStatus {
@@ -115,6 +120,14 @@ export class DeliveryTracker {
     const status = this.records.get(deliveryId);
     if (!status || isTerminalState(status.state)) return;
     status.state = 'response_received';
+    status.completedAt ??= Date.now();
+    status.preview = boundedPreview(preview);
+  }
+
+  markInterrupted(deliveryId: string, preview: string[]): void {
+    const status = this.records.get(deliveryId);
+    if (!status || isTerminalState(status.state)) return;
+    status.state = 'interrupted';
     status.completedAt ??= Date.now();
     status.preview = boundedPreview(preview);
   }

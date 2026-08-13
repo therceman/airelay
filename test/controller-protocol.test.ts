@@ -64,6 +64,11 @@ describe('parseRequest', () => {
     expect(req).toEqual({ id: 'req-vp', method: 'session.viewport', params: {} });
   });
 
+  it('parses a valid session.interrupt request', () => {
+    const req = parseRequest('{"id":"req-int","method":"session.interrupt"}');
+    expect(req).toEqual({ id: 'req-int', method: 'session.interrupt', params: {} });
+  });
+
   it('defaults params to empty object when omitted', () => {
     const req = parseRequest('{"id":"req-5","method":"ping"}');
     expect(req.params).toEqual({});
@@ -115,6 +120,7 @@ describe('parseRequest', () => {
     expect(msg).toMatch(/session\.input/);
     expect(msg).toMatch(/session\.output/);
     expect(msg).toMatch(/session\.viewport/);
+    expect(msg).toMatch(/session\.interrupt/);
   });
 
   it('rejects session.input without text with INVALID_PARAMS', () => {

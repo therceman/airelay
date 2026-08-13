@@ -12,6 +12,58 @@ export interface ControllerInfo {
   delivery?: DeliveryStatus;
 }
 
+export interface ControllerRequestResponse {
+  type: string;
+  data?: unknown;
+  error?: { code: string; message: string };
+}
+
+/** Send one bounded request to an existing session controller. */
+export function sendControllerRequest(
+  endpoint: string,
+  request: { id: string; method: string; params?: Record<string, unknown> },
+  timeoutMs: number = IPC_TIMEOUT
+): Promise<ControllerRequestResponse> {
+  return new Promise((resolve, reject) => {
+    const socket = new net.Socket();
+    let buffer = '';
+    let cleanedUp = false;
+
+    const cleanup = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      clearTimeout(timeout);
+      socket.destroy();
+    };
+
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('IPC timeout'));
+    }, timeoutMs);
+
+    socket.connect(endpoint, () => {
+      socket.write(JSON.stringify(request) + '\n');
+    });
+
+    socket.on('data', (data: Buffer) => {
+      buffer += data.toString();
+      const idx = buffer.indexOf('\n');
+      if (idx === -1) return;
+      cleanup();
+      try {
+        resolve(JSON.parse(buffer.slice(0, idx)) as ControllerRequestResponse);
+      } catch {
+        reject(new Error('Invalid response'));
+      }
+    });
+
+    socket.on('error', (error) => {
+      cleanup();
+      reject(error);
+    });
+  });
+}
+
 export interface ParityResult {
   ok: boolean;
   warnings: string[];

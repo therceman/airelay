@@ -12,6 +12,7 @@ import { detectHarness, getHarnessCapabilities } from '../utils/harness';
 import { CapacityContinuationWatcher } from '../runtime/capacity-watcher';
 import { InputSubmitWatcher } from '../runtime/input-submit-watcher';
 import { DeliveryTracker } from '../runtime/delivery';
+import { InterruptController, InterruptResult } from '../runtime/interrupt';
 import fs from 'fs';
 
 function generateSessionKey(profileName: string): string {
@@ -69,7 +70,8 @@ function setupController(
   sessionKey: string,
   ptyWrite: { current: ((data: string) => void) | null },
   deliveryTracker: DeliveryTracker,
-  onInputInjected?: (deliveryId: string, text: string, submitValue: string) => void
+  onInputInjected?: (deliveryId: string, text: string, submitValue: string) => void,
+  onInterrupt?: () => Promise<InterruptResult>
 ) {
   const controller = new SessionController(sessionKey);
   controller.setDeliveryStatusProvider(() => deliveryTracker.get());
@@ -135,6 +137,9 @@ function setupController(
         delivery: deliveryTracker.get(deliveryId),
       };
     }
+    if (request.method === 'session.interrupt') {
+      return onInterrupt ? onInterrupt() : { outcome: 'unsupported', requested: false };
+    }
     return { handled: false };
   });
 
@@ -168,6 +173,7 @@ export async function runCommand(
   let workingSeen = false;
   let completionTimer: ReturnType<typeof setTimeout> | null = null;
   let controllerRef: SessionController | null = null;
+  let interruptController: InterruptController | null = null;
   const continuation = harnessCapabilities.capacityContinuation;
   const capacityWatcher = continuation
     ? new CapacityContinuationWatcher({
@@ -237,9 +243,40 @@ export async function runCommand(
         completionTimer = null;
       }
       inputWatcher?.track(text, submitValue, deliveryId);
-    }
+    },
+    () =>
+      interruptController?.request() ||
+      Promise.resolve({ outcome: 'unsupported', requested: false } as InterruptResult)
   );
   controllerRef = controller;
+
+  const interrupt = harnessCapabilities.interrupt;
+  interruptController = new InterruptController({
+    value: interrupt?.value,
+    ackTimeoutMs: interrupt?.ackTimeoutMs || 0,
+    pollIntervalMs: interrupt?.pollIntervalMs || 50,
+    write: () => ptyWriteRef.current,
+    isActive: () => currentDeliveryId !== undefined,
+    isWorking: () => {
+      if (!currentDeliveryId || !interrupt) return false;
+      return controller
+        .getLiveViewportLines()
+        .join(' ')
+        .includes(harnessCapabilities.uiWorkingHint);
+    },
+    onAcknowledged: () => {
+      if (currentDeliveryId) {
+        deliveryTracker.markInterrupted(currentDeliveryId, controller.getLiveViewportLines());
+      }
+      inputWatcher?.cancel();
+      if (completionTimer) {
+        clearTimeout(completionTimer);
+        completionTimer = null;
+      }
+      currentDeliveryId = undefined;
+      workingSeen = false;
+    },
+  });
 
   const preview = (): string[] => controller.getLiveViewportLines();
   const observeDeliveryState = (): void => {

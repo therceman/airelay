@@ -33,6 +33,9 @@ jest.mock('../src/commands/select', () => ({
 jest.mock('../src/commands/prompt', () => ({
   promptCommand: jest.fn().mockResolvedValue(0),
 }));
+jest.mock('../src/commands/interrupt', () => ({
+  interruptCommand: jest.fn().mockResolvedValue(0),
+}));
 jest.mock('../src/commands/history', () => ({
   historyCommand: jest.fn(),
   historyHelpCommand: jest.fn(),
@@ -435,4 +438,12 @@ it('help text includes prompt command', async () => {
   expect(output).toContain('Send input to an active session');
   expect(output).toContain('sessions');
   expect(output).toContain('List saved sessions');
+});
+
+it('executes interrupt command with session key', async () => {
+  process.argv = ['node', 'cli.js', 'interrupt', 'worker_1', '--json', '--no-warn'];
+  await runCli();
+
+  const { interruptCommand } = require('../src/commands/interrupt');
+  expect(interruptCommand).toHaveBeenCalledWith('worker_1', { json: true, noWarn: true });
 });

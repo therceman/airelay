@@ -20,6 +20,7 @@ import { tailCommand } from './commands/tail';
 import { heartbeatCommand } from './commands/heartbeat';
 import { historyCommand, historyHelpCommand, removeHistoryCommand } from './commands/history';
 import { transcriptCommand } from './commands/transcript';
+import { interruptCommand } from './commands/interrupt';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -55,6 +56,7 @@ const KNOWN_COMMANDS = [
   'heartbeat',
   'history',
   'transcript',
+  'interrupt',
 ];
 const PROFILE_COMMANDS = ['run', 'which', 'doctor', 'start'];
 
@@ -201,6 +203,7 @@ Commands:
   prompt <session>      Send input to an active session
   sessions              List saved sessions
   session-status <key>  Show session health and UI status
+  interrupt <key>       Interrupt the active turn without destroying the session
   session-find <key>    Search current visible session output for pattern
   tail <key>            Show the last session output lines
   heartbeat <session>   Send periodic heartbeat to a session
@@ -505,6 +508,21 @@ async function runCli(): Promise<void> {
             noWarn,
           });
           process.exit(exitCode);
+        }
+
+      case 'interrupt':
+        if (!profile) {
+          console.error('Error: Session key or ID required');
+          console.error('Usage: airelay interrupt <session> [--json] [--no-warn]');
+          process.exit(1);
+        }
+        {
+          const exitCode = await interruptCommand(profile, {
+            json: flags.json === true,
+            noWarn: flags['no-warn'] === true,
+          });
+          process.exit(exitCode);
+          return;
         }
 
       case 'heartbeat':
