@@ -43,6 +43,8 @@ The detached runtime already owns the real PTY. Attach must connect to that exis
 ### Observed live regression to cover
 During a real detached attach test, the controller socket disappeared while the detached runtime PID remained alive in `detached.json`; the session was then removed by normal session pruning and `airelay prompt <key>` reported `Session not found`. Investigate and fix this lifecycle inconsistency as part of the task. A runtime with no reachable controller must either terminate/clean its own registry and session state or become a clearly stale, safely pruneable entry; it must not remain as a live-looking detached runtime with an unusable session.
 
+In a later live test, the client was left with `Ctrl-C`. Current attach semantics forward `0x03` to the underlying PTY rather than detaching, and the harness then exited. Make this boundary explicit and test it: `Ctrl-D`/EOF/client close detaches without stopping the runtime; `Ctrl-C` is either documented as raw harness input or given a deliberate, tested attach-client escape behavior, but must not be ambiguous.
+
 ## Mandatory Source Audit
 Before changing production code, inspect:
 - current `attach.ts`, detached launcher/runtime path, `SessionController`, IPC framing/protocol, PTY output callback, and terminal-buffer implementation;
