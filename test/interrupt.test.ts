@@ -191,6 +191,92 @@ describe('interrupt controller', () => {
     expect((await turnB).outcome).toBe('interrupt_acknowledged');
   });
 
+  it('returns turn_changed when the target generation clears mid-poll without a replacement', async () => {
+    let activeTurn: number | undefined = 1;
+    let working = true;
+    const writes: string[] = [];
+    const onAcknowledged = jest.fn();
+    const controller = new InterruptController({
+      value: DEFAULT_INTERRUPT_SEQUENCE,
+      ackTimeoutMs: 100,
+      pollIntervalMs: 10,
+      write: () => (data) => {
+        writes.push(data);
+        // The harness stops and run-side state clears immediately after the
+        // ESC lands without a replacement generation.
+        activeTurn = undefined;
+        working = false;
+      },
+      getActiveTurnId: () => activeTurn,
+      isWorking: (turnId) => turnId === activeTurn && working,
+      onAcknowledged,
+    });
+
+    const result = await controller.request();
+
+    // A vanished target must never be acknowledged: success is only inferred
+    // from the same captured generation still being active and not working.
+    expect(result).toMatchObject({ outcome: 'failed', requested: true, reason: 'turn_changed' });
+    expect(writes).toEqual([DEFAULT_INTERRUPT_SEQUENCE]);
+    expect(onAcknowledged).not.toHaveBeenCalled();
+    expect(jest.getTimerCount()).toBe(0);
+    // The controller is reusable and observes no active turn afterwards.
+    expect((await controller.request()).outcome).toBe('no_active_turn');
+  });
+
+  it('a stale vanished-turn failure does not contaminate a later turn lifecycle', async () => {
+    let turnId: number | undefined = 1;
+    let working = true;
+    const writes: string[] = [];
+    const onAcknowledged = jest.fn();
+    const controller = new InterruptController({
+      value: DEFAULT_INTERRUPT_SEQUENCE,
+      ackTimeoutMs: 100,
+      pollIntervalMs: 10,
+      write: () => (data) => {
+        writes.push(data);
+        working = false;
+        if (turnId === 1) turnId = undefined;
+      },
+      getActiveTurnId: () => turnId,
+      isWorking: (activeTurnId) => activeTurnId === turnId && working,
+      onAcknowledged,
+    });
+
+    const stale = await controller.request();
+    expect(stale).toMatchObject({ outcome: 'failed', requested: true, reason: 'turn_changed' });
+
+    // A later turn starts fresh and is interruptible independently.
+    turnId = 2;
+    working = true;
+    const later = await controller.request();
+    expect(later).toMatchObject({ outcome: 'interrupt_acknowledged', requested: true });
+    expect(writes).toEqual([DEFAULT_INTERRUPT_SEQUENCE, DEFAULT_INTERRUPT_SEQUENCE]);
+    expect(onAcknowledged).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports the in-flight target via isPending until the request resolves', async () => {
+    let working = true;
+    const writes: string[] = [];
+    const controller = new InterruptController({
+      value: DEFAULT_INTERRUPT_SEQUENCE,
+      ackTimeoutMs: 100,
+      pollIntervalMs: 10,
+      write: () => (data) => writes.push(data),
+      getActiveTurnId: () => 1,
+      isWorking: () => working,
+    });
+
+    const pending = controller.request();
+    expect(controller.isPending(1)).toBe(true);
+    expect(controller.isPending(2)).toBe(false);
+
+    working = false;
+    await jest.advanceTimersByTimeAsync(10);
+    expect((await pending).outcome).toBe('interrupt_acknowledged');
+    expect(controller.isPending(1)).toBe(false);
+  });
+
   it('returns failed when the PTY write throws', async () => {
     const result = await new InterruptController({
       value: DEFAULT_INTERRUPT_SEQUENCE,

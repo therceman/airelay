@@ -62,6 +62,16 @@ export class InterruptController {
     return promise;
   }
 
+  /**
+   * True while a request is still resolving for the given turn generation.
+   * Lets the caller preserve the captured target lifecycle (e.g. defer natural
+   * completion) until the in-flight interrupt resolves, so acknowledgement can
+   * be confirmed positively against the same generation.
+   */
+  isPending(turnId: number): boolean {
+    return this.inFlight !== null && this.inFlight.turnId === turnId;
+  }
+
   private async perform(turnId: number | undefined): Promise<InterruptResult> {
     const write = this.options.write();
     if (!this.options.value || !write) {
@@ -98,9 +108,14 @@ export class InterruptController {
     const deadline = startedAt + Math.max(0, this.options.ackTimeoutMs);
     while (Date.now() <= deadline) {
       if (this.options.getActiveTurnId() !== turnId) {
+        // The captured target generation is gone or replaced. Never infer an
+        // interrupt from the generation disappearing and never acknowledge a
+        // stale target: report the precise turn_changed failure instead.
         return { outcome: 'failed', requested: true, reason: 'turn_changed' };
       }
       if (!this.options.isWorking(turnId)) {
+        // Positive acknowledgement: the captured generation is still the active
+        // target AND the harness no longer reports it as working.
         this.options.onAcknowledged?.(turnId);
         return {
           outcome: 'interrupt_acknowledged',

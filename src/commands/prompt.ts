@@ -35,7 +35,7 @@ function readStdin(): Promise<string> {
  * before the submit key arrives. Without this delay the submit byte can
  * land in the wrong buffer position and produce a newline instead of submit.
  */
-const TEXT_TO_SUBMIT_DELAY_MS = 2000;
+const TEXT_TO_SUBMIT_DELAY_MS = 1000;
 
 interface IpcClientRequest {
   id: string;

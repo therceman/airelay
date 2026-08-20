@@ -401,7 +401,7 @@ describe('promptCommand', () => {
       );
     });
 
-    it('sends Enter (\\r) with submitDelayMs for codex harness profile', async () => {
+    it('sends Enter (\\r) with reduced submitDelayMs for codex harness profile', async () => {
       (findSessionByKey as jest.Mock).mockReturnValue({
         profile: 'codexprof',
         session: {
@@ -420,9 +420,31 @@ describe('promptCommand', () => {
       const socket = mockSocketInstance;
 
       const written = socket?.write.mock.calls[0][0];
-      // codex now uses Enter (\r) with a delay
+      // codex now uses Enter (\r) with the reduced audited delay
       expect(written).toContain('"enter":"\\r"');
-      expect(written).toContain('"submitDelayMs":2000');
+      expect(written).toContain('"submitDelayMs":1000');
+    });
+
+    it('uses the reduced submit delay for the ordinary prompt path', async () => {
+      mockSessionFound();
+      const exitCodePromise = promptCommand('testprofile_1234', 'hello');
+
+      await emitData({ id: 'prompt-1', type: 'success', data: {} });
+
+      await exitCodePromise;
+      const socket = mockSocketInstance;
+      expect(socket?.write).toHaveBeenCalledWith(expect.stringContaining('"submitDelayMs":1000'));
+    });
+
+    it('fastEnter overrides the submit delay to 0', async () => {
+      mockSessionFound();
+      const exitCodePromise = promptCommand('testprofile_1234', 'hello', { fastEnter: true });
+
+      await emitData({ id: 'prompt-1', type: 'success', data: {} });
+
+      await exitCodePromise;
+      const socket = mockSocketInstance;
+      expect(socket?.write).toHaveBeenCalledWith(expect.stringContaining('"submitDelayMs":0'));
     });
 
     it('falls back to session.id when sessionKey is missing', async () => {

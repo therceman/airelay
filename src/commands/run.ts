@@ -312,12 +312,24 @@ export async function runCommand(
         completionTimer = setTimeout(() => {
           completionTimer = null;
           const current = currentDeliveryId ? deliveryTracker.get(currentDeliveryId) : undefined;
-          if (current && workingSeen && !inputWatcher?.hasPending()) {
-            deliveryTracker.markResponseReceived(current.deliveryId, preview());
-            activeTurnGeneration = undefined;
-            currentDeliveryId = undefined;
-            workingSeen = false;
+          if (!current || !workingSeen || inputWatcher?.hasPending()) return;
+          const generation = activeTurnGeneration;
+          if (generation !== undefined && interruptController?.isPending(generation) === true) {
+            // An interrupt request is still resolving against this exact captured
+            // generation. Keep the target bound until it resolves so the
+            // interrupt can positively acknowledge the same-generation stop
+            // instead of racing natural completion. The interrupt is bounded by
+            // ackTimeoutMs, so this short deferral cannot spin forever.
+            completionTimer = setTimeout(() => {
+              completionTimer = null;
+              observeDeliveryState();
+            }, 100);
+            return;
           }
+          deliveryTracker.markResponseReceived(current.deliveryId, preview());
+          activeTurnGeneration = undefined;
+          currentDeliveryId = undefined;
+          workingSeen = false;
         }, 500);
       }
     }
