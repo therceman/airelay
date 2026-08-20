@@ -456,8 +456,12 @@ export async function runCommand(
       const cols = process.stdout.isTTY ? process.stdout.columns : 80;
       const rows = process.stdout.isTTY ? process.stdout.rows : 24;
       controller.resize(cols, rows);
-      // Record runtime PID for liveness pruning
-      updateSessionPid(sessionKey, pty.pid);
+      // Record the PID used for liveness pruning. For a detached runtime the
+      // session is serviced by the runtime/controller process (this process),
+      // so liveness must track that PID — not the harness agent PID — to keep
+      // the session consistent with the detached registry and avoid pruning a
+      // session for a still-registered, still-alive runtime.
+      updateSessionPid(sessionKey, options?.detached === true ? process.pid : pty.pid);
 
       if (options?.detached === true) {
         const startedAt = Date.now();

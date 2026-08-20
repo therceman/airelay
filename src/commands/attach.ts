@@ -4,51 +4,59 @@ import { getIpcEndpointPath } from '../utils/ipc-path';
 import { preflightVersionCheck } from './session-ipc';
 import { readLines } from '../controller/protocol';
 
-const VIEWPORT_POLL_MS = 200;
 const CTRL_D = 0x04;
 const CONNECT_TIMEOUT_MS = 5000;
+/** Upper bound on buffered stream frames received before the reader attaches. */
+const BOOTSTRAP_BACKLOG_CAP = 8192;
 
-export interface AttachTransport {
-  requestViewport(): Promise<string[]>;
+export interface StreamTransport {
+  /** Register the attach client; resolves with the attached-client count. */
+  requestAttach(): Promise<number>;
   sendRawInput(data: string): void;
   sendResize(cols: number, rows: number): void;
+  onStream(cb: (chunk: string) => void): void;
+  onClose(cb: () => void): void;
+  close(): void;
 }
 
 export interface AttachClientHooks {
-  pollIntervalMs?: number;
-  transport: AttachTransport;
+  transport: StreamTransport;
   stdin: { onData: (cb: (chunk: Buffer) => void) => void };
   resize: { onResize: (cb: (cols: number, rows: number) => void) => void };
   cols: number;
   rows: number;
-  render: (lines: string[]) => boolean;
+  /** Write one raw PTY chunk to the local terminal; return false on failure. */
+  render: (chunk: string) => boolean;
   onDetach: (reason: string) => void;
 }
 
 export type AttachDetachReason = 'ctrl-d' | 'eof' | 'terminal-gone' | 'controller-gone' | 'manual';
 
 /**
- * Core attach client. Viewport updates are polled on a bounded 200ms interval
- * (max 5 updates/sec), but raw input and resize are forwarded immediately via
- * dedicated narrow IPC operations (transport.sendRawInput / sendResize),
- * independent of the polling loop and with no Enter appended.
+ * True lossless PTY-stream attach client. Raw terminal chunks delivered by the
+ * controller (`session.stream` frames) are written straight to the local
+ * terminal — no viewport polling, no clear/redraw, no line reduction — so
+ * ANSI/control bytes, cursor state, alternate screens, colors, wrapping, and
+ * blank rows are preserved exactly. Raw input and resize still ride the narrow
+ * dedicated IPC path immediately and never append Enter.
  */
 export class AttachClient {
-  private readonly pollIntervalMs: number;
-  private timer: ReturnType<typeof setInterval> | null = null;
-  private inFlight = false;
   private detached = false;
   private disconnected = false;
 
-  constructor(private readonly hooks: AttachClientHooks) {
-    this.pollIntervalMs = hooks.pollIntervalMs ?? VIEWPORT_POLL_MS;
-  }
+  constructor(private readonly hooks: AttachClientHooks) {}
 
   start(): void {
-    void this.tick();
-    this.timer = setInterval(() => {
-      void this.tick();
-    }, this.pollIntervalMs);
+    this.hooks.transport.onStream((chunk) => {
+      if (this.detached) return;
+      const ok = this.hooks.render(chunk);
+      if (!ok) this.detach('terminal-gone');
+    });
+    this.hooks.transport.onClose(() => {
+      if (this.detached || this.disconnected) return;
+      this.notifyDisconnected();
+      this.detach('controller-gone');
+    });
     this.hooks.resize.onResize((cols, rows) => this.writeResize(cols, rows));
     this.hooks.stdin.onData((chunk) => {
       void this.writeRaw(chunk);
@@ -63,25 +71,17 @@ export class AttachClient {
     return this.detached;
   }
 
-  private async tick(): Promise<void> {
-    if (this.detached || this.inFlight) return;
-    this.inFlight = true;
-    try {
-      const lines = await this.hooks.transport.requestViewport();
-      if (this.detached) return;
-      const ok = this.hooks.render(lines);
-      if (!ok) this.detach('terminal-gone');
-    } catch {
-      if (!this.detached) this.detach('controller-gone');
-    } finally {
-      this.inFlight = false;
-    }
-  }
-
   /**
    * Forward raw terminal input immediately via the dedicated narrow IPC
-   * operation. Fires without waiting for the next viewport poll and never
-   * appends an Enter. Ctrl-D (0x04) detaches without stopping the runtime.
+   * operation. Never waits for output and never appends an Enter.
+   *
+   * Detach boundary (explicit): only Ctrl-D (0x04) and EOF/terminal close
+   * detach the client WITHOUT stopping the runtime. Ctrl-C (0x03) is raw
+   * harness input and is forwarded verbatim to the runtime PTY — it is NOT an
+   * attach-client escape key. The harness may interpret it (e.g. exit); if it
+   * exits, the runtime's normal exit cleanup removes the registry and session
+   * records. This is deliberate: the attached client must never swallow a byte
+   * that the runtime's own stdin semantics assign to the harness.
    */
   async writeRaw(chunk: Buffer): Promise<void> {
     if (this.detached || this.disconnected) return;
@@ -108,79 +108,114 @@ export class AttachClient {
     if (this.detached) return;
     this.detached = true;
     this.disconnected = true;
-    if (this.timer) {
-      clearInterval(this.timer);
-      this.timer = null;
-    }
     this.hooks.onDetach(reason);
   }
 }
 
 /**
- * Build a transport over a connected controller socket. Viewport requests
- * are correlated by id; raw input/resize are fire-and-forget (the controller
- * writes no reply for them), so they are never queued behind a poll.
+ * Build a stream transport over a connected controller socket.
+ *
+ * Incoming frames are routed by `type`: `stream` frames carry raw PTY chunks
+ * and are forwarded to the stream reader in arrival order; `success`/`error`
+ * frames resolve/reject the pending request with the matching id (the attach
+ * handshake). The stream reader is registered synchronously before the attach
+ * request is sent, so no frame is dropped at the bootstrap boundary; a small
+ * ordered backlog covers any frames that arrive between connect and reader
+ * registration, capped so it cannot grow without bound.
  */
-export function createAttachTransport(socket: net.Socket): AttachTransport & {
-  close(): void;
-} {
+export function createStreamTransport(socket: net.Socket): StreamTransport {
   let buffer = '';
   let seq = 0;
-  const pending = new Map<string, (lines: string[]) => void>();
   let closed = false;
+  const pending = new Map<
+    string,
+    (msg: { type?: string; data?: unknown; error?: { message?: string } }) => void
+  >();
+  const streamCbs: ((chunk: string) => void)[] = [];
+  const closeCbs: (() => void)[] = [];
+  let streamBacklog: string[] = [];
+
+  const deliverStream = (chunk: string): void => {
+    if (streamCbs.length === 0) {
+      streamBacklog.push(chunk);
+      if (streamBacklog.length > BOOTSTRAP_BACKLOG_CAP) {
+        streamBacklog.splice(0, streamBacklog.length - BOOTSTRAP_BACKLOG_CAP);
+      }
+      return;
+    }
+    for (const cb of streamCbs) cb(chunk);
+  };
+
+  const fireClose = (): void => {
+    if (closed) return;
+    closed = true;
+    for (const p of pending.values()) {
+      p({ type: 'error', error: { message: 'socket closed' } });
+    }
+    pending.clear();
+    streamBacklog = [];
+    for (const cb of closeCbs) cb();
+  };
+
+  const handleLine = (line: string): void => {
+    let msg: {
+      type?: string;
+      id?: string;
+      data?: { chunk?: unknown };
+      error?: { message?: string };
+    };
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (msg.type === 'stream' && typeof msg.data?.chunk === 'string') {
+      deliverStream(msg.data.chunk);
+      return;
+    }
+    if (
+      (msg.type === 'success' || msg.type === 'error') &&
+      typeof msg.id === 'string' &&
+      pending.has(msg.id)
+    ) {
+      const resolver = pending.get(msg.id) as (msg: {
+        type?: string;
+        data?: unknown;
+        error?: { message?: string };
+      }) => void;
+      pending.delete(msg.id);
+      resolver(msg);
+    }
+  };
 
   socket.on('data', (chunk: Buffer) => {
-    buffer = readLines(buffer + chunk.toString(), (line) => {
-      let msg: { id?: string; type?: string; data?: { lines?: unknown } };
-      try {
-        msg = JSON.parse(line);
-      } catch {
-        return;
-      }
-      if (
-        msg.type === 'success' &&
-        typeof msg.id === 'string' &&
-        pending.has(msg.id) &&
-        Array.isArray(msg.data?.lines)
-      ) {
-        const resolver = pending.get(msg.id) as (lines: string[]) => void;
-        pending.delete(msg.id);
-        resolver(msg.data!.lines as string[]);
-      }
-    });
+    buffer = readLines(buffer + chunk.toString(), handleLine);
   });
-
-  socket.on('error', () => {
-    closed = true;
-    for (const reject of pending.values()) {
-      reject([]);
-    }
-    pending.clear();
-  });
-
-  socket.on('close', () => {
-    closed = true;
-    for (const reject of pending.values()) {
-      reject([]);
-    }
-    pending.clear();
-  });
+  socket.on('error', fireClose);
+  socket.on('close', fireClose);
 
   return {
-    requestViewport(): Promise<string[]> {
-      return new Promise((resolve) => {
+    requestAttach(): Promise<number> {
+      return new Promise((resolve, reject) => {
         if (closed) {
-          resolve([]);
+          reject(new Error('socket closed'));
           return;
         }
         seq += 1;
-        const id = `attach-vp-${seq}`;
-        pending.set(id, resolve);
+        const id = `attach-${seq}`;
+        pending.set(id, (msg) => {
+          if (msg.type === 'success') {
+            const data = (msg.data ?? {}) as { attached?: unknown };
+            resolve(typeof data.attached === 'number' ? data.attached : 0);
+          } else {
+            reject(new Error(msg.error?.message || 'Attach request rejected by controller'));
+          }
+        });
         try {
-          socket.write(JSON.stringify({ id, method: 'session.viewport' }) + '\n');
-        } catch {
+          socket.write(JSON.stringify({ id, method: 'session.attach' }) + '\n');
+        } catch (e) {
           pending.delete(id);
-          resolve([]);
+          reject(e instanceof Error ? e : new Error(String(e)));
         }
       });
     },
@@ -210,6 +245,18 @@ export function createAttachTransport(socket: net.Socket): AttachTransport & {
         closed = true;
       }
     },
+    onStream(cb: (chunk: string) => void): void {
+      streamCbs.push(cb);
+      if (streamBacklog.length > 0) {
+        const backlog = streamBacklog;
+        streamBacklog = [];
+        for (const chunk of backlog) cb(chunk);
+      }
+    },
+    onClose(cb: () => void): void {
+      closeCbs.push(cb);
+      if (closed) cb();
+    },
     close(): void {
       try {
         socket.destroy();
@@ -220,71 +267,23 @@ export function createAttachTransport(socket: net.Socket): AttachTransport & {
   };
 }
 
-/** Send one IPC request and resolve with the single success response. */
-function sendIpcWithReply(
-  socket: net.Socket,
-  requestId: string,
-  method: string,
-  params: Record<string, unknown>
-): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-  return new Promise((resolve) => {
-    let buffer = '';
-    const onData = (chunk: Buffer): void => {
-      buffer = readLines(buffer + chunk.toString(), (line) => {
-        let msg: { id?: string; type?: string; error?: { message?: string } };
-        try {
-          msg = JSON.parse(line);
-        } catch {
-          return;
-        }
-        if (msg.id === requestId) {
-          cleanup();
-          if (msg.type === 'success') {
-            resolve({ ok: true, data: msg });
-          } else {
-            resolve({ ok: false, error: msg.error?.message });
-          }
-        }
-      });
-    };
-    const cleanup = (): void => {
-      socket.removeListener('data', onData);
-      clearTimeout(timer);
-    };
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
-      cleanup();
-      resolve({ ok: false, error: 'IPC handshake timed out' });
-    }, CONNECT_TIMEOUT_MS);
-
-    socket.on('data', onData);
-    try {
-      socket.write(JSON.stringify({ id: requestId, method, params }) + '\n');
-    } catch (e) {
-      cleanup();
-      resolve({ ok: false, error: (e as Error).message });
-    }
+      reject(new Error(message));
+    }, ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err: unknown) => {
+        clearTimeout(timer);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    );
   });
 }
-
-export interface AttachCommandOptions {
-  pollIntervalMs?: number;
-  stdinSource?: AttachClientHooks['stdin'];
-  resizeSource?: AttachClientHooks['resize'];
-  renderOverride?: (lines: string[]) => boolean;
-  cols?: number;
-  rows?: number;
-}
-
-const defaultRenderer = {
-  clear(): void {
-    process.stdout.write('\x1b[2J\x1b[H');
-  },
-  write(lines: string[]): void {
-    for (const line of lines) {
-      process.stdout.write(line + '\n');
-    }
-  },
-};
 
 function connectToEndpoint(endpoint: string): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
@@ -307,11 +306,29 @@ function connectToEndpoint(endpoint: string): Promise<net.Socket> {
   });
 }
 
+export interface AttachCommandOptions {
+  stdinSource?: AttachClientHooks['stdin'];
+  resizeSource?: AttachClientHooks['resize'];
+  renderOverride?: (chunk: string) => boolean;
+  cols?: number;
+  rows?: number;
+}
+
+function writeChunk(chunk: string): boolean {
+  try {
+    process.stdout.write(chunk);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * `airelay attach <session>` — attach a viewport client to an existing
- * runtime. Resolves the existing session/runtime without starting a second
- * agent or PTY. Viewport polling is capped at 200ms; raw input and resize are
- * forwarded immediately via dedicated IPC. Disconnect never stops the runtime.
+ * `airelay attach <session>` — attach a true lossless PTY-stream client to an
+ * existing detached runtime. Resolves the existing runtime/controller without
+ * starting a second agent or PTY. Raw terminal chunks are forwarded verbatim;
+ * raw input and resize use the immediate narrow IPC path. Disconnect (Ctrl-D,
+ * EOF, terminal close) detaches only the client and never stops the runtime.
  */
 export async function attachCommand(
   sessionKeyOrId: string,
@@ -349,17 +366,7 @@ export async function attachCommand(
     return 1;
   }
 
-  const handshake = await sendIpcWithReply(socket, 'attach-hello', 'session.attach', {});
-  if (!handshake.ok) {
-    console.error(
-      `Error: ${handshake.error || 'Attach handshake failed.'} Session controller may be older than this CLI.`
-    );
-    socket.destroy();
-    return 1;
-  }
-
-  const transport = createAttachTransport(socket);
-  const pollIntervalMs = options?.pollIntervalMs ?? VIEWPORT_POLL_MS;
+  const transport = createStreamTransport(socket);
   const cols = options?.cols ?? (process.stdout.isTTY ? process.stdout.columns : 80);
   const rows = options?.rows ?? (process.stdout.isTTY ? process.stdout.rows : 24);
   let finalExitCode = 1;
@@ -369,17 +376,17 @@ export async function attachCommand(
   let finish: ((code: number) => void) | null = null;
 
   const client = new AttachClient({
-    pollIntervalMs,
     transport,
     stdin: options?.stdinSource ?? {
       onData(cb) {
         if (!process.stdin.isTTY) return;
         process.stdin.setRawMode(true);
         const handler = (chunk: Buffer): void => cb(chunk);
-        process.stdin.on('data', handler);
-        process.stdin.on('end', () => {
+        const onEnd = (): void => {
           client.detach('eof');
-        });
+        };
+        process.stdin.on('data', handler);
+        process.stdin.on('end', onEnd);
         stdinRestore = (): void => {
           try {
             process.stdin.setRawMode(false);
@@ -387,6 +394,7 @@ export async function attachCommand(
             // Ignore raw-mode restore errors
           }
           process.stdin.removeListener('data', handler);
+          process.stdin.removeListener('end', onEnd);
         };
       },
     },
@@ -402,7 +410,7 @@ export async function attachCommand(
     },
     cols,
     rows,
-    render: options?.renderOverride ?? renderViewport,
+    render: options?.renderOverride ?? writeChunk,
     onDetach(reason) {
       stdinRestore?.();
       resizeRestore?.();
@@ -422,25 +430,23 @@ export async function attachCommand(
 
   return new Promise<number>((resolve) => {
     finish = resolve;
-    const onClosed = (): void => {
-      if (!client.isDetached()) client.detach('controller-gone');
-    };
-    const onError = (): void => {
-      if (!client.isDetached()) client.detach('controller-gone');
-    };
-    socket.on('close', onClosed);
-    socket.on('error', onError);
-
     client.start();
+    void withTimeout(
+      transport.requestAttach(),
+      CONNECT_TIMEOUT_MS,
+      'Attach handshake timed out'
+    ).then(
+      () => {
+        // Attached. Rendering and input are fully event-driven from here.
+      },
+      (err: Error) => {
+        if (!client.isDetached()) {
+          client.notifyDisconnected();
+          console.error(`Error: ${err.message} Session controller may be older than this CLI.`);
+          transport.close();
+          resolve(1);
+        }
+      }
+    );
   });
-}
-
-function renderViewport(lines: string[]): boolean {
-  try {
-    defaultRenderer.clear();
-    defaultRenderer.write(lines);
-    return true;
-  } catch {
-    return false;
-  }
 }

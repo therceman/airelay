@@ -1,4 +1,5 @@
 import net from 'net';
+import fs from 'fs';
 import { execSync } from 'child_process';
 import path from 'path';
 import { useTestEnv, createTestConfig } from './test-utils';
@@ -13,6 +14,7 @@ import {
   addDetachedEntry,
   findDetachedBySessionKey,
   pruneDetachedEntries,
+  isEntryReachable,
 } from '../src/runtime/detached-registry';
 import { sendControllerRequest } from '../src/commands/session-ipc';
 import { loadSessions } from '../src/commands/sessions';
@@ -30,7 +32,9 @@ const HARNESS_SCRIPT = `process.stdin.setRawMode(true);
 process.stdin.on('data',function(d){
   var s=d.toString();
   if(s.indexOf('SHUT')>=0){process.stdout.write('BYE');setTimeout(function(){process.exit(0);},50);return;}
+  if(s.indexOf('\\u0003')>=0){process.stdout.write('BYE');setTimeout(function(){process.exit(0);},50);return;}
   if(s.indexOf('SIZE')>=0){process.stdout.write('SIZE:'+process.stdout.columns+','+process.stdout.rows+'\\n');return;}
+  if(s.indexOf('ANSI')>=0){process.stdout.write('\\u001b[31mANSI-OUT\\u001b[0m');return;}
   process.stdout.write('E:'+JSON.stringify(s)+'\\n');
 });
 process.stdout.write('READY\\n');`;
@@ -219,25 +223,25 @@ describe('detached lifecycle, attach, prompt routing (E2E)', () => {
     expect(loadSessions().detachpro.filter((s) => s.sessionKey === runtime.key).length).toBe(1);
   });
 
-  it('attach viewport polls at <= 5 updates/sec and disconnect survives', async () => {
+  it('attach is stream-driven (no viewport polling) and disconnect survives', async () => {
     const stdin = new StdinSource();
     const res = new ResizeSource();
-    const renders: number[] = [];
-    const t0 = Date.now();
+    const renderTimes: number[] = [];
     const attach = attachFor(runtime, stdin, res, {
-      renderOverride: (lines) => {
-        renders.push(lines.length);
-        return lines.length < 200;
+      renderOverride: (chunk) => {
+        renderTimes.push(Date.now());
+        return chunk.length < 10000;
       },
     });
-    await sleep(750);
-    const elapsed = Date.now() - t0;
+    await sleep(700);
+    const settlesAt = Date.now();
     stdin.emit(Buffer.from([0x04]));
     expect(await attach).toBe(0);
 
-    expect(renders.length).toBeGreaterThanOrEqual(1);
-    const maxRenders = Math.ceil(elapsed / 200) + 1;
-    expect(renders.length).toBeLessThanOrEqual(maxRenders);
+    // Renders come only from the initial stream replay, never from a poller
+    // ticking during idle.
+    expect(renderTimes.length).toBeGreaterThanOrEqual(1);
+    expect(renderTimes.every((t) => t < settlesAt)).toBe(true);
 
     expect(isProcessAlive(runtime.runtimePid)).toBe(true);
     await waitFor(async () => {
@@ -293,6 +297,31 @@ describe('detached lifecycle, attach, prompt routing (E2E)', () => {
     expect(await attach).toBe(0);
   });
 
+  it('attach stream relays raw ANSI escape/UTF-8 output bytes losslessly', async () => {
+    const stdin = new StdinSource();
+    const res = new ResizeSource();
+    const renderedChunks: string[] = [];
+    const attach = attachFor(runtime, stdin, res, {
+      renderOverride: (chunk) => {
+        renderedChunks.push(chunk);
+        return true;
+      },
+    });
+    await waitFor(() => getDetachedEntry(runtime.runtimeId)!.attachedClients === 1, 5000);
+
+    await rawWrite(runtime.controllerEndpoint, 'ANSI');
+    await waitFor(() => renderedChunks.join('').includes('ANSI-OUT'), 5000);
+    const rendered = renderedChunks.join('');
+    expect(rendered).toContain('\u001b[31mANSI-OUT\u001b[0m');
+
+    await rawWrite(runtime.controllerEndpoint, 'HELLO-héllo—wörld');
+    await waitFor(() => renderedChunks.join('').includes('E:"HELLO-héllo—wörld"'), 5000);
+    expect(renderedChunks.join('')).toContain('HELLO-héllo—wörld');
+
+    stdin.emit(Buffer.from([0x04]));
+    expect(await attach).toBe(0);
+  });
+
   it('prompt routing reaches the detached runtime exactly once', async () => {
     await ensureBuilt();
     const marker = 'PLQM-' + Math.random().toString(36).slice(2);
@@ -330,19 +359,52 @@ describe('detached lifecycle, attach, prompt routing (E2E)', () => {
     const dead = await waitFor(() => !isProcessAlive(runtime.runtimePid), 8000);
     expect(dead).toBe(true);
   });
+
+  it('Ctrl-C (0x03) is raw harness input: the attach client stays attached and the harness-exit boundary cleans state', async () => {
+    const runtime2 = await startRuntime('e2e_runtime_ctrl_c');
+    started.push({ runtimePid: runtime2.runtimePid, agentPid: runtime2.agentPid });
+
+    const stdin = new StdinSource();
+    const res = new ResizeSource();
+    const attach = attachFor(runtime2, stdin, res);
+    await waitFor(() => getDetachedEntry(runtime2.runtimeId)!.attachedClients === 1, 5000);
+    // The detached runtime is still live and registered before the signal.
+    expect(isProcessAlive(runtime2.runtimePid)).toBe(true);
+
+    // Ctrl-C is forwarded to the harness, NOT an attach escape: the client
+    // is not detached by 0x03 itself (asserted deterministically in the
+    // AttachClient unit test). Here the harness interprets 0x03 as exit (like
+    // opencode); the runtime then exits and the normal cleanup removes the
+    // registry and session records — the attach client detaches only when the
+    // controller goes away with the runtime, never because it swallowed the byte.
+    stdin.emit(Buffer.from([0x03]));
+
+    const gone = await waitFor(() => getDetachedEntry(runtime2.runtimeId) === undefined, 8000);
+    expect(gone).toBe(true);
+    const gone2 = await waitFor(
+      () =>
+        (loadSessions().detachpro || []).filter((s) => s.sessionKey === 'e2e_runtime_ctrl_c')
+          .length === 0,
+      8000
+    );
+    expect(gone2).toBe(true);
+    const dead = await waitFor(() => !isProcessAlive(runtime2.runtimePid), 8000);
+    expect(dead).toBe(true);
+    const attachExit = await attach;
+    expect(attachExit).toBe(1);
+  });
 });
 
 function attachFor(
   runtime: Started,
   stdin: StdinSource,
   resize: ResizeSource,
-  extra?: { renderOverride?: (lines: string[]) => boolean }
+  extra?: { renderOverride?: (chunk: string) => boolean }
 ): Promise<number> {
   return attachCommand(runtime.key, {
     stdinSource: stdin,
     resizeSource: resize,
     renderOverride: extra?.renderOverride ?? (() => true),
-    pollIntervalMs: 200,
   });
 }
 
@@ -443,6 +505,63 @@ describe('detached registry / prune / cleanup isolation', () => {
     expect(m.controllerEndpoint).toBe(runtime.controllerEndpoint);
     expect(m.startedAt).toBe(runtime.entryStartedAt);
     expect(m.attachedClients).toBeDefined();
+  });
+
+  it('controller loss is handled honestly (no process kill): entry and session are preserved and marked unreachable, prompt reports offline, prune stays safe', async () => {
+    const injured = await startRuntime('loss_runtime_1');
+    started.push({ runtimePid: injured.runtimePid, agentPid: injured.agentPid });
+
+    expect(isProcessAlive(injured.runtimePid)).toBe(true);
+    const reachable = await waitFor(async () => {
+      const res = await sendControllerRequest(injured.controllerEndpoint, {
+        id: 'loss-pre',
+        method: 'ping',
+      });
+      return res.type === 'success';
+    }, 5000);
+    expect(reachable).toBe(true);
+    await expect(isEntryReachable(getDetachedEntry(injured.runtimeId)!)).resolves.toBe(true);
+
+    // Simulate the reported state: the controller endpoint vanishes while the
+    // runtime PID stays alive. There is no process-kill watchdog, so the
+    // runtime must NOT be terminated, and neither the detached entry nor the
+    // session record may be touched while the runtime wrapper PID is alive.
+    await fs.promises.unlink(injured.controllerEndpoint);
+
+    // No kill: the runtime PID must remain alive well past any watchdog window.
+    await sleep(700);
+    expect(isProcessAlive(injured.runtimePid)).toBe(true);
+
+    // Truthful state: the entry is retained but provably controller-unreachable.
+    const entry = getDetachedEntry(injured.runtimeId);
+    expect(entry).toBeDefined();
+    await expect(isEntryReachable(entry!)).resolves.toBe(false);
+
+    // The session survives too (liveness is gated on the alive runtime PID),
+    // so state is consistent rather than a live-looking entry with no session.
+    const sessionStill = (loadSessions().detachpro || []).filter(
+      (s) => s.sessionKey === 'loss_runtime_1'
+    ).length;
+    expect(sessionStill).toBe(1);
+
+    // `airelay prompt` must not claim the session is usable when the
+    // controller is gone — it reports controller offline, never a fake success
+    // and never an inconsistent "Session not found".
+    const errMsgs: string[] = [];
+    const errSpy = jest
+      .spyOn(console, 'error')
+      .mockImplementation((...a: unknown[]) => errMsgs.push(a.join(' ')));
+    const promptCode = await promptCommand('loss_runtime_1', 'ping-loss', { fastEnter: true });
+    errSpy.mockRestore();
+    expect(promptCode).toBe(1);
+    expect(errMsgs.some((e) => e.includes('Controller offline'))).toBe(true);
+    expect(errMsgs.some((e) => e.includes('✓'))).toBe(false);
+
+    // Prune stays safe: PID alive + controller unreachable -> kept (PID-reuse
+    // protection). Never deletes a live runtime, never kills anything.
+    const removed = await pruneDetachedEntries();
+    expect(removed).toBe(0);
+    expect(getDetachedEntry(injured.runtimeId)).toBeDefined();
   });
 
   it('duplicate-key ambiguity resolves deterministically to the newest runtime', () => {

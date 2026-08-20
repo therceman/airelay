@@ -13,6 +13,7 @@ import {
 import { getIpcEndpointPath } from '../utils/ipc-path';
 import { getAirelayVersion, CONTROLLER_PROTOCOL_VERSION } from '../utils/version';
 import { appendTranscriptSnapshot } from '../utils/transcript';
+import { serializeStreamFrame } from './protocol';
 import type { DeliveryStatus } from '../runtime/delivery';
 
 const VIEWPORT_ROWS = 30;
@@ -20,6 +21,13 @@ const VIEWPORT_COLS = 120;
 const SNAPSHOT_INTERVAL = 5000;
 const TRANSCRIPT_STABILITY_DELAY = 10000;
 const MAX_SNAPSHOT_LINES = 120;
+/** Bounded raw-output ring used as the lossless attach bootstrap (in-memory only). */
+const RAW_RING_MAX_BYTES = 256 * 1024;
+const RAW_RING_MAX_CHUNKS = 8192;
+/** Per-socket buffered-bytes cap; slow clients are detached deterministically. */
+const STREAM_MAX_BUFFERED_BYTES = 256 * 1024;
+/** Bound on server.close() during shutdown so stop() can never hang. */
+const STOP_TIMEOUT_MS = 2000;
 
 function isTranscriptStatusFooter(line: string): boolean {
   const normalized = line.trim();
@@ -38,6 +46,9 @@ export class SessionController {
   /** Historical ring buffer (100 lines) — exposed via session.output */
   private outputBuf: string[] = [];
   private readonly MAX_OUTPUT_LINES = 100;
+  /** Raw PTY output ring used as the bounded lossless attach bootstrap. */
+  private rawRing: string[] = [];
+  private rawRingBytes = 0;
   private readonly sessionKey: string;
   private readonly startedAt: number;
   private readonly airelayVersion: string;
@@ -119,7 +130,10 @@ export class SessionController {
 
   /**
    * Feed raw terminal output. Written to the headless xterm terminal
-   * for true viewport tracking and to the historical ring buffer.
+   * for true viewport tracking, to the historical ring buffer, to the
+   * bounded raw bootstrap ring, and broadcast losslessly to every attached
+   * stream client. Chunks are delivered in order; per-socket memory is
+   * bounded by the write buffering cap.
    */
   feedOutput(chunk: string): void {
     if (chunk.trim()) {
@@ -135,6 +149,33 @@ export class SessionController {
     }
     while (this.outputBuf.length > this.MAX_OUTPUT_LINES) {
       this.outputBuf.shift();
+    }
+    this.rawRing.push(chunk);
+    this.rawRingBytes += chunk.length;
+    while (this.rawRing.length > RAW_RING_MAX_CHUNKS || this.rawRingBytes > RAW_RING_MAX_BYTES) {
+      const dropped = this.rawRing.shift();
+      if (dropped) this.rawRingBytes -= dropped.length;
+    }
+    for (const socket of this.attachedClients) {
+      this.writeStreamFrame(socket, chunk);
+    }
+  }
+
+  /**
+   * Write one raw stream frame to an attached client. Enforces a per-socket
+   * buffered-bytes cap: a client that cannot keep up is detached instead of
+   * growing memory without bound.
+   */
+  private writeStreamFrame(socket: net.Socket, chunk: string): void {
+    if (socket.destroyed) return;
+    if (socket.writableLength > STREAM_MAX_BUFFERED_BYTES) {
+      socket.destroy();
+      return;
+    }
+    try {
+      socket.write(serializeStreamFrame(chunk));
+    } catch {
+      socket.destroy();
     }
   }
 
@@ -298,6 +339,16 @@ export class SessionController {
       } else if (request.method === 'session.attach') {
         this.attachedClients.add(socket);
         this.onAttachedChangeCb?.(this.attachedClients.size);
+        // Bounded lossless bootstrap. This block runs synchronously (no await):
+        // the client is registered, the raw-output ring is replayed, and the
+        // success response is written back-to-back, so no PTY output callback
+        // can interleave. Live chunks arriving afterwards are appended after
+        // the replay because socket.write preserves call order. Therefore the
+        // client observes [replay, success, live] with no lost or duplicated
+        // bytes at the attach boundary.
+        for (const chunk of this.rawRing) {
+          this.writeStreamFrame(socket, chunk);
+        }
         response = createSuccessResponse(request.id, { attached: this.attachedClients.size });
       } else if (request.method === 'session.detach') {
         if (this.attachedClients.delete(socket)) {
@@ -388,13 +439,46 @@ export class SessionController {
       this.pendingTranscriptTimer = null;
     }
     return new Promise((resolve) => {
-      if (this.server) {
-        this.server.close(() => {
-          this.cleanupSocket();
-          resolve();
-        });
-      } else {
+      const server = this.server;
+      let settled = false;
+      const finish = (): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.cleanupSocket();
         resolve();
+      };
+      if (!server) {
+        this.cleanupSocket();
+        resolve();
+        return;
+      }
+      // Force-close attached stream clients so server.close() completes
+      // promptly. Previously a raw-input client that never disconnected could
+      // keep server.close() waiting forever, leaving the runtime process alive
+      // with a dead controller and an unusable, live-looking registry/session.
+      for (const sock of this.attachedClients) {
+        sock.destroy();
+      }
+      this.attachedClients.clear();
+      this.onAttachedChangeCb?.(0);
+      // Bounded fallback: never allow shutdown to hang on a stuck connection.
+      const timer = setTimeout(() => {
+        try {
+          (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
+        } catch {
+          // Ignore close errors
+        }
+        finish();
+      }, STOP_TIMEOUT_MS);
+      try {
+        if (server.listening) {
+          server.close(finish);
+        } else {
+          finish();
+        }
+      } catch {
+        finish();
       }
     });
   }

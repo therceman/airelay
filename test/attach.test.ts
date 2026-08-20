@@ -1,9 +1,11 @@
 import net from 'net';
-import { parseRequest } from '../src/controller/protocol';
+import { parseRequest, serializeStreamFrame } from '../src/controller/protocol';
 import { IpcError, IpcErrorCodes } from '../src/types/controller';
 import { SessionController } from '../src/controller';
-import { AttachClient } from '../src/commands/attach';
+import { AttachClient, createStreamTransport, attachCommand } from '../src/commands/attach';
 import { createPty } from '../src/runtime/pty';
+import { addSession, deleteSession } from '../src/commands/sessions';
+import { useTestEnv } from './test-utils';
 
 jest.setTimeout(60000);
 
@@ -59,62 +61,156 @@ describe('new IPC protocol methods', () => {
       IpcErrorCodes.INVALID_PARAMS
     );
   });
+
+  it('serializes raw PTY chunks losslessly into newline-safe stream frames', () => {
+    const fixture = '\x1b[31mred\x1b[0m\n\x1b[?1049h\x1b[2J\x1b[Hlines\nwrap\r\n';
+    const frame = serializeStreamFrame(fixture);
+    const parsed = JSON.parse(frame) as { type: string; data: { chunk: string } };
+    expect(parsed.type).toBe('stream');
+    expect(parsed.data.chunk).toBe(fixture);
+    // Embedded newlines are escaped, so the frame itself stays on one line.
+    expect(frame.split('\n').length).toBe(2);
+  });
 });
 
-describe('SessionController attach/raw/resize over a real socket', () => {
-  it('tracks attached clients, forwards raw input verbatim, and propagates resize', async () => {
-    const controller = new SessionController('attach_sk1');
-    const rawRequests: Array<string | undefined> = [];
-    const resizeRequests: Array<{ cols?: number; rows?: number }> = [];
-
-    controller.onRequest((req) => {
-      if (req.method === 'session.input.raw') {
-        rawRequests.push((req.params as { data?: string }).data);
-        return { delivered: true };
-      }
-      if (req.method === 'session.resize') {
-        resizeRequests.push(req.params as { cols?: number; rows?: number });
-        return { resized: true };
-      }
-      return { handled: false };
+describe('SessionController raw stream bootstrap and broadcast over a real socket', () => {
+  async function openTransport(endpoint: string) {
+    const socket = new net.Socket();
+    await new Promise<void>((resolve, reject) => {
+      socket.once('error', reject);
+      socket.connect(endpoint, () => resolve());
     });
+    const chunks: string[] = [];
+    const transport = createStreamTransport(socket);
+    transport.onStream((c) => chunks.push(c));
+    return { socket, transport, chunks };
+  }
 
+  it('replays the bounded raw ring on attach and streams live chunks in order with no duplication', async () => {
+    const controller = new SessionController('stream_sk1');
+    controller.onRequest(() => ({ handled: true }));
     await controller.start();
     try {
-      const c1 = await connectAndAttach(controller.endpointPath);
-      expect(c1.attached).toBe(1);
-      const c2 = await connectAndAttach(controller.endpointPath);
-      expect(c2.attached).toBe(2);
+      controller.feedOutput('pre-1\n');
+      controller.feedOutput('\x1b[32mgreen\x1b[0m');
+      controller.feedOutput('pre-3\n');
 
-      const info = await sessionInfo(controller.endpointPath);
-      expect(info.attached).toBe(2);
+      const { socket, transport, chunks } = await openTransport(controller.endpointPath);
+      const attached = await transport.requestAttach();
+      expect(attached).toBe(1);
+      await until(() => chunks.length >= 3);
 
-      await rawWrite(controller.endpointPath, 'hello raw');
-      await rawWrite(controller.endpointPath, 'second');
-      expect(rawRequests).toEqual(['hello raw', 'second']);
+      // Bootstrap replay contains exactly the pre-attach chunks, in order.
+      expect([...chunks]).toEqual(['pre-1\n', '\x1b[32mgreen\x1b[0m', 'pre-3\n']);
 
-      await resizeWrite(controller.endpointPath, 100, 40);
-      expect(resizeRequests).toEqual([{ cols: 100, rows: 40 }]);
-
-      c1.socket.destroy();
-      await waitForAttached(controller.endpointPath, 1);
-      c2.socket.destroy();
-      await waitForAttached(controller.endpointPath, 0);
+      // Live chunks after attach are appended once, in order, with no
+      // replayed duplicate of the boundary chunk.
+      controller.feedOutput('post-1\n');
+      controller.feedOutput('post-2\r\n');
+      await until(() => chunks.length >= 5);
+      expect([...chunks]).toEqual([
+        'pre-1\n',
+        '\x1b[32mgreen\x1b[0m',
+        'pre-3\n',
+        'post-1\n',
+        'post-2\r\n',
+      ]);
+      socket.destroy();
     } finally {
       await controller.stop();
     }
   });
+
+  it('feeds a chunk raced at the attach boundary exactly once on a fresh client', async () => {
+    const controller = new SessionController('stream_sk2');
+    controller.onRequest(() => ({ handled: true }));
+    await controller.start();
+    try {
+      controller.feedOutput('seed\n');
+      const { socket, transport, chunks } = await openTransport(controller.endpointPath);
+      // Race: output fed right before the attach request is transmitted.
+      controller.feedOutput('boundary\n');
+      controller.feedOutput('after-send\n');
+      const attached = await transport.requestAttach();
+      expect(attached).toBe(1);
+      controller.feedOutput('live\n');
+      await until(() => chunks.length >= 4);
+
+      // No chunk appears twice and order is preserved regardless of which side
+      // of the registration boundary "boundary" landed on.
+      const seen = new Set<string>();
+      for (const c of chunks) {
+        expect(seen.has(c)).toBe(false);
+        seen.add(c);
+      }
+      expect(chunks[0]).toBe('seed\n');
+      expect(chunks.includes('boundary\n')).toBe(true);
+      expect(chunks.includes('after-send\n')).toBe(true);
+      expect(chunks[chunks.length - 1]).toBe('live\n');
+      socket.destroy();
+    } finally {
+      await controller.stop();
+    }
+  });
+
+  it('broadcasts the same lossless stream to multiple attached clients deterministically', async () => {
+    const controller = new SessionController('stream_sk3');
+    controller.onRequest(() => ({ handled: true }));
+    await controller.start();
+    try {
+      controller.feedOutput('base\n');
+      const a = await openTransport(controller.endpointPath);
+      const b = await openTransport(controller.endpointPath);
+      const [ca, cb] = await Promise.all([
+        a.transport.requestAttach(),
+        b.transport.requestAttach(),
+      ]);
+      expect(ca).toBe(1);
+      expect(cb).toBe(2);
+
+      controller.feedOutput('shared-1\n\x1b[33myellow\x1b[0m');
+      controller.feedOutput('shared-2\n');
+      await until(() => a.chunks.length >= 2 && b.chunks.length >= 2);
+
+      // Bootstrap plus live must be identical across clients.
+      expect(a.chunks.join('')).toBe('base\nshared-1\n\x1b[33myellow\x1b[0mshared-2\n');
+      expect(b.chunks.join('')).toBe(a.chunks.join(''));
+      a.socket.destroy();
+      b.socket.destroy();
+      await waitForAttached(controller.endpointPath, 0);
+      expect(controller.getAttachedClientCount()).toBe(0);
+    } finally {
+      await controller.stop();
+    }
+  });
+
+  it('stop() force-closes a still-attached socket and resolves promptly (bounded shutdown)', async () => {
+    const controller = new SessionController('stop_sk1');
+    controller.onRequest(() => ({ handled: true }));
+    await controller.start();
+    const { socket, transport } = await openTransport(controller.endpointPath);
+    const attached = await transport.requestAttach();
+    expect(attached).toBe(1);
+
+    const start = Date.now();
+    await controller.stop();
+    expect(Date.now() - start).toBeLessThan(5000);
+    expect(controller.getAttachedClientCount()).toBe(0);
+    await until(() => socket.destroyed);
+  });
 });
 
-describe('AttachClient core behavior', () => {
+describe('AttachClient stream behavior', () => {
   class FakeTransport {
     raw: string[] = [];
     resizes: Array<[number, number]> = [];
-    viewportCalls = 0;
-    lines: string[] = [];
-    async requestViewport(): Promise<string[]> {
-      this.viewportCalls += 1;
-      return this.lines;
+    stream: ((chunk: string) => void) | null = null;
+    closeCb: (() => void) | null = null;
+    rendered: string[] = [];
+    requestedAttach = 0;
+    async requestAttach(): Promise<number> {
+      this.requestedAttach += 1;
+      return 1;
     }
     sendRawInput(data: string): void {
       this.raw.push(data);
@@ -122,108 +218,87 @@ describe('AttachClient core behavior', () => {
     sendResize(cols: number, rows: number): void {
       this.resizes.push([cols, rows]);
     }
+    onStream(cb: (chunk: string) => void): void {
+      this.stream = cb;
+    }
+    onClose(cb: () => void): void {
+      this.closeCb = cb;
+    }
+    close(): void {}
   }
 
   const idleStdin = { onData: () => {} };
   const idleResize = { onResize: () => {} };
 
-  it('raw input is forwarded immediately with exact bytes (no Enter), independent of polling', () => {
-    const transport = new FakeTransport();
-    const renders: string[][] = [];
-    const client = new AttachClient({
-      pollIntervalMs: 200,
+  function makeClient(transport: FakeTransport) {
+    return {
+      client: new AttachClient({
+        transport,
+        stdin: idleStdin,
+        resize: idleResize,
+        cols: 80,
+        rows: 24,
+        render: (chunk: string): boolean => {
+          transport.rendered.push(chunk);
+          return true;
+        },
+        onDetach: () => {},
+      }),
       transport,
-      stdin: idleStdin,
-      resize: idleResize,
-      cols: 80,
-      rows: 24,
-      render: (lines) => {
-        renders.push(lines);
-        return true;
-      },
-      onDetach: () => {},
-    });
-    // Do NOT start polling: raw must still be deliverable.
-    expect(client.writeRaw(Buffer.from('abc'))).resolves.toBe(undefined);
-    expect(transport.raw).toEqual(['abc']);
-    expect(renders.length).toBe(0);
-    expect(transport.resizes.length).toBe(0);
+    };
+  }
+
+  it('raw input is forwarded immediately with exact bytes (no Enter), independent of any output', async () => {
+    const t = new FakeTransport();
+    const { client } = makeClient(t);
+    client.start();
+    await client.writeRaw(Buffer.from('abc'));
+    expect(t.raw).toEqual(['abc']);
+    expect(t.rendered.length).toBe(0);
   });
 
-  it('polling alone never produces input and never appends Enter', async () => {
-    const transport = new FakeTransport();
-    transport.lines = ['A', 'B'];
-    const renders: string[][] = [];
+  it('stream chunks are rendered verbatim and in order, without clear/redraw injection', async () => {
+    const t = new FakeTransport();
+    const { client } = makeClient(t);
+    client.start();
+    const fixture = ['\x1b[31mRED\x1b[0m\n', '\x1b[?1049h', '\x1b[Hhello', '\x1b[?1049l'];
+    for (const chunk of fixture) t.stream!(chunk);
+    expect(t.rendered).toEqual(fixture);
+    expect(t.rendered.join('').includes('\x1b[2J')).toBe(false);
+  });
+
+  it('a render failure detaches with terminal-gone', () => {
+    const t = new FakeTransport();
+    let reason = '';
     const client = new AttachClient({
-      pollIntervalMs: 20,
-      transport,
+      transport: t,
       stdin: idleStdin,
       resize: idleResize,
       cols: 80,
       rows: 24,
-      render: (lines) => {
-        renders.push(lines);
-        return true;
+      render: () => false,
+      onDetach: (r) => {
+        reason = r;
       },
-      onDetach: () => {},
     });
     client.start();
-    await new Promise((r) => setTimeout(r, 150));
-    client.detach('manual');
-    expect(renderCount(renders)).toBeGreaterThanOrEqual(1);
-    expect(transport.raw.length).toBe(0);
+    t.stream!('boom');
+    expect(reason).toBe('terminal-gone');
+    expect(client.isDetached()).toBe(true);
   });
 
   it('resize is forwarded immediately via dedicated IPC', () => {
-    const transport = new FakeTransport();
-    const client = new AttachClient({
-      pollIntervalMs: 200,
-      transport,
-      stdin: idleStdin,
-      resize: idleResize,
-      cols: 80,
-      rows: 24,
-      render: () => true,
-      onDetach: () => {},
-    });
+    const t = new FakeTransport();
+    const { client } = makeClient(t);
     client.writeResize(132, 43);
-    expect(transport.resizes).toEqual([[132, 43]]);
+    expect(t.resizes).toEqual([[132, 43]]);
   });
 
-  it('viewport polling stays at a bounded cadence (max 5 updates/sec)', async () => {
-    const transport = new FakeTransport();
-    transport.lines = ['x'];
-    const renders: string[][] = [];
-    const client = new AttachClient({
-      pollIntervalMs: 200,
-      transport,
-      stdin: idleStdin,
-      resize: idleResize,
-      cols: 80,
-      rows: 24,
-      render: (lines) => {
-        renders.push(lines);
-        return true;
-      },
-      onDetach: () => {},
-    });
-    const t0 = Date.now();
-    client.start();
-    await new Promise((r) => setTimeout(r, 700));
-    const elapsed = Date.now() - t0;
-    client.detach('manual');
-
-    const limit = Math.ceil(elapsed / 200) + 1;
-    expect(renderCount(renders)).toBeGreaterThanOrEqual(1);
-    expect(renderCount(renders)).toBeLessThanOrEqual(limit);
-  });
-
-  it('Ctrl-D detaches without sending input or stopping anything', () => {
-    const transport = new FakeTransport();
+  it('Ctrl-D detaches without sending input or stopping anything', async () => {
+    const t = new FakeTransport();
     let reason = '';
     const client = new AttachClient({
-      pollIntervalMs: 200,
-      transport,
+      transport: t,
       stdin: idleStdin,
       resize: idleResize,
       cols: 80,
@@ -233,10 +308,166 @@ describe('AttachClient core behavior', () => {
         reason = r;
       },
     });
-    void client.writeRaw(Buffer.from([0x04]));
+    client.start();
+    await client.writeRaw(Buffer.from([0x04]));
     expect(reason).toBe('ctrl-d');
-    expect(transport.raw.length).toBe(0);
+    expect(t.raw.length).toBe(0);
     expect(client.isDetached()).toBe(true);
+  });
+
+  it('Ctrl-C (0x03) is forwarded raw to the harness and does not detach (explicit boundary)', async () => {
+    const t = new FakeTransport();
+    let reason = '';
+    const client = new AttachClient({
+      transport: t,
+      stdin: idleStdin,
+      resize: idleResize,
+      cols: 80,
+      rows: 24,
+      render: () => true,
+      onDetach: (r) => {
+        reason = r;
+      },
+    });
+    client.start();
+    await client.writeRaw(Buffer.from([0x03]));
+    expect(t.raw).toEqual(['\x03']);
+    expect(reason).toBe('');
+    expect(client.isDetached()).toBe(false);
+    await client.writeRaw(Buffer.from('ls'));
+    expect(t.raw).toEqual(['\x03', 'ls']);
+    expect(client.isDetached()).toBe(false);
+    await client.writeRaw(Buffer.from([0x04]));
+    expect(reason).toBe('ctrl-d');
+    expect(client.isDetached()).toBe(true);
+  });
+
+  it('a socket close detaches with controller-gone', () => {
+    const t = new FakeTransport();
+    let reason = '';
+    const client = new AttachClient({
+      transport: t,
+      stdin: idleStdin,
+      resize: idleResize,
+      cols: 80,
+      rows: 24,
+      render: () => true,
+      onDetach: (r) => {
+        reason = r;
+      },
+    });
+    client.start();
+    t.closeCb!();
+    expect(reason).toBe('controller-gone');
+    expect(client.isDetached()).toBe(true);
+  });
+});
+
+describe('createStreamTransport framing', () => {
+  it('buffers stream frames until a reader attaches, then replays them in order', async () => {
+    const server = net.createServer((socket) => {
+      socket.write(serializeStreamFrame('early-1\n'));
+      socket.write(serializeStreamFrame('early-2\x1b[0m'));
+    });
+    const endpoint = `/tmp/airelay-t${process.pid}-${Date.now()}.sock`;
+    await new Promise<void>((resolve) => server.listen(endpoint, () => resolve()));
+    const socket = new net.Socket();
+    await new Promise<void>((resolve, reject) => {
+      socket.once('error', reject);
+      socket.connect(endpoint, () => resolve());
+    });
+    // Frames may arrive before onStream is registered; they must be retained.
+    const received: string[] = [];
+    await new Promise((r) => setTimeout(r, 150));
+    const transport = createStreamTransport(socket);
+    transport.onStream((c) => received.push(c));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(received).toEqual(['early-1\n', 'early-2\x1b[0m']);
+    socket.destroy();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it('rejects pending handshake and fires onClose when the socket closes', async () => {
+    const server = net.createServer((socket) => {
+      socket.destroy();
+    });
+    const endpoint = `/tmp/airelay-t${process.pid}-${Date.now()}-b.sock`;
+    await new Promise<void>((resolve) => server.listen(endpoint, () => resolve()));
+    const socket = new net.Socket();
+    await new Promise<void>((resolve, reject) => {
+      socket.once('error', reject);
+      socket.connect(endpoint, () => resolve());
+    });
+    let closed = 0;
+    const transport = createStreamTransport(socket);
+    transport.onClose(() => {
+      closed += 1;
+    });
+    await expect(transport.requestAttach()).rejects.toThrow('socket closed');
+    expect(closed).toBe(1);
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+});
+
+describe('attachCommand structured compatibility error', () => {
+  const testEnv = useTestEnv();
+
+  it('returns 1 with a clear structured message when the controller lacks session.attach', async () => {
+    // Fake controller that answers preflight but rejects session.attach with
+    // METHOD_NOT_FOUND (older protocol parity).
+    const server = net.createServer((socket) => {
+      let buffer = '';
+      const onData = (chunk: Buffer): void => {
+        buffer += chunk.toString();
+        let idx: number;
+        while ((idx = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 1);
+          if (line.trim() === '') continue;
+          const req = JSON.parse(line) as { id: string; method: string };
+          if (req.method === 'session.info') {
+            socket.write(
+              JSON.stringify({
+                id: req.id,
+                type: 'success',
+                data: { airelayVersion: '0.1.68', controllerProtocolVersion: 1 },
+              }) + '\n'
+            );
+          } else if (req.method === 'session.attach') {
+            socket.write(
+              JSON.stringify({
+                id: req.id,
+                type: 'error',
+                error: {
+                  code: IpcErrorCodes.METHOD_NOT_FOUND,
+                  message: 'Unknown method "session.attach"',
+                },
+              }) + '\n'
+            );
+          }
+        }
+      };
+      socket.on('data', onData);
+    });
+    const endpoint = `/tmp/airelay-t${process.pid}-${Date.now()}-compat.sock`;
+    await new Promise<void>((resolve) => server.listen(endpoint, () => resolve()));
+
+    addSession('compatpro', 'compat-id', testEnv.testDir, 'compat_key', endpoint);
+    const errors: string[] = [];
+    const errSpy = jest.spyOn(console, 'error').mockImplementation((...a: unknown[]) => {
+      errors.push(a.join(' '));
+    });
+    const code = await attachCommand('compat_key', {
+      stdinSource: { onData: () => {} },
+      resizeSource: { onResize: () => {} },
+      renderOverride: () => true,
+    });
+    errSpy.mockRestore();
+    deleteSession('compatpro', 'compat-id');
+    expect(code).toBe(1);
+    expect(errors.some((e) => e.includes('Unknown method "session.attach"'))).toBe(true);
+    expect(errors.some((e) => e.includes('Controller closed'))).toBe(false);
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 });
 
@@ -277,50 +508,6 @@ describe('pty direct-path regression (detached vs inherited terminal)', () => {
 
 // ---- helpers ----
 
-function renderCount(renders: string[][]): number {
-  return renders.length;
-}
-
-function rawWrite(endpoint: string, data: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const socket = new net.Socket();
-    socket.once('error', reject);
-    socket.connect(endpoint, () => {
-      socket.write(
-        JSON.stringify({
-          id: `raw-${Math.random().toString(36).slice(2)}`,
-          method: 'session.input.raw',
-          params: { data },
-        }) + '\n'
-      );
-      setTimeout(() => {
-        socket.destroy();
-        resolve();
-      }, 120);
-    });
-  });
-}
-
-function resizeWrite(endpoint: string, cols: number, rows: number): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const socket = new net.Socket();
-    socket.once('error', reject);
-    socket.connect(endpoint, () => {
-      socket.write(
-        JSON.stringify({
-          id: `rz-${Date.now()}`,
-          method: 'session.resize',
-          params: { cols, rows },
-        }) + '\n'
-      );
-      setTimeout(() => {
-        socket.destroy();
-        resolve();
-      }, 120);
-    });
-  });
-}
-
 function sessionInfo(endpoint: string): Promise<{ attached?: number }> {
   return new Promise((resolve, reject) => {
     const socket = new net.Socket();
@@ -357,22 +544,11 @@ function waitForAttached(endpoint: string, expected: number): Promise<void> {
   });
 }
 
-function connectAndAttach(endpoint: string): Promise<{ socket: net.Socket; attached: number }> {
-  return new Promise((resolve, reject) => {
-    const socket = new net.Socket();
-    let buffer = '';
-    socket.once('error', reject);
-    socket.on('data', (d: Buffer) => {
-      buffer += d.toString();
-      const idx = buffer.indexOf('\n');
-      if (idx !== -1) {
-        const msg = JSON.parse(buffer.slice(0, idx));
-        socket.removeAllListeners('data');
-        resolve({ socket, attached: (msg.data as { attached?: number }).attached ?? 0 });
-      }
-    });
-    socket.connect(endpoint, () => {
-      socket.write(JSON.stringify({ id: 'attach-hello', method: 'session.attach' }) + '\n');
-    });
-  });
+async function until(cond: () => boolean, timeoutMs = 4000, intervalMs = 20): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (cond()) return;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error('condition not met within timeout');
 }

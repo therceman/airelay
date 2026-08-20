@@ -122,6 +122,15 @@ export function serializeResponse(response: IpcResponse): string {
 }
 
 /**
+ * Serialize a raw PTY output notification for an attached stream client.
+ * JSON-encodes the chunk as a single string so embedded newlines/control
+ * bytes cannot break the newline-delimited IPC framing.
+ */
+export function serializeStreamFrame(chunk: string): string {
+  return JSON.stringify({ type: 'stream', data: { chunk } }) + '\n';
+}
+
+/**
  * Processes a buffer string, extracting complete newline-delimited lines.
  * Calls onLine for each complete line. Returns the incomplete remainder.
  * Used by both the IPC server (controller) and client (prompt) for framing.

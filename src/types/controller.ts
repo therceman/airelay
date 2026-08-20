@@ -68,6 +68,19 @@ export interface IpcErrorResponse {
 
 export type IpcResponse = IpcSuccessResponse | IpcErrorResponse;
 
+/**
+ * Server→client notification carrying a raw PTY output chunk for the attach
+ * stream. It is not a request and is never parsed by `parseRequest`; the
+ * attach client routes it by its `type` field.
+ */
+export interface IpcStreamFrame {
+  type: 'stream';
+  data: {
+    /** Raw terminal bytes (ANSI/control/UTF-8) as delivered by the PTY. */
+    chunk: string;
+  };
+}
+
 export const IpcErrorCodes = {
   PARSE_ERROR: 'PARSE_ERROR',
   INVALID_REQUEST: 'INVALID_REQUEST',
