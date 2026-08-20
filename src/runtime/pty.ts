@@ -6,6 +6,12 @@ export interface PtyOptions {
   cwd?: string;
   env?: Record<string, string>;
   onOutput?: (chunk: string) => void;
+  /**
+   * Detached mode: the PTY is owned by a supervised runtime process that has
+   * no inherited terminal. Output is only forwarded to onOutput (never to
+   * the parent stdout), and no stdin/resize listeners are attached.
+   */
+  detached?: boolean;
 }
 
 export interface PtyInstance {
@@ -28,16 +34,22 @@ export function createPty(options: PtyOptions): PtyInstance {
     env: { ...process.env, ...options.env } as { [key: string]: string },
   });
 
-  // Forward PTY output to parent's stdout and optional onOutput callback
+  // Forward PTY output to parent's stdout and optional onOutput callback.
+  // In detached mode, output is only fed to onOutput (the controller's ring
+  // buffer / viewport); it must not leak to the launcher's stdio.
   term.onData((data: string) => {
-    process.stdout.write(data);
+    if (!options.detached) {
+      process.stdout.write(data);
+    }
     options.onOutput?.(data);
   });
 
-  // Forward parent's stdin to PTY (raw mode for proper TTY handling)
+  // Forward parent's stdin to PTY (raw mode for proper TTY handling).
+  // Detached runtimes never inherit stdin, so attach is performed later
+  // through dedicated IPC instead.
   const cleanups: (() => void)[] = [];
 
-  if (process.stdin.isTTY) {
+  if (!options.detached && process.stdin.isTTY) {
     process.stdin.setRawMode?.(true);
     const onStdinData = (chunk: Buffer) => {
       term.write(chunk.toString());
@@ -53,8 +65,9 @@ export function createPty(options: PtyOptions): PtyInstance {
     });
   }
 
-  // Forward terminal resize events to PTY
-  if (process.stdout.isTTY) {
+  // Forward terminal resize events to PTY.
+  // Detached runtimes have no parent terminal to watch.
+  if (!options.detached && process.stdout.isTTY) {
     const onResize = (): void => {
       const c = process.stdout.columns;
       const r = process.stdout.rows;

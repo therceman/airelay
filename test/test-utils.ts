@@ -11,6 +11,8 @@ export interface TestEnv {
   pidsPath: string;
   socketsDir: string;
   transcriptsDir: string;
+  detachedPath: string;
+  detachedReceiptsDir: string;
   originalEnv: {
     AIRELAY_CONFIG?: string;
     AIRELAY_SESSIONS?: string;
@@ -19,6 +21,8 @@ export interface TestEnv {
     AIRELAY_PIDS?: string;
     AIRELAY_SOCKETS_DIR?: string;
     AIRELAY_TRANSCRIPTS_DIR?: string;
+    AIRELAY_DETACHED?: string;
+    AIRELAY_DETACHED_RECEIPTS_DIR?: string;
   };
 }
 
@@ -49,6 +53,8 @@ export function setupTestEnv(): TestEnv {
   const pidsPath = path.join(testDir, 'pids.json');
   const socketsDir = path.join(testDir, 'sockets');
   const transcriptsDir = path.join(testDir, 'transcripts');
+  const detachedPath = path.join(testDir, 'detached.json');
+  const detachedReceiptsDir = path.join(testDir, 'receipts');
 
   const originalEnv = {
     AIRELAY_CONFIG: process.env.AIRELAY_CONFIG,
@@ -58,6 +64,8 @@ export function setupTestEnv(): TestEnv {
     AIRELAY_PIDS: process.env.AIRELAY_PIDS,
     AIRELAY_SOCKETS_DIR: process.env.AIRELAY_SOCKETS_DIR,
     AIRELAY_TRANSCRIPTS_DIR: process.env.AIRELAY_TRANSCRIPTS_DIR,
+    AIRELAY_DETACHED: process.env.AIRELAY_DETACHED,
+    AIRELAY_DETACHED_RECEIPTS_DIR: process.env.AIRELAY_DETACHED_RECEIPTS_DIR,
   };
 
   return {
@@ -69,6 +77,8 @@ export function setupTestEnv(): TestEnv {
     pidsPath,
     socketsDir,
     transcriptsDir,
+    detachedPath,
+    detachedReceiptsDir,
     originalEnv,
   };
 }
@@ -88,6 +98,8 @@ export function setupEnv(env: TestEnv): void {
   process.env.AIRELAY_PIDS = env.pidsPath;
   process.env.AIRELAY_SOCKETS_DIR = env.socketsDir;
   process.env.AIRELAY_TRANSCRIPTS_DIR = env.transcriptsDir;
+  process.env.AIRELAY_DETACHED = env.detachedPath;
+  process.env.AIRELAY_DETACHED_RECEIPTS_DIR = env.detachedReceiptsDir;
 }
 
 /**
@@ -145,6 +157,18 @@ export function cleanupEnv(env: TestEnv): void {
     process.env.AIRELAY_TRANSCRIPTS_DIR = env.originalEnv.AIRELAY_TRANSCRIPTS_DIR;
   } else {
     delete process.env.AIRELAY_TRANSCRIPTS_DIR;
+  }
+
+  if (env.originalEnv.AIRELAY_DETACHED) {
+    process.env.AIRELAY_DETACHED = env.originalEnv.AIRELAY_DETACHED;
+  } else {
+    delete process.env.AIRELAY_DETACHED;
+  }
+
+  if (env.originalEnv.AIRELAY_DETACHED_RECEIPTS_DIR) {
+    process.env.AIRELAY_DETACHED_RECEIPTS_DIR = env.originalEnv.AIRELAY_DETACHED_RECEIPTS_DIR;
+  } else {
+    delete process.env.AIRELAY_DETACHED_RECEIPTS_DIR;
   }
 }
 

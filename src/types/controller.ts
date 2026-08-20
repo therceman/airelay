@@ -6,7 +6,11 @@ export type IpcMethod =
   | 'session.input'
   | 'session.output'
   | 'session.viewport'
-  | 'session.interrupt';
+  | 'session.interrupt'
+  | 'session.attach'
+  | 'session.detach'
+  | 'session.input.raw'
+  | 'session.resize';
 
 export interface IpcRequest {
   id: string;
@@ -35,6 +39,16 @@ export interface SessionInputParams {
    * Use 0 or omit for no delay.
    */
   submitDelayMs?: number;
+}
+
+/** Narrow raw PTY input operation for the attach client (no submit/Enter logic). */
+export interface SessionRawInputParams {
+  data: string;
+}
+
+export interface SessionResizeParams {
+  cols: number;
+  rows: number;
 }
 
 export interface IpcSuccessResponse<T = unknown> {
@@ -86,4 +100,11 @@ export interface SessionInfoData {
   startedAt: number;
   lastOutputChangeAt?: number;
   delivery?: DeliveryStatus;
+  /** Number of currently attached viewport clients (raw input sockets). */
+  attached?: number;
+}
+
+export interface SessionAttachData {
+  /** Number of attached clients after this attach/detach operation. */
+  attached: number;
 }

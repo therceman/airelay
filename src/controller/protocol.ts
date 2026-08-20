@@ -6,6 +6,8 @@ import {
   IpcErrorCodes,
   IpcError,
   SessionInputParams,
+  SessionRawInputParams,
+  SessionResizeParams,
 } from '../types/controller';
 
 const VALID_METHODS: IpcMethod[] = [
@@ -15,6 +17,10 @@ const VALID_METHODS: IpcMethod[] = [
   'session.output',
   'session.viewport',
   'session.interrupt',
+  'session.attach',
+  'session.detach',
+  'session.input.raw',
+  'session.resize',
 ];
 
 export function parseRequest(raw: string): IpcRequest {
@@ -64,6 +70,35 @@ export function parseRequest(raw: string): IpcRequest {
     }
     if (typeof inputParams.text !== 'string' && inputParams.text !== undefined) {
       throw new IpcError(IpcErrorCodes.INVALID_PARAMS, '"text" must be a string if provided');
+    }
+  }
+
+  if (method === 'session.input.raw') {
+    const rawParams = params as unknown as SessionRawInputParams;
+    if (typeof rawParams.data !== 'string') {
+      throw new IpcError(
+        IpcErrorCodes.INVALID_PARAMS,
+        '"session.input.raw" requires a string "data"'
+      );
+    }
+  }
+
+  if (method === 'session.resize') {
+    const resizeParams = params as unknown as SessionResizeParams;
+    const cols = resizeParams.cols;
+    const rows = resizeParams.rows;
+    const validSize =
+      typeof cols === 'number' &&
+      Number.isInteger(cols) &&
+      cols > 0 &&
+      typeof rows === 'number' &&
+      Number.isInteger(rows) &&
+      rows > 0;
+    if (!validSize) {
+      throw new IpcError(
+        IpcErrorCodes.INVALID_PARAMS,
+        '"session.resize" requires positive integer "cols" and "rows"'
+      );
     }
   }
 

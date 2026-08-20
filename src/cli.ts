@@ -21,6 +21,12 @@ import { heartbeatCommand } from './commands/heartbeat';
 import { historyCommand, historyHelpCommand, removeHistoryCommand } from './commands/history';
 import { transcriptCommand } from './commands/transcript';
 import { interruptCommand } from './commands/interrupt';
+import { attachCommand } from './commands/attach';
+import {
+  detachedRuntimeMain,
+  detachedListCommand,
+  detachedPruneCommand,
+} from './commands/detached';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -57,6 +63,9 @@ const KNOWN_COMMANDS = [
   'history',
   'transcript',
   'interrupt',
+  'attach',
+  'detached',
+  '__detach-run',
 ];
 const PROFILE_COMMANDS = ['run', 'which', 'doctor', 'start'];
 
@@ -113,18 +122,25 @@ function parseArgs(argv: string[]): ParseResult {
       break;
     }
 
-    if (profileFound) {
-      // For start command, intercept known flags before they become harness args
-      if (command === 'start' && arg === '--key') {
-        if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
-          flags.key = args[i + 1];
-          i += 2;
-        } else {
-          flags._error = '--key requires a value.';
-          break;
-        }
-        continue;
+    // Intercept airelay-owned start flags even after the profile is bound.
+    // Otherwise they would leak into the harness args.
+    if (command === 'start' && arg === '--detached') {
+      flags.detached = true;
+      i++;
+      continue;
+    }
+    if ((command === 'start' || command === '__detach-run') && arg === '--key') {
+      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
+        flags.key = args[i + 1];
+        i += 2;
+      } else {
+        flags._error = '--key requires a value.';
+        break;
       }
+      continue;
+    }
+
+    if (profileFound) {
       extraArgs.push(arg);
       i++;
       continue;
@@ -190,7 +206,7 @@ Commands:
   create <name>         Create a new profile
   new                   Create a new profile (interactive)
   resume <key>          Resume a session by profile or session key
-  start <profile>       Start a new session (--key <key>, -- <harness_args>)
+  start <profile>       Start a new session (--key <key>, --detached, -- <harness_args>)
   list                  List all profiles
   which <profile>       Show resolved runtime details
   doctor [profile]      Run diagnostics
@@ -201,6 +217,8 @@ Commands:
   isolate [name]        Show/set up overlay for codex executable profiles
   remove [name]         Remove profile overlay (safe, keeps shared data)
   prompt <session>      Send input to an active session
+  attach <session>      Attach a viewport client to a runtime (detach with Ctrl-D)
+  detached              List detached runtimes (--json, --prune)
   sessions              List saved sessions
   session-status <key>  Show session health and UI status
   interrupt <key>       Interrupt the active turn without destroying the session
@@ -259,6 +277,7 @@ Prompt options:
 
 Start options:
   --key <key>              Custom session key (overrides auto-generated key)
+  --detached               Launch a supervised detached runtime (survives launcher exit)
 
 Session options:
   --json                   Output in JSON format
@@ -308,7 +327,7 @@ async function runCli(): Promise<void> {
       case 'start':
         if (!profile) {
           console.error('Error: Profile name required');
-          console.error('Usage: airelay start <profile> [--key <key>] [-- <harness_args...>]');
+          console.error('Usage: airelay start <profile> [--key <key>] [--detached] [-- <harness_args...>]');
           process.exit(1);
         }
         if (flags._error) {
@@ -331,10 +350,53 @@ async function runCli(): Promise<void> {
           }
           await startCommand(profile, extraArgs, {
             key: sessionKey,
+            detached: flags.detached === true,
             invocationCwd: process.cwd(),
             launchArgv: process.argv.slice(2),
           });
         }
+        break;
+
+      case '__detach-run':
+        if (!profile) {
+          console.error('Error: Profile name required');
+          process.exit(1);
+        }
+        {
+          // Hidden internal entrypoint for the supervised detached runtime process.
+          const sessionKey = flags.key as string | boolean | undefined;
+          const exitCode = await detachedRuntimeMain(profile, extraArgs, {
+            key:
+              typeof sessionKey === 'string' && sessionKey.trim()
+                ? sessionKey
+                : undefined,
+          });
+          process.exit(exitCode);
+        }
+        break;
+
+      case 'attach':
+        if (!profile) {
+          console.error('Error: Session key or ID required');
+          console.error('Usage: airelay attach <session>');
+          process.exit(1);
+        }
+        {
+          const exitCode = await attachCommand(profile);
+          process.exit(exitCode);
+        }
+        break;
+
+      case 'detached':
+        if (flags.prune === true) {
+          await detachedPruneCommand();
+          break;
+        }
+        if (flags.json === true) {
+          await detachedListCommand({ json: true });
+          break;
+        }
+        await detachedListCommand();
         break;
 
       case 'list':

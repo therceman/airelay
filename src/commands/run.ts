@@ -13,11 +13,28 @@ import { CapacityContinuationWatcher } from '../runtime/capacity-watcher';
 import { InputSubmitWatcher } from '../runtime/input-submit-watcher';
 import { DeliveryTracker } from '../runtime/delivery';
 import { InterruptController, InterruptResult } from '../runtime/interrupt';
+import {
+  addDetachedEntry,
+  removeDetachedEntry,
+  updateDetachedEntry,
+} from '../runtime/detached-registry';
 import fs from 'fs';
 
 function generateSessionKey(profileName: string): string {
   const suffix = Math.random().toString(36).slice(2, 6);
   return `${profileName}_${suffix}`;
+}
+
+/** Info handed to `onDetachedReady` once a detached runtime is fully started. */
+export interface DetachedReadyInfo {
+  sessionKey: string;
+  runtimeId: string;
+  runtimePid: number;
+  agentPid: number;
+  controllerEndpoint: string;
+  profile: string;
+  cwd: string;
+  startedAt: number;
 }
 
 /** Extract a harness resume session id from extra args (e.g. resume <id> or -s <id>). */
@@ -69,6 +86,7 @@ function buildProfileEnv(
 function setupController(
   sessionKey: string,
   ptyWrite: { current: ((data: string) => void) | null },
+  ptyResize: { current: ((cols: number, rows: number) => void) | null },
   deliveryTracker: DeliveryTracker,
   onInputInjected?: (deliveryId: string, text: string, submitValue: string) => void,
   onInterrupt?: () => Promise<InterruptResult>
@@ -77,6 +95,27 @@ function setupController(
   controller.setDeliveryStatusProvider(() => deliveryTracker.get());
 
   controller.onRequest(async (request) => {
+    if (request.method === 'session.input.raw') {
+      if (!ptyWrite.current) {
+        throw new IpcError(
+          IpcErrorCodes.INTERNAL_ERROR,
+          'Raw input unavailable: the PTY for this session is not ready.'
+        );
+      }
+      const data = (request.params as { data?: string })?.data ?? '';
+      ptyWrite.current(data);
+      return { delivered: true, raw: true };
+    }
+    if (request.method === 'session.resize') {
+      const params = request.params as { cols?: number; rows?: number };
+      const cols = typeof params.cols === 'number' ? params.cols : 0;
+      const rows = typeof params.rows === 'number' ? params.rows : 0;
+      if (cols > 0 && rows > 0) {
+        controller.resize(cols, rows);
+        ptyResize.current?.(cols, rows);
+      }
+      return { resized: true };
+    }
     if (request.method === 'session.input') {
       if (!ptyWrite.current) {
         throw new IpcError(
@@ -158,6 +197,8 @@ export async function runCommand(
     recordLaunch?: boolean;
     invocationCwd?: string;
     launchArgv?: string[];
+    detached?: boolean;
+    onDetachedReady?: (info: DetachedReadyInfo) => void;
   }
 ): Promise<number> {
   const { profile, cwd, env, args } = buildProfileEnv(profileName, extraArgs);
@@ -166,6 +207,9 @@ export async function runCommand(
   // Generate a distinct internal runtime id (opaque, not the sessionKey)
   const runtimeId = `runtime_${sessionKey.slice(-12)}_${Date.now().toString(36)}`;
   const ptyWriteRef: { current: ((data: string) => void) | null } = { current: null };
+  const ptyResizeRef: { current: ((cols: number, rows: number) => void) | null } = {
+    current: null,
+  };
   const usePty = options?.usePty === true;
   const harnessCapabilities = getHarnessCapabilities(detectHarness(profile.executable));
   const deliveryTracker = new DeliveryTracker();
@@ -236,6 +280,7 @@ export async function runCommand(
   const controller = setupController(
     sessionKey,
     ptyWriteRef,
+    ptyResizeRef,
     deliveryTracker,
     (deliveryId, text, submitValue) => {
       turnGeneration += 1;
@@ -253,6 +298,12 @@ export async function runCommand(
       Promise.resolve({ outcome: 'unsupported', requested: false } as InterruptResult)
   );
   controllerRef = controller;
+
+  if (options?.detached === true) {
+    controller.setOnAttachedChange((count) => {
+      updateDetachedEntry(runtimeId, { attachedClients: count });
+    });
+  }
 
   const interrupt = harnessCapabilities.interrupt;
   interruptController = new InterruptController({
@@ -395,16 +446,44 @@ export async function runCommand(
     profile: profileName,
     trackPID: true,
     usePty,
+    detached: options?.detached === true,
   };
 
   if (usePty) {
     spawnOpts.onPtyReady = (pty) => {
       ptyWriteRef.current = pty.write;
+      ptyResizeRef.current = (cols, rows) => pty.resize(cols, rows);
       const cols = process.stdout.isTTY ? process.stdout.columns : 80;
       const rows = process.stdout.isTTY ? process.stdout.rows : 24;
       controller.resize(cols, rows);
       // Record runtime PID for liveness pruning
       updateSessionPid(sessionKey, pty.pid);
+
+      if (options?.detached === true) {
+        const startedAt = Date.now();
+        const info: DetachedReadyInfo = {
+          sessionKey,
+          runtimeId,
+          runtimePid: process.pid,
+          agentPid: pty.pid,
+          controllerEndpoint: controller.endpointPath,
+          profile: profileName,
+          cwd,
+          startedAt,
+        };
+        addDetachedEntry({
+          runtimeId,
+          sessionKey,
+          profile: profileName,
+          cwd,
+          runtimePid: process.pid,
+          agentPid: pty.pid,
+          controllerEndpoint: controller.endpointPath,
+          startedAt,
+          attachedClients: controller.getAttachedClientCount(),
+        });
+        options.onDetachedReady?.(info);
+      }
     };
   }
 
@@ -436,6 +515,9 @@ export async function runCommand(
     inputWatcher?.dispose();
     await controller.stop();
     deleteSession(profileName, runtimeId);
+    if (options?.detached === true) {
+      removeDetachedEntry(runtimeId);
+    }
   }
 }
 

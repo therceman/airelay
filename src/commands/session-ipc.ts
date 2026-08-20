@@ -10,6 +10,8 @@ export interface ControllerInfo {
   controllerProtocolVersion?: number;
   startedAt?: number;
   delivery?: DeliveryStatus;
+  /** Number of currently attached viewport clients, when reported by the controller. */
+  attached?: number;
 }
 
 export interface ControllerRequestResponse {
@@ -120,6 +122,7 @@ export function fetchControllerInfo(
               controllerProtocolVersion: parsed.data.controllerProtocolVersion as number,
               startedAt: parsed.data.startedAt as number,
               delivery: parsed.data.delivery as DeliveryStatus | undefined,
+              attached: parsed.data.attached as number | undefined,
             });
           } else if (parsed.type === 'error') {
             reject(new Error('Controller rejected request'));

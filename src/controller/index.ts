@@ -55,6 +55,23 @@ export class SessionController {
   private pendingTranscriptTimer: ReturnType<typeof setTimeout> | null = null;
   private transcriptPersistenceEnabled = false;
   private deliveryStatusProvider: (() => DeliveryStatus | undefined) | null = null;
+  /** Open sockets that are attached viewport clients (tracked for session.info / registry). */
+  private attachedClients: Set<net.Socket> = new Set();
+  private onAttachedChangeCb: ((count: number) => void) | null = null;
+
+  /**
+   * Register a callback fired whenever the number of attached viewport
+   * clients changes. Used by the detached runtime to keep the registry's
+   * attached-client count in sync.
+   */
+  setOnAttachedChange(cb: (count: number) => void): void {
+    this.onAttachedChangeCb = cb;
+  }
+
+  /** Number of currently attached viewport clients. */
+  getAttachedClientCount(): number {
+    return this.attachedClients.size;
+  }
 
   /** Test accessor for lastOutputChangeAt. */
   lastOutputChangeAtForTest(): number {
@@ -250,6 +267,12 @@ export class SessionController {
           });
         });
 
+        socket.on('close', () => {
+          if (this.attachedClients.delete(socket)) {
+            this.onAttachedChangeCb?.(this.attachedClients.size);
+          }
+        });
+
         socket.on('error', () => {
           // Socket errors are non-fatal
         });
@@ -272,6 +295,36 @@ export class SessionController {
 
       if (request.method === 'ping') {
         response = createSuccessResponse(request.id, { pong: true });
+      } else if (request.method === 'session.attach') {
+        this.attachedClients.add(socket);
+        this.onAttachedChangeCb?.(this.attachedClients.size);
+        response = createSuccessResponse(request.id, { attached: this.attachedClients.size });
+      } else if (request.method === 'session.detach') {
+        if (this.attachedClients.delete(socket)) {
+          this.onAttachedChangeCb?.(this.attachedClients.size);
+        }
+        response = createSuccessResponse(request.id, { attached: this.attachedClients.size });
+      } else if (request.method === 'session.input.raw') {
+        // Narrow PTY input operation for the attach client. Deliberately
+        // fire-and-forget: no response is written, so raw input is never
+        // queued behind a viewport poll and no Enter is ever appended.
+        if (this.handler) {
+          try {
+            await this.handler(request);
+          } catch {
+            // Raw input dropped silently; the runtime may be mid-shutdown.
+          }
+        }
+        return;
+      } else if (request.method === 'session.resize') {
+        if (this.handler) {
+          try {
+            await this.handler(request);
+          } catch {
+            // Resize dropped silently; the runtime may be mid-shutdown.
+          }
+        }
+        return;
       } else if (request.method === 'session.info') {
         response = createSuccessResponse(request.id, {
           sessionKey: this.sessionKey,
@@ -281,6 +334,7 @@ export class SessionController {
           startedAt: this.startedAt,
           lastOutputChangeAt: this.lastOutputChangeAt,
           delivery: this.deliveryStatusProvider?.(),
+          attached: this.attachedClients.size,
         });
       } else if (request.method === 'session.output') {
         response = createSuccessResponse(request.id, { lines: this.outputBuf });

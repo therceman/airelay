@@ -11,7 +11,12 @@ export interface SpawnOptions {
   profile?: string;
   trackPID?: boolean;
   usePty?: boolean;
-  onPtyReady?: (pty: { pid: number; write: (data: string) => void }) => void;
+  detached?: boolean;
+  onPtyReady?: (pty: {
+    pid: number;
+    write: (data: string) => void;
+    resize: (cols: number, rows: number) => void;
+  }) => void;
 
   /**
    * Called with output data from the child process (chunks of stdout).
@@ -99,6 +104,7 @@ async function spawnAndWaitPty(options: SpawnOptions): Promise<number> {
     cwd: options.cwd,
     env: options.env,
     onOutput: options.onOutput,
+    detached: options.detached === true,
   });
 
   if (options.trackPID) {
@@ -106,7 +112,11 @@ async function spawnAndWaitPty(options: SpawnOptions): Promise<number> {
   }
 
   if (options.onPtyReady) {
-    options.onPtyReady({ pid: pty.pid, write: (data: string) => pty.write(data) });
+    options.onPtyReady({
+      pid: pty.pid,
+      write: (data: string) => pty.write(data),
+      resize: (cols: number, rows: number) => pty.resize(cols, rows),
+    });
   }
 
   const onSigint = (): void => {
