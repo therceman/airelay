@@ -30,7 +30,13 @@ export interface AttachClientHooks {
   onDetach: (reason: string) => void;
 }
 
-export type AttachDetachReason = 'ctrl-d' | 'eof' | 'terminal-gone' | 'controller-gone' | 'manual';
+export type AttachDetachReason =
+  | 'ctrl-c'
+  | 'ctrl-d'
+  | 'eof'
+  | 'terminal-gone'
+  | 'controller-gone'
+  | 'manual';
 
 /**
  * True lossless PTY-stream attach client. Raw terminal chunks delivered by the
@@ -75,16 +81,17 @@ export class AttachClient {
    * Forward raw terminal input immediately via the dedicated narrow IPC
    * operation. Never waits for output and never appends an Enter.
    *
-   * Detach boundary (explicit): only Ctrl-D (0x04) and EOF/terminal close
-   * detach the client WITHOUT stopping the runtime. Ctrl-C (0x03) is raw
-   * harness input and is forwarded verbatim to the runtime PTY — it is NOT an
-   * attach-client escape key. The harness may interpret it (e.g. exit); if it
-   * exits, the runtime's normal exit cleanup removes the registry and session
-   * records. This is deliberate: the attached client must never swallow a byte
-   * that the runtime's own stdin semantics assign to the harness.
+   * Detach boundary (explicit): Ctrl-C, Ctrl-D, EOF, and terminal close detach
+   * the client WITHOUT stopping the runtime. Active-turn interruption remains
+   * available through the separate `airelay interrupt` command; attach must
+   * not forward Ctrl-C into the harness because some harnesses exit on 0x03.
    */
   async writeRaw(chunk: Buffer): Promise<void> {
     if (this.detached || this.disconnected) return;
+    if (chunk.includes(0x03)) {
+      this.detach('ctrl-c');
+      return;
+    }
     if (chunk.includes(CTRL_D)) {
       this.detach('ctrl-d');
       return;

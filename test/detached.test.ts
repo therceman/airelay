@@ -360,7 +360,7 @@ describe('detached lifecycle, attach, prompt routing (E2E)', () => {
     expect(dead).toBe(true);
   });
 
-  it('Ctrl-C (0x03) is raw harness input: the attach client stays attached and the harness-exit boundary cleans state', async () => {
+  it('Ctrl-C detaches only the client and allows reattach/prompt', async () => {
     const runtime2 = await startRuntime('e2e_runtime_ctrl_c');
     started.push({ runtimePid: runtime2.runtimePid, agentPid: runtime2.agentPid });
 
@@ -371,27 +371,26 @@ describe('detached lifecycle, attach, prompt routing (E2E)', () => {
     // The detached runtime is still live and registered before the signal.
     expect(isProcessAlive(runtime2.runtimePid)).toBe(true);
 
-    // Ctrl-C is forwarded to the harness, NOT an attach escape: the client
-    // is not detached by 0x03 itself (asserted deterministically in the
-    // AttachClient unit test). Here the harness interprets 0x03 as exit (like
-    // opencode); the runtime then exits and the normal cleanup removes the
-    // registry and session records — the attach client detaches only when the
-    // controller goes away with the runtime, never because it swallowed the byte.
     stdin.emit(Buffer.from([0x03]));
+    expect(await attach).toBe(0);
+    await waitFor(() => getDetachedEntry(runtime2.runtimeId)!.attachedClients === 0, 5000);
+    expect(isProcessAlive(runtime2.runtimePid)).toBe(true);
+    expect(isProcessAlive(runtime2.agentPid)).toBe(true);
 
-    const gone = await waitFor(() => getDetachedEntry(runtime2.runtimeId) === undefined, 8000);
-    expect(gone).toBe(true);
-    const gone2 = await waitFor(
-      () =>
-        (loadSessions().detachpro || []).filter((s) => s.sessionKey === 'e2e_runtime_ctrl_c')
-          .length === 0,
-      8000
-    );
-    expect(gone2).toBe(true);
-    const dead = await waitFor(() => !isProcessAlive(runtime2.runtimePid), 8000);
-    expect(dead).toBe(true);
-    const attachExit = await attach;
-    expect(attachExit).toBe(1);
+    const stdin2 = new StdinSource();
+    const res2 = new ResizeSource();
+    const attach2 = attachFor(runtime2, stdin2, res2);
+    await waitFor(() => getDetachedEntry(runtime2.runtimeId)!.attachedClients === 1, 5000);
+    const marker = 'CTRL_C_REATTACH-' + Math.random().toString(36).slice(2);
+    expect(await promptCommand(runtime2.key, marker, { fastEnter: true })).toBe(0);
+    await waitFor(async () => {
+      const lines = await outputLines(runtime2.controllerEndpoint);
+      return lines.some((line) => line.includes(marker));
+    }, 6000);
+    const lines = await outputLines(runtime2.controllerEndpoint);
+    expect(lines.filter((line) => line.includes(marker)).length).toBe(1);
+    stdin2.emit(Buffer.from([0x04]));
+    expect(await attach2).toBe(0);
   });
 });
 

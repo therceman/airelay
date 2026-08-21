@@ -315,7 +315,7 @@ describe('AttachClient stream behavior', () => {
     expect(client.isDetached()).toBe(true);
   });
 
-  it('Ctrl-C (0x03) is forwarded raw to the harness and does not detach (explicit boundary)', async () => {
+  it('Ctrl-C detaches without sending raw input or stopping the runtime', async () => {
     const t = new FakeTransport();
     let reason = '';
     const client = new AttachClient({
@@ -331,15 +331,11 @@ describe('AttachClient stream behavior', () => {
     });
     client.start();
     await client.writeRaw(Buffer.from([0x03]));
-    expect(t.raw).toEqual(['\x03']);
-    expect(reason).toBe('');
-    expect(client.isDetached()).toBe(false);
-    await client.writeRaw(Buffer.from('ls'));
-    expect(t.raw).toEqual(['\x03', 'ls']);
-    expect(client.isDetached()).toBe(false);
-    await client.writeRaw(Buffer.from([0x04]));
-    expect(reason).toBe('ctrl-d');
+    expect(t.raw).toEqual([]);
+    expect(reason).toBe('ctrl-c');
     expect(client.isDetached()).toBe(true);
+    await client.writeRaw(Buffer.from('ls'));
+    expect(t.raw).toEqual([]);
   });
 
   it('a socket close detaches with controller-gone', () => {
