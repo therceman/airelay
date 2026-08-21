@@ -3,10 +3,11 @@ import {
   createSuccessResponse,
   createErrorResponse,
   serializeResponse,
+  MAX_SESSION_INPUT_BYTES,
 } from '../src/controller/protocol';
-import { IpcError, IpcErrorCodes, IpcResponse } from '../src/types/controller';
+import { IpcError, IpcErrorCodes, IpcErrorReasons, IpcResponse } from '../src/types/controller';
 
-function expectIpcError(fn: () => void, expectedCode: string): void {
+function expectIpcError(fn: () => void, expectedCode: string, expectedReason?: string): void {
   let err: unknown;
   try {
     fn();
@@ -15,6 +16,7 @@ function expectIpcError(fn: () => void, expectedCode: string): void {
   }
   expect(err).toBeInstanceOf(IpcError);
   expect((err as IpcError).code).toBe(expectedCode);
+  if (expectedReason) expect((err as IpcError).reason).toBe(expectedReason);
 }
 
 describe('parseRequest', () => {
@@ -80,7 +82,11 @@ describe('parseRequest', () => {
   });
 
   it('rejects malformed JSON with PARSE_ERROR', () => {
-    expectIpcError(() => parseRequest('not json'), IpcErrorCodes.PARSE_ERROR);
+    expectIpcError(
+      () => parseRequest('not json'),
+      IpcErrorCodes.PARSE_ERROR,
+      IpcErrorReasons.PROTOCOL_PARSE_ERROR
+    );
   });
 
   it('rejects non-object JSON with INVALID_REQUEST', () => {
@@ -144,6 +150,54 @@ describe('parseRequest', () => {
     );
   });
 
+  it('classifies normalized-empty input', () => {
+    const raw = JSON.stringify({
+      id: 'r1',
+      method: 'session.input',
+      params: { text: ' \t ' },
+    });
+    expectIpcError(
+      () => parseRequest(raw),
+      IpcErrorCodes.INVALID_PARAMS,
+      IpcErrorReasons.EMPTY_AFTER_NORMALIZATION
+    );
+  });
+
+  it('classifies unsupported control characters', () => {
+    const raw = JSON.stringify({
+      id: 'r1',
+      method: 'session.input',
+      params: { text: 'hello\u0000world' },
+    });
+    expectIpcError(
+      () => parseRequest(raw),
+      IpcErrorCodes.INVALID_PARAMS,
+      IpcErrorReasons.UNSUPPORTED_CHARS
+    );
+  });
+
+  it('classifies invalid Unicode surrogate sequences', () => {
+    const raw = JSON.stringify({
+      id: 'r1',
+      method: 'session.input',
+      params: { text: '\ud800' },
+    });
+    expectIpcError(
+      () => parseRequest(raw),
+      IpcErrorCodes.INVALID_PARAMS,
+      IpcErrorReasons.INVALID_ENCODING
+    );
+  });
+
+  it('classifies oversized input before it reaches the PTY', () => {
+    const raw = JSON.stringify({
+      id: 'r1',
+      method: 'session.input',
+      params: { text: 'x'.repeat(MAX_SESSION_INPUT_BYTES + 1) },
+    });
+    expectIpcError(() => parseRequest(raw), IpcErrorCodes.INVALID_PARAMS, IpcErrorReasons.TOO_LONG);
+  });
+
   it('rejects non-string method with METHOD_NOT_FOUND', () => {
     expectIpcError(() => parseRequest('{"id":"r1","method":42}'), IpcErrorCodes.METHOD_NOT_FOUND);
   });
@@ -177,6 +231,16 @@ describe('createErrorResponse', () => {
       type: 'error',
       error: { code: 'BAD_THING', message: 'Something went wrong' },
     });
+  });
+
+  it('includes a machine-readable reason when supplied', () => {
+    const res = createErrorResponse(
+      'req-2',
+      IpcErrorCodes.INVALID_PARAMS,
+      'message is too long',
+      IpcErrorReasons.TOO_LONG
+    );
+    expect(res.error.reason).toBe('too_long');
   });
 
   it('uses "unknown" as id when null id is given', () => {

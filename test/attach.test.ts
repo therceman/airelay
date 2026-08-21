@@ -257,6 +257,55 @@ describe('AttachClient stream behavior', () => {
     expect(t.rendered.length).toBe(0);
   });
 
+  it('drops unambiguous C0 shortcuts but keeps sequential printable input', async () => {
+    const t = new FakeTransport();
+    const { client } = makeClient(t);
+    client.start();
+
+    await client.writeRaw(Buffer.from([0x01, 0x1a, 0x1c, 0x7f]));
+    expect(t.raw).toEqual(['\x7f']);
+
+    await client.writeRaw(Buffer.from('A'));
+    await client.writeRaw(Buffer.from('B'));
+    expect(t.raw).toEqual(['\x7f', 'A', 'B']);
+  });
+
+  it('preserves normal editing/submission bytes and plain navigation sequences', async () => {
+    const t = new FakeTransport();
+    const { client } = makeClient(t);
+    client.start();
+
+    await client.writeRaw(Buffer.from([0x0d, 0x0a, 0x09, 0x08, 0x7f]));
+    await client.writeRaw(Buffer.from('\x1b[A\x1b[3~\x1bOP'));
+    expect(t.raw).toEqual(['\r\n\t\x08\x7f', '\x1b[A\x1b[3~\x1bOP']);
+  });
+
+  it('drops modified and Alt/Meta escape sequences without leaking partial bytes', async () => {
+    const t = new FakeTransport();
+    const { client } = makeClient(t);
+    client.start();
+
+    await client.writeRaw(Buffer.from('\x1b[1;5D\x1b[1;3C\x1bX'));
+    expect(t.raw).toEqual([]);
+  });
+
+  it('handles split and incomplete escape sequences with a bounded buffer', async () => {
+    const t = new FakeTransport();
+    const { client } = makeClient(t);
+    client.start();
+
+    await client.writeRaw(Buffer.from('\x1b['));
+    expect(t.raw).toEqual([]);
+    await client.writeRaw(Buffer.from('A'));
+    expect(t.raw).toEqual(['\x1b[A']);
+
+    await client.writeRaw(Buffer.from('\x1b['));
+    await client.writeRaw(Buffer.from('123456789012345678901234567890')); // over-limit CSI is dropped
+    expect(t.raw).toEqual(['\x1b[A']);
+    await client.writeRaw(Buffer.from('ok'));
+    expect(t.raw).toEqual(['\x1b[A', 'ok']);
+  });
+
   it('stream chunks are rendered verbatim and in order, without clear/redraw injection', async () => {
     const t = new FakeTransport();
     const { client } = makeClient(t);

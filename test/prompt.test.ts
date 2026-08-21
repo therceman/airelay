@@ -209,14 +209,12 @@ describe('promptCommand', () => {
       emitData({
         id: 'prompt-1',
         type: 'error',
-        error: { code: 'INVALID_PARAMS', message: 'bad input' },
+        error: { code: 'INVALID_PARAMS', message: 'bad input', reason: 'too_long' },
       });
 
       const exitCode = await exitCodePromise;
       expect(exitCode).toBe(1);
-      expect(console.error).toHaveBeenCalledWith(
-        expect.stringContaining('IPC error from controller')
-      );
+      expect(console.error).toHaveBeenCalledWith(expect.stringContaining('[reason=too_long]'));
     });
 
     it('handles controller offline (ENOENT)', async () => {

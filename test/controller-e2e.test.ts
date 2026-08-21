@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import net from 'net';
 import { SessionController } from '../src/controller';
 import { promptCommand } from '../src/commands/prompt';
 import { addSession, removeSessionByKey, findSessionByKey } from '../src/commands/sessions';
@@ -44,6 +45,36 @@ beforeEach(() => {
 });
 
 describe('controller E2E: real IPC socket flow', () => {
+  it('returns invalid_encoding for malformed UTF-8 request bytes', async () => {
+    const controller = new SessionController('e2e_invalid_encoding');
+    controller.onRequest(async () => ({ handled: true }));
+    await controller.start();
+
+    const response = await new Promise<Record<string, unknown>>((resolve, reject) => {
+      const socket = net.createConnection(controller.endpointPath, () => {
+        socket.write(
+          Buffer.concat([
+            Buffer.from('{"id":"bad","method":"ping","params":{"text":"'),
+            Buffer.from([0xff]),
+            Buffer.from('"}}\n'),
+          ])
+        );
+      });
+      socket.setTimeout(5000, () => reject(new Error('invalid encoding response timeout')));
+      socket.once('error', reject);
+      socket.once('data', (data) => {
+        resolve(JSON.parse(data.toString()) as Record<string, unknown>);
+        socket.destroy();
+      });
+    });
+
+    expect(response).toMatchObject({
+      type: 'error',
+      error: { reason: 'invalid_encoding' },
+    });
+    await controller.stop();
+  });
+
   it('exposes bounded delivery state through session.info', async () => {
     const sessionKey = 'e2e_delivery_info';
     const controller = new SessionController(sessionKey);

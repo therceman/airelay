@@ -4,7 +4,7 @@
 `task_082_filter_attach_key_combinations`
 
 ## Agent
-`DeepSeek`
+`Direct implementation`
 
 ## Execution Order
 `1`
@@ -22,7 +22,7 @@ Block keyboard combinations in attach mode without breaking normal typing
 - Start from clean pushed master `e00e7e8`.
 - Airelay version: `0.1.70`.
 - Task 081 Ctrl-C detach-only behavior is accepted and must remain intact.
-- Do not bump version, commit, push, tag, release, or publish. Master will do that after review.
+- Master performs versioning, commit, and push after direct validation.
 
 ## User Semantics
 - A key combination such as `Ctrl+A`, `Ctrl+Z`, `Ctrl+\\`, `Alt+X`, or modified navigation must not be forwarded to the underlying harness from `airelay attach`.

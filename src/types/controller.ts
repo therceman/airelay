@@ -63,6 +63,8 @@ export interface IpcErrorResponse {
   error: {
     code: string;
     message: string;
+    /** Stable machine-readable classification for callers and external controllers. */
+    reason?: IpcErrorReason;
   };
 }
 
@@ -89,12 +91,30 @@ export const IpcErrorCodes = {
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 
+export const IpcErrorReasons = {
+  TOO_LONG: 'too_long',
+  UNSUPPORTED_CHARS: 'unsupported_chars',
+  INVALID_ENCODING: 'invalid_encoding',
+  EMPTY_AFTER_NORMALIZATION: 'empty_after_normalization',
+  PROTOCOL_PARSE_ERROR: 'protocol_parse_error',
+  INVALID_TYPE: 'invalid_type',
+  INVALID_REQUEST: 'invalid_request',
+  UNSUPPORTED_METHOD: 'unsupported_method',
+  INVALID_PARAMS: 'invalid_params',
+  NOT_PROMPTABLE: 'not_promptable',
+  CONTROLLER_UNAVAILABLE: 'controller_unavailable',
+  INTERNAL_ERROR: 'internal_error',
+} as const;
+
+export type IpcErrorReason = (typeof IpcErrorReasons)[keyof typeof IpcErrorReasons];
+
 export type IpcErrorCode = (typeof IpcErrorCodes)[keyof typeof IpcErrorCodes];
 
 export class IpcError extends Error {
   constructor(
     public code: IpcErrorCode,
-    message: string
+    message: string,
+    public reason?: IpcErrorReason
   ) {
     super(message);
     this.name = 'IpcError';

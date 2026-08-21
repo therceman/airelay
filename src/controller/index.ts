@@ -1,8 +1,15 @@
 import net from 'net';
 import fs from 'fs';
 import path from 'path';
+import { TextDecoder } from 'util';
 import { Terminal } from '@xterm/headless';
-import { IpcRequest, IpcResponse, IpcError, IpcErrorCodes } from '../types/controller';
+import {
+  IpcRequest,
+  IpcResponse,
+  IpcError,
+  IpcErrorCodes,
+  IpcErrorReasons,
+} from '../types/controller';
 import {
   parseRequest,
   createSuccessResponse,
@@ -301,11 +308,31 @@ export class SessionController {
     return new Promise((resolve, reject) => {
       this.server = net.createServer((socket) => {
         let buffer = '';
+        let decoder = new TextDecoder('utf-8', { fatal: true });
 
         socket.on('data', (chunk: Buffer) => {
-          buffer = readLines(buffer + chunk.toString(), (line) => {
-            this.handleMessage(line, socket);
-          });
+          try {
+            const decoded = decoder.decode(chunk, { stream: true });
+            buffer = readLines(buffer + decoded, (line) => {
+              this.handleMessage(line, socket);
+            });
+          } catch {
+            // Do not let Node's replacement-character decoding turn malformed
+            // request bytes into a different, apparently valid prompt.
+            decoder = new TextDecoder('utf-8', { fatal: true });
+            buffer = '';
+            const response = createErrorResponse(
+              null,
+              IpcErrorCodes.PARSE_ERROR,
+              'Malformed UTF-8: failed to decode request bytes',
+              IpcErrorReasons.INVALID_ENCODING
+            );
+            try {
+              socket.write(serializeResponse(response));
+            } catch {
+              // Ignore write errors; the client may already be gone.
+            }
+          }
         });
 
         socket.on('close', () => {
@@ -397,7 +424,8 @@ export class SessionController {
           response = createErrorResponse(
             request.id,
             IpcErrorCodes.INTERNAL_ERROR,
-            'No handler registered for this controller'
+            'No handler registered for this controller',
+            IpcErrorReasons.CONTROLLER_UNAVAILABLE
           );
         } else {
           const data = await this.handler(request);
@@ -410,14 +438,20 @@ export class SessionController {
         response = createErrorResponse(
           request.id,
           IpcErrorCodes.INTERNAL_ERROR,
-          'No handler registered for this controller'
+          'No handler registered for this controller',
+          IpcErrorReasons.CONTROLLER_UNAVAILABLE
         );
       }
     } catch (err) {
       if (err instanceof IpcError) {
-        response = createErrorResponse(null, err.code, err.message);
+        response = createErrorResponse(null, err.code, err.message, err.reason);
       } else {
-        response = createErrorResponse(null, IpcErrorCodes.INTERNAL_ERROR, 'Internal server error');
+        response = createErrorResponse(
+          null,
+          IpcErrorCodes.INTERNAL_ERROR,
+          'Internal server error',
+          IpcErrorReasons.INTERNAL_ERROR
+        );
       }
     }
 

@@ -17,7 +17,7 @@ export interface ControllerInfo {
 export interface ControllerRequestResponse {
   type: string;
   data?: unknown;
-  error?: { code: string; message: string };
+  error?: { code: string; message: string; reason?: string };
 }
 
 /** Send one bounded request to an existing session controller. */

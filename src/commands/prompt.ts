@@ -46,7 +46,7 @@ interface IpcClientRequest {
 interface IpcClientResponse {
   type: string;
   data?: unknown;
-  error?: { code: string; message: string };
+  error?: { code: string; message: string; reason?: string };
 }
 
 function sendIpcRequestOnce(
@@ -261,7 +261,8 @@ export async function promptCommand(
     });
 
     if (response.type === 'error' && response.error) {
-      console.error(`Error: IPC error from controller: ${response.error.message}`);
+      const reason = response.error.reason ? ` [reason=${response.error.reason}]` : '';
+      console.error(`Error: IPC error from controller${reason}: ${response.error.message}`);
       return 1;
     }
 

@@ -4,7 +4,7 @@ import { resolvePath, isPathLike } from '../config/paths';
 import { buildEnv } from '../runtime/env';
 import { spawnAndWait, SpawnOptions } from '../runtime/spawn';
 import { SessionController } from '../controller';
-import { IpcError, IpcErrorCodes } from '../types/controller';
+import { IpcError, IpcErrorCodes, IpcErrorReasons } from '../types/controller';
 import { addSession, deleteSession, updateSessionPid } from './sessions';
 import { recordLaunchHistory } from './history';
 import { getAirelayVersion, CONTROLLER_PROTOCOL_VERSION } from '../utils/version';
@@ -99,7 +99,8 @@ function setupController(
       if (!ptyWrite.current) {
         throw new IpcError(
           IpcErrorCodes.INTERNAL_ERROR,
-          'Raw input unavailable: the PTY for this session is not ready.'
+          'Raw input unavailable: the PTY for this session is not ready.',
+          IpcErrorReasons.CONTROLLER_UNAVAILABLE
         );
       }
       const data = (request.params as { data?: string })?.data ?? '';
@@ -120,7 +121,8 @@ function setupController(
       if (!ptyWrite.current) {
         throw new IpcError(
           IpcErrorCodes.INTERNAL_ERROR,
-          'Prompt injection unavailable: this session is not in a promptable mode. Use "airelay start <profile>" for prompt-capable sessions.'
+          'Prompt injection unavailable: this session is not in a promptable mode. Use "airelay start <profile>" for prompt-capable sessions.',
+          IpcErrorReasons.NOT_PROMPTABLE
         );
       }
 

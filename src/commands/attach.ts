@@ -4,10 +4,108 @@ import { getIpcEndpointPath } from '../utils/ipc-path';
 import { preflightVersionCheck } from './session-ipc';
 import { readLines } from '../controller/protocol';
 
+const CTRL_C = 0x03;
 const CTRL_D = 0x04;
 const CONNECT_TIMEOUT_MS = 5000;
 /** Upper bound on buffered stream frames received before the reader attaches. */
 const BOOTSTRAP_BACKLOG_CAP = 8192;
+/** Escape sequences are terminal input, not an unbounded parser surface. */
+const MAX_ESCAPE_SEQUENCE_BYTES = 32;
+type AttachBuffer = Buffer<ArrayBufferLike>;
+const ESCAPE_CHAR = String.fromCharCode(0x1b);
+const PLAIN_CSI_PATTERN = new RegExp(`^${ESCAPE_CHAR}\\[(?:[0-9]{1,3}~|[A-Z])$`);
+const PLAIN_SS3_PATTERN = new RegExp(`^${ESCAPE_CHAR}O[A-Z]$`);
+
+const isAllowedEditingByte = (byte: number): boolean =>
+  byte === 0x08 || byte === 0x09 || byte === 0x0a || byte === 0x0d || byte === 0x7f;
+
+const isPlainNavigationSequence = (sequence: AttachBuffer): boolean => {
+  const value = sequence.toString('latin1');
+  return PLAIN_CSI_PATTERN.test(value) || PLAIN_SS3_PATTERN.test(value);
+};
+
+export interface AttachInputFilterResult {
+  data: AttachBuffer;
+  pendingEscape: AttachBuffer;
+}
+
+/**
+ * Remove unambiguous control/modifier combinations while preserving ordinary
+ * terminal input. The one-byte pending buffer lets a split plain escape
+ * sequence be classified without a timer or an unbounded queue.
+ */
+export function filterAttachInput(
+  chunk: AttachBuffer,
+  pendingEscape: AttachBuffer = Buffer.alloc(0) as AttachBuffer
+): AttachInputFilterResult {
+  const input = pendingEscape.length > 0 ? Buffer.concat([pendingEscape, chunk]) : chunk;
+  const output: number[] = [];
+  let nextPending: AttachBuffer = Buffer.alloc(0) as AttachBuffer;
+  let index = 0;
+
+  while (index < input.length) {
+    const byte = input[index];
+    if (byte === 0x1b) {
+      if (index + 1 >= input.length) {
+        nextPending = Buffer.from(input.subarray(index, index + 1));
+        break;
+      }
+
+      const introducer = input[index + 1];
+      if (introducer !== 0x5b && introducer !== 0x4f) {
+        // ESC followed by a printable byte is Alt/Meta input, not two keys.
+        index += 2;
+        continue;
+      }
+
+      const endLimit = Math.min(input.length - 1, index + MAX_ESCAPE_SEQUENCE_BYTES - 1);
+      let end = -1;
+      for (let candidate = index + 2; candidate <= endLimit; candidate += 1) {
+        const candidateByte = input[candidate];
+        if (candidateByte >= 0x40 && candidateByte <= 0x7e) {
+          end = candidate;
+          break;
+        }
+      }
+
+      if (end === -1) {
+        // Keep only a bounded incomplete sequence; it will either complete in
+        // the next chunk or be discarded when another non-matching byte arrives.
+        if (input.length - index <= MAX_ESCAPE_SEQUENCE_BYTES) {
+          nextPending = Buffer.from(input.subarray(index));
+        } else if (pendingEscape.length > 0) {
+          // The old sequence exceeded the cap. Drop only that sequence and
+          // reprocess the new chunk so ordinary typing is not swallowed.
+          const restarted = filterAttachInput(chunk);
+          output.push(...restarted.data);
+          nextPending = restarted.pendingEscape;
+        }
+        break;
+      }
+
+      const sequence = input.subarray(index, end + 1);
+      if (isPlainNavigationSequence(sequence)) {
+        output.push(...sequence);
+      }
+      index = end + 1;
+      continue;
+    }
+
+    if (byte < 0x20 || byte === 0x7f) {
+      if (isAllowedEditingByte(byte)) output.push(byte);
+      index += 1;
+      continue;
+    }
+
+    output.push(byte);
+    index += 1;
+  }
+
+  return {
+    data: Buffer.from(output),
+    pendingEscape: Buffer.from(nextPending),
+  };
+}
 
 export interface StreamTransport {
   /** Register the attach client; resolves with the attached-client count. */
@@ -49,6 +147,7 @@ export type AttachDetachReason =
 export class AttachClient {
   private detached = false;
   private disconnected = false;
+  private pendingEscape: AttachBuffer = Buffer.alloc(0) as AttachBuffer;
 
   constructor(private readonly hooks: AttachClientHooks) {}
 
@@ -88,15 +187,21 @@ export class AttachClient {
    */
   async writeRaw(chunk: Buffer): Promise<void> {
     if (this.detached || this.disconnected) return;
-    if (chunk.includes(0x03)) {
+    if (chunk.includes(CTRL_C)) {
+      this.pendingEscape = Buffer.alloc(0) as AttachBuffer;
       this.detach('ctrl-c');
       return;
     }
     if (chunk.includes(CTRL_D)) {
+      this.pendingEscape = Buffer.alloc(0) as AttachBuffer;
       this.detach('ctrl-d');
       return;
     }
-    this.hooks.transport.sendRawInput(chunk.toString());
+    const filtered = filterAttachInput(chunk, this.pendingEscape);
+    this.pendingEscape = filtered.pendingEscape;
+    if (filtered.data.length > 0) {
+      this.hooks.transport.sendRawInput(filtered.data.toString());
+    }
   }
 
   writeResize(cols: number, rows: number): void {
