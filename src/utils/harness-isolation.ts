@@ -56,6 +56,8 @@ export const HARNESS_ISOLATION_CONFIGS: Record<string, HarnessIsolationConfig> =
       'skills',
       'playground',
       'plugins',
+      // The /agents dashboard requires this managed binary layout.
+      'packages',
       // File patterns - match by extension
       '*.json',
       '*.toml',

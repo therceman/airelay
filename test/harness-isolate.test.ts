@@ -7,6 +7,11 @@ import {
   repairIsolatedHarnessHome,
   listProfileItems,
 } from '../src/utils/harness-isolate';
+import {
+  ensureCodexStandaloneExecutable,
+  ensureCodexProfileStandalone,
+  CODEX_STANDALONE_RELATIVE_PATH,
+} from '../src/utils/codex-standalone';
 import { setupEnv, cleanupEnv, setupTestEnv, createTestHarnessHome } from './test-utils';
 
 /**
@@ -45,6 +50,45 @@ describe('harness-isolate', () => {
     if (fs.existsSync(baseDir)) {
       fs.rmSync(baseDir, { recursive: true, force: true });
     }
+  });
+
+  describe('codex standalone path', () => {
+    it('links the installed native binary into the shared managed path', () => {
+      const source = path.join(testDir, 'native-codex');
+      fs.writeFileSync(source, '#!/bin/sh\n', { mode: 0o755 });
+
+      const managed = ensureCodexStandaloneExecutable(baseDir, source);
+
+      expect(managed).toBe(path.join(baseDir, CODEX_STANDALONE_RELATIVE_PATH));
+      expect(fs.lstatSync(managed).isSymbolicLink()).toBe(true);
+      expect(fs.realpathSync(managed)).toBe(source);
+    });
+
+    it('shares the managed path with a profile without sharing auth.json', () => {
+      const source = path.join(testDir, 'native-codex');
+      fs.writeFileSync(source, '#!/bin/sh\n', { mode: 0o755 });
+      const profileDir = path.join(testDir, 'codex-managed-testprofile');
+      fs.mkdirSync(profileDir, { recursive: true });
+      fs.writeFileSync(path.join(profileDir, 'auth.json'), '{}');
+
+      const managed = ensureCodexProfileStandalone(profileDir, baseDir, source);
+
+      expect(managed).toBe(path.join(profileDir, CODEX_STANDALONE_RELATIVE_PATH));
+      expect(fs.lstatSync(path.join(profileDir, 'packages')).isSymbolicLink()).toBe(true);
+      expect(fs.realpathSync(managed)).toBe(source);
+      expect(fs.lstatSync(path.join(profileDir, 'auth.json')).isSymbolicLink()).toBe(false);
+    });
+
+    it('is idempotent and does not replace an existing usable managed link', () => {
+      const source = path.join(testDir, 'native-codex');
+      fs.writeFileSync(source, '#!/bin/sh\n', { mode: 0o755 });
+
+      const first = ensureCodexStandaloneExecutable(baseDir, source);
+      const second = ensureCodexStandaloneExecutable(baseDir, path.join(testDir, 'other-codex'));
+
+      expect(second).toBe(first);
+      expect(fs.realpathSync(second)).toBe(source);
+    });
   });
 
   describe('setupIsolatedHarnessHome', () => {

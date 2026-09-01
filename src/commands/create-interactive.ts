@@ -12,6 +12,7 @@ import {
   repairIsolatedHarnessHome,
   getHarnessIsolationConfig,
 } from '../utils/harness-isolate';
+import { ensureCodexStandaloneExecutable } from '../utils/codex-standalone';
 
 interface CreateOptions {
   name?: string;
@@ -104,6 +105,9 @@ export async function createCommandInteractive(opts: CreateOptions = {}): Promis
     isolationConfig &&
     (isolationConfig.isolatedItems.length > 0 || isolationConfig.sharedItems.length > 0)
   ) {
+    if (harness === 'codex') {
+      ensureCodexStandaloneExecutable();
+    }
     // Set up shared-base overlay with local-only auth
     configDir = setupIsolatedHarnessHome(harness, name);
 

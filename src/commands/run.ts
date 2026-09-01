@@ -19,6 +19,7 @@ import {
   updateDetachedEntry,
 } from '../runtime/detached-registry';
 import fs from 'fs';
+import { ensureCodexProfileStandalone } from '../utils/codex-standalone';
 
 function generateSessionKey(profileName: string): string {
   const suffix = Math.random().toString(36).slice(2, 6);
@@ -74,11 +75,15 @@ function buildProfileEnv(
 
   const cwd = profile.cwd ? resolvePath(profile.cwd) : process.cwd();
   ensureDirectories(profile, cwd);
+  const env = buildEnv(profile, configPath);
+  if (detectHarness(profile.executable) === 'codex' && env.CODEX_HOME) {
+    ensureCodexProfileStandalone(env.CODEX_HOME);
+  }
 
   return {
     profile,
     cwd,
-    env: buildEnv(profile, configPath),
+    env,
     args: [...(profile.args || []), ...extraArgs],
   };
 }

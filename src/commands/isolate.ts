@@ -5,6 +5,7 @@ import {
   listProfileItems,
 } from '../utils/harness-isolate';
 import { loadConfig } from '../config/load';
+import { ensureCodexStandaloneExecutable } from '../utils/codex-standalone';
 
 function showProfileStatus(profileName: string): void {
   const config = loadConfig();
@@ -103,6 +104,7 @@ export function isolateCommand(profileName?: string): void {
   }
 
   // Set up a new shared-base overlay using universal harness isolation
+  ensureCodexStandaloneExecutable();
   const newCodexHome = setupIsolatedHarnessHome('codex', profileName);
 
   console.log(`✓ Profile '${profileName}' (codex) now uses shared-base overlay`);
