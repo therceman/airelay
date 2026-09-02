@@ -96,11 +96,12 @@ After harness exits:
 
 ### CLI Commands
 
-**`airelay resume <profile|session-key>`**
+**`airelay resume [profile|session-key]`**
 
-- Resume an existing session
-- Currently treats argument as session ID
-- Future: support session key lookup
+- Without an argument, select a resumable launch from the current folder's
+  launch history, sorted newest first.
+- With a profile or session key, resume using the existing session selector or
+  direct key lookup.
 
 **`airelay start <profile> [args...]`**
 
@@ -217,7 +218,10 @@ profiles:
 ### Quick Resume
 
 ```bash
-# See session list, pick one
+# See session history for the current folder and pick one
+airelay resume
+
+# Or pick from the active sessions of one profile
 airelay resume myprofile
 
 # Or directly by session key (future)

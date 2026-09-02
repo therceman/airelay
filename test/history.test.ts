@@ -7,6 +7,7 @@ import {
   removeLaunchHistory,
   recordLaunchHistory,
   renderLaunchCommand,
+  markLaunchHistoryUsed,
 } from '../src/commands/history';
 import { runCommand } from '../src/commands/run';
 import { createTestConfig, useTestEnv } from './test-utils';
@@ -151,7 +152,7 @@ describe('launch history', () => {
     });
   });
 
-  it('keeps one history entry per session key', () => {
+  it('keeps every launch as a separate history row', () => {
     recordLaunchHistory({
       profile: 'worker',
       sessionKey: 'unique_key',
@@ -167,7 +168,7 @@ describe('launch history', () => {
       startedAt: 800,
     });
 
-    expect(getLaunchHistory()).toHaveLength(1);
+    expect(getLaunchHistory()).toHaveLength(2);
     expect(getLaunchHistory()[0]).toMatchObject({
       sessionKey: 'unique_key',
       invocationCwd: '/tmp/second-project',
@@ -175,7 +176,30 @@ describe('launch history', () => {
     });
   });
 
-  it('cleans legacy duplicate keys when history is loaded', () => {
+  it('updates last-used time for one launch row only', () => {
+    const first = recordLaunchHistory({
+      profile: 'worker',
+      sessionKey: 'same_key',
+      invocationCwd: process.cwd(),
+      argv: ['start', 'worker', '--key', 'same_key', '--', 'resume', 'first-session'],
+      startedAt: 100,
+    });
+    const second = recordLaunchHistory({
+      profile: 'worker',
+      sessionKey: 'same_key',
+      invocationCwd: process.cwd(),
+      argv: ['start', 'worker', '--key', 'same_key', '--', 'resume', 'second-session'],
+      startedAt: 200,
+    });
+
+    expect(markLaunchHistoryUsed(first.id, 300)).toBe(true);
+    expect(getLaunchHistory()).toEqual([
+      expect.objectContaining({ id: first.id, lastUsed: 300 }),
+      expect.objectContaining({ id: second.id }),
+    ]);
+  });
+
+  it('preserves legacy rows with duplicate session keys', () => {
     const older = recordLaunchHistory({
       profile: 'worker',
       sessionKey: 'legacy_key',
@@ -193,8 +217,8 @@ describe('launch history', () => {
     };
     fs.writeFileSync(testEnv.historyPath, JSON.stringify([older, newer]), 'utf8');
 
-    expect(getLaunchHistory()).toEqual([newer]);
-    expect(JSON.parse(fs.readFileSync(testEnv.historyPath, 'utf8'))).toEqual([newer]);
+    expect(getLaunchHistory()).toEqual([newer, older]);
+    expect(JSON.parse(fs.readFileSync(testEnv.historyPath, 'utf8'))).toEqual([older, newer]);
   });
 
   it('shows history-specific help', () => {
@@ -202,7 +226,7 @@ describe('launch history', () => {
 
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('airelay history'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('history remove <key>'));
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('unique by session key'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('separate launch rows'));
   });
 
   it('quotes empty arguments and preserves the command prefix', () => {

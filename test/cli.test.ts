@@ -158,6 +158,12 @@ describe('parseArgs', () => {
     expect(result.profile).toBeUndefined();
   });
 
+  it('parses resume without a key for folder history selection', () => {
+    const result = parseArgs(['node', 'airelay', 'resume']);
+    expect(result.command).toBe('resume');
+    expect(result.profile).toBeUndefined();
+  });
+
   it('parses sessions command with --json flag', () => {
     const result = parseArgs(['node', 'airelay', 'sessions', '--json']);
     expect(result.command).toBe('sessions');

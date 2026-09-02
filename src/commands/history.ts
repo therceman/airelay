@@ -8,6 +8,7 @@ export interface LaunchHistoryEntry {
   sessionKey: string;
   invocationCwd: string;
   startedAt: number;
+  lastUsed?: number;
   argv: string[];
   command: string;
 }
@@ -19,24 +20,7 @@ const store = createJsonStore<LaunchHistoryEntry[]>({
 
 function loadHistory(): LaunchHistoryEntry[] {
   const loaded = store.load();
-  if (!Array.isArray(loaded)) {
-    return [];
-  }
-
-  const sorted = [...loaded].sort((a, b) => b.startedAt - a.startedAt);
-  const seenKeys = new Set<string>();
-  const unique = sorted.filter((entry) => {
-    if (seenKeys.has(entry.sessionKey)) {
-      return false;
-    }
-    seenKeys.add(entry.sessionKey);
-    return true;
-  });
-
-  if (unique.length !== loaded.length) {
-    store.save(unique);
-  }
-  return unique;
+  return Array.isArray(loaded) ? loaded : [];
 }
 
 function shellQuote(value: string): string {
@@ -72,14 +56,25 @@ export function recordLaunchHistory(input: {
   };
 
   const history = loadHistory();
-  const withoutKey = history.filter((existing) => existing.sessionKey !== entry.sessionKey);
-  withoutKey.unshift(entry);
-  store.save(withoutKey.slice(0, 1000));
+  history.unshift(entry);
+  store.save(history.slice(0, 1000));
   return entry;
 }
 
 export function getLaunchHistory(): LaunchHistoryEntry[] {
-  return loadHistory().sort((a, b) => b.startedAt - a.startedAt);
+  return loadHistory().sort((a, b) => (b.lastUsed ?? b.startedAt) - (a.lastUsed ?? a.startedAt));
+}
+
+export function markLaunchHistoryUsed(id: string, lastUsed = Date.now()): boolean {
+  const history = loadHistory();
+  const entry = history.find((candidate) => candidate.id === id);
+  if (!entry) {
+    return false;
+  }
+
+  entry.lastUsed = lastUsed;
+  store.save(history);
+  return true;
 }
 
 export function removeLaunchHistory(sessionKey: string, invocationCwd = process.cwd()): number {
@@ -123,9 +118,9 @@ Usage:
   airelay history remove <key>     Remove the current-directory entry by key
   airelay history help             Show this help
 
-History entries are unique by session key. Running a new start with an existing
-key replaces its previous history entry. The remove command only affects the
-entry for the current directory.
+History entries are kept as separate launch rows, even when they use the same
+session key. The remove command affects matching entries for the current
+directory.
 `);
 }
 

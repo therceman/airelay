@@ -12,6 +12,11 @@ jest.mock('../src/commands/sessions', () => ({
   pruneStaleSessions: jest.fn().mockResolvedValue(0),
 }));
 
+jest.mock('../src/commands/history', () => ({
+  getLaunchHistory: jest.fn(),
+  markLaunchHistoryUsed: jest.fn(),
+}));
+
 jest.mock('../src/config/load', () => ({
   loadConfig: jest.fn(() => ({
     profiles: {
@@ -26,6 +31,8 @@ jest.mock('enquirer', () => ({
 }));
 
 import { findSessionByKey } from '../src/commands/sessions';
+import { getLaunchHistory, markLaunchHistoryUsed } from '../src/commands/history';
+import Enquirer from 'enquirer';
 
 const originalExit = process.exit;
 const originalLog = console.log;
@@ -168,5 +175,85 @@ describe('resumeCommand', () => {
     await resumeCommand('myprofile_prune');
 
     expect(pruneStaleSessions).toHaveBeenCalled();
+  });
+
+  it('selects the newest resumable launch row from the current folder', async () => {
+    const now = 1_000_000_000;
+    const currentCwd = process.cwd();
+    jest.spyOn(Date, 'now').mockReturnValue(now);
+    (getLaunchHistory as jest.Mock).mockReturnValue(
+      [
+        {
+          id: 'newest-row',
+          profile: 'codex',
+          sessionKey: 'gpt-tunnel-gateway_master',
+          invocationCwd: currentCwd,
+          startedAt: now - 30 * 60 * 1000,
+          argv: [
+            'start',
+            'codex',
+            '--key',
+            'gpt-tunnel-gateway_master',
+            '--',
+            'resume',
+            '019faea5-f0b2-73a3-b286-ef54956ddd0f',
+            '--dangerously-bypass-approvals-and-sandbox',
+          ],
+          command: 'airelay start codex --key gpt-tunnel-gateway_master',
+        },
+        {
+          id: 'older-row',
+          profile: 'codex2',
+          sessionKey: 'gpt-tunnel-gateway_master',
+          invocationCwd: currentCwd,
+          startedAt: now - 12 * 60 * 60 * 1000,
+          argv: [
+            'start',
+            'codex2',
+            '--key',
+            'gpt-tunnel-gateway_master',
+            '--',
+            'resume',
+            '023fae12-f3b2-75a3-b255-ef54556xxxav',
+            '--dangerously-bypass-approvals-and-sandbox',
+          ],
+          command: 'airelay start codex2 --key gpt-tunnel-gateway_master',
+        },
+      ].reverse()
+    );
+    (Enquirer.prompt as jest.Mock).mockResolvedValueOnce({ historyEntry: 'newest-row' });
+
+    await resumeCommand();
+
+    const prompt = (Enquirer.prompt as jest.Mock).mock.calls[0][0];
+    expect(prompt.choices).toEqual([
+      {
+        name: 'newest-row',
+        message: expect.stringContaining('[30m ago] codex ('),
+      },
+      {
+        name: 'older-row',
+        message: expect.stringContaining('[12h ago] codex2 ('),
+      },
+    ]);
+    expect(prompt.choices[0].message).toContain('[30m ago] codex (gpt-tunnel-gateway_master)');
+    expect(prompt.choices[0].message).toContain(
+      '-- resume 019faea5-f0b2-73a3-b286-ef54956ddd0f --dangerously-bypass-approvals-and-sandbox'
+    );
+    expect(runCommand).toHaveBeenCalledWith(
+      'codex',
+      [
+        'resume',
+        '019faea5-f0b2-73a3-b286-ef54956ddd0f',
+        '--dangerously-bypass-approvals-and-sandbox',
+      ],
+      expect.objectContaining({
+        cwd: currentCwd,
+        sessionKey: 'gpt-tunnel-gateway_master',
+        usePty: true,
+      })
+    );
+    expect(markLaunchHistoryUsed).toHaveBeenCalledWith('newest-row');
+    jest.restoreAllMocks();
   });
 });

@@ -47,7 +47,8 @@ Sessions can be resumed by:
 ### Commands
 
 - `airelay` (no args) → Interactive TUI with Resume/Start/Create options
-- `airelay resume <profile|session-key>` → Resume existing session
+- `airelay resume [profile|session-key]` → Select a launch from the current
+  folder or resume an existing session by profile/key
 - `airelay start <profile> [args...]` → Start new session with optional args
 - `airelay new` → Create new profile (interactive)
 
@@ -124,15 +125,17 @@ After harness exits (Ctrl+C):
 ### Resume Command Logic
 
 ```typescript
-resumeCommand(profileOrSessionKey: string):
-  1. Check if profileOrSessionKey matches a profile name
+resumeCommand(profileOrSessionKey?: string):
+  1. If no argument: select a resumable launch from current-folder history
+  2. Check if profileOrSessionKey matches a profile name
      - If yes and has sessions: show session selector
      - If yes and no sessions: start new session
-  2. Check if profileOrSessionKey matches a session key
+  3. Check if profileOrSessionKey matches a session key
      - If yes: resume that session directly
-  3. Check if profileOrSessionKey matches a session ID
+  4. Check if profileOrSessionKey matches a session ID
      - If yes: resume that session directly
-  4. Error: not found
+  5. Error: not found
 ```
 
-Note: Current implementation treats the argument as a session ID for simplicity. Future enhancement can add key-based lookup.
+The folder picker uses the launch-history entry ID as its choice value, so
+repeated launches with the same session key remain separate selectable rows.

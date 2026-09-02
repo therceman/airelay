@@ -86,7 +86,7 @@ airelay list                       # List all profiles
 airelay which <profile>            # Show resolved runtime details
 airelay doctor [profile]           # Run diagnostics
 airelay init                       # Create starter config
-airelay resume <key>               # Resume a saved session
+airelay resume [key]               # Pick a saved launch from this folder or resume by key
 airelay sessions [--json] [--active]  # List saved sessions
 airelay prompt <session> <text>    # Send input to an active session
 airelay help                       # Show this help message

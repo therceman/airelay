@@ -55,7 +55,8 @@ export interface RunStartInfo {
 
 function buildProfileEnv(
   profileName: string,
-  extraArgs: string[]
+  extraArgs: string[],
+  cwdOverride?: string
 ): {
   profile: Profile;
   cwd: string;
@@ -73,7 +74,11 @@ function buildProfileEnv(
     );
   }
 
-  const cwd = profile.cwd ? resolvePath(profile.cwd) : process.cwd();
+  const cwd = cwdOverride
+    ? resolvePath(cwdOverride)
+    : profile.cwd
+      ? resolvePath(profile.cwd)
+      : process.cwd();
   ensureDirectories(profile, cwd);
   const env = buildEnv(profile, configPath);
   if (detectHarness(profile.executable) === 'codex' && env.CODEX_HOME) {
@@ -197,6 +202,7 @@ export async function runCommand(
   extraArgs: string[],
   options?: {
     usePty?: boolean;
+    cwd?: string;
     sessionKey?: string;
     profileSessionId?: string;
     profileArgs?: string[];
@@ -208,7 +214,7 @@ export async function runCommand(
     onDetachedReady?: (info: DetachedReadyInfo) => void;
   }
 ): Promise<number> {
-  const { profile, cwd, env, args } = buildProfileEnv(profileName, extraArgs);
+  const { profile, cwd, env, args } = buildProfileEnv(profileName, extraArgs, options?.cwd);
 
   const sessionKey = options?.sessionKey || generateSessionKey(profileName);
   // Generate a distinct internal runtime id (opaque, not the sessionKey)

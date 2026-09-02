@@ -205,7 +205,7 @@ Commands:
   init                  Initialize config with auto-detected runtimes
   create <name>         Create a new profile
   new                   Create a new profile (interactive)
-  resume <key>          Resume a session by profile or session key
+  resume [key]          Resume a session by selecting launch history or by key
   start <profile>       Start a new session (--key <key>, --detached, -- <harness_args>)
   list                  List all profiles
   which <profile>       Show resolved runtime details
@@ -233,6 +233,7 @@ Examples:
   airelay start opencode
   airelay start opencode resume ses_abc123
   airelay start opencode2 --key worker_1 -- -s ses_xxx
+  airelay resume
   airelay resume myprofile_abc123
   airelay create myprofile -e opencode
   airelay opencode --help
@@ -316,18 +317,15 @@ async function runCli(): Promise<void> {
         break;
 
       case 'resume':
-        if (!profile) {
-          console.error('Error: Profile or session key required');
-          console.error('Usage: airelay resume <profile|session-key>');
-          process.exit(1);
-        }
         await resumeCommand(profile);
         break;
 
       case 'start':
         if (!profile) {
           console.error('Error: Profile name required');
-          console.error('Usage: airelay start <profile> [--key <key>] [--detached] [-- <harness_args...>]');
+          console.error(
+            'Usage: airelay start <profile> [--key <key>] [--detached] [-- <harness_args...>]'
+          );
           process.exit(1);
         }
         if (flags._error) {
@@ -366,10 +364,7 @@ async function runCli(): Promise<void> {
           // Hidden internal entrypoint for the supervised detached runtime process.
           const sessionKey = flags.key as string | boolean | undefined;
           const exitCode = await detachedRuntimeMain(profile, extraArgs, {
-            key:
-              typeof sessionKey === 'string' && sessionKey.trim()
-                ? sessionKey
-                : undefined,
+            key: typeof sessionKey === 'string' && sessionKey.trim() ? sessionKey : undefined,
           });
           process.exit(exitCode);
         }

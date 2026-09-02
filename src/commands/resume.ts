@@ -1,7 +1,9 @@
 import { runCommand } from './run';
 import { loadConfig } from '../config/load';
 import { findSessionByKey, getSessions, SessionEntry, pruneStaleSessions } from './sessions';
+import { getLaunchHistory, LaunchHistoryEntry, markLaunchHistoryUsed } from './history';
 import Enquirer from 'enquirer';
+import path from 'path';
 
 /**
  * Shared helper to resume a session entry with prompt-capable launch.
@@ -21,6 +23,7 @@ async function resumeSession(profile: string, session: SessionEntry): Promise<nu
   }
 
   return runCommand(profile, resumeArgs, {
+    cwd: session.cwd,
     sessionKey: session.sessionKey,
     profileSessionId: session.profileSessionId,
     profileArgs: session.profileArgs,
@@ -28,8 +31,121 @@ async function resumeSession(profile: string, session: SessionEntry): Promise<nu
   });
 }
 
-export async function resumeCommand(profileOrSessionKey: string): Promise<void> {
+function getHarnessArgs(entry: LaunchHistoryEntry): string[] {
+  const separatorIndex = entry.argv.indexOf('--');
+  return separatorIndex === -1 ? [] : entry.argv.slice(separatorIndex + 1);
+}
+
+function getResumeSessionId(args: string[]): string | undefined {
+  for (let index = 0; index < args.length - 1; index++) {
+    if (args[index] === 'resume' || args[index] === '-s') {
+      return args[index + 1];
+    }
+  }
+  return undefined;
+}
+
+function formatAge(timestamp: number, now = Date.now()): string {
+  const elapsedSeconds = Math.max(0, Math.floor((now - timestamp) / 1000));
+  if (elapsedSeconds < 60) {
+    return '<1m ago';
+  }
+
+  const minutes = Math.floor(elapsedSeconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
+
+  return `${String(Math.floor(hours / 24)).padStart(2, '0')}d ago`;
+}
+
+function getLastUsed(entry: LaunchHistoryEntry): number {
+  return entry.lastUsed ?? entry.startedAt;
+}
+
+function formatHistoryChoice(entry: LaunchHistoryEntry, now = Date.now()): string {
+  const folder = path.basename(path.resolve(entry.invocationCwd)) || entry.invocationCwd;
+  const context = entry.sessionKey || folder;
+  const harnessArgs = getHarnessArgs(entry);
+  const args = harnessArgs.length > 0 ? ` -- ${harnessArgs.join(' ')}` : '';
+  return `[${formatAge(getLastUsed(entry), now)}] ${entry.profile} (${context})${args}`;
+}
+
+function getFolderHistory(): LaunchHistoryEntry[] {
+  const currentCwd = path.resolve(process.cwd());
+  return getLaunchHistory()
+    .filter(
+      (entry) =>
+        path.resolve(entry.invocationCwd) === currentCwd &&
+        getResumeSessionId(getHarnessArgs(entry)) !== undefined
+    )
+    .sort((a, b) => getLastUsed(b) - getLastUsed(a));
+}
+
+async function resumeFromFolder(): Promise<void> {
+  const history = getFolderHistory();
+  if (history.length === 0) {
+    console.error(`No resumable sessions found in ${process.cwd()}`);
+    console.error('Run `airelay start <profile> -- resume <session-id>` first.');
+    process.exit(1);
+    return;
+  }
+
+  const choices = history.map((entry, index) => ({
+    // A history row, rather than a session key/id, is the choice identity.
+    name: entry.id || `history-${index}`,
+    message: formatHistoryChoice(entry),
+  }));
+  const result = (await Enquirer.prompt({
+    type: 'select',
+    name: 'historyEntry',
+    message: 'Select a session to resume',
+    choices,
+    initial: 0,
+  })) as { historyEntry: string };
+
+  const selectedIndex = choices.findIndex((choice) => choice.name === result.historyEntry);
+  const selected = selectedIndex === -1 ? undefined : history[selectedIndex];
+  if (!selected) {
+    console.error('Error: Selected history entry not found.');
+    process.exit(1);
+    return;
+  }
+
+  const profileArgs = getHarnessArgs(selected);
+  const profileSessionId = getResumeSessionId(profileArgs);
+  if (!profileSessionId) {
+    console.error('Error: Selected history entry does not contain a resumable session ID.');
+    process.exit(1);
+    return;
+  }
+
+  markLaunchHistoryUsed(selected.id);
+
+  const exitCode = await resumeSession(selected.profile, {
+    id: profileSessionId,
+    profile: selected.profile,
+    lastUsed: getLastUsed(selected),
+    cwd: selected.invocationCwd,
+    sessionKey: selected.sessionKey,
+    profileSessionId,
+    profileArgs,
+  });
+  process.exit(exitCode);
+}
+
+export async function resumeCommand(profileOrSessionKey?: string): Promise<void> {
   await pruneStaleSessions();
+
+  if (!profileOrSessionKey) {
+    await resumeFromFolder();
+    return;
+  }
 
   const found = findSessionByKey(profileOrSessionKey);
 
@@ -43,12 +159,12 @@ export async function resumeCommand(profileOrSessionKey: string): Promise<void> 
   const config = loadConfig();
   if (!config.profiles[profileOrSessionKey]) {
     console.error(`Error: Profile or session not found: ${profileOrSessionKey}`);
-    console.error('Usage: airelay resume <profile|session-key>');
+    console.error('Usage: airelay resume [profile|session-key]');
     process.exit(1);
   }
 
   // It's a profile name - show session selector
-  const sessions = getSessions(profileOrSessionKey);
+  const sessions = [...getSessions(profileOrSessionKey)].sort((a, b) => b.lastUsed - a.lastUsed);
   if (sessions.length === 0) {
     console.error(`No existing sessions for profile: ${profileOrSessionKey}`);
     process.exit(1);
@@ -60,7 +176,7 @@ export async function resumeCommand(profileOrSessionKey: string): Promise<void> 
     const pidInfo = s.profileSessionId ? ` (profile: ${s.profileSessionId})` : '';
     return {
       name: s.id,
-      message: `${s.id}${keyInfo}${cwdInfo}${pidInfo}`,
+      message: `[${formatAge(s.lastUsed)}] ${s.id}${keyInfo}${cwdInfo}${pidInfo}`,
     };
   });
 
