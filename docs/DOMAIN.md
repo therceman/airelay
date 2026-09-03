@@ -80,7 +80,8 @@ A user-friendly identifier for referencing sessions.
 Main menu with three options:
 
 1. **Resume session**
-   - Select project → Select session from that project's launch history
+   - Select project, shown with its latest-use time and sorted newest first
+   - Select session from that project's launch history
 2. **Resume current project session**
    - Select a session from the current project's launch history
 3. **Start a new session**

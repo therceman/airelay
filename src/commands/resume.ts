@@ -64,7 +64,7 @@ function getResumeSessionId(args: string[]): string | undefined {
   return undefined;
 }
 
-function formatAge(timestamp: number, now = Date.now()): string {
+export function formatAge(timestamp: number, now = Date.now()): string {
   const elapsedSeconds = Math.max(0, Math.floor((now - timestamp) / 1000));
   if (elapsedSeconds < 60) {
     return '<1m ago';
@@ -106,9 +106,13 @@ function getFolderHistory(targetCwd = process.cwd()): LaunchHistoryEntry[] {
     .sort((a, b) => getLastUsed(b) - getLastUsed(a));
 }
 
-export function getResumableProjectPaths(): string[] {
-  const projects: string[] = [];
-  const seen = new Set<string>();
+export interface ResumableProject {
+  path: string;
+  lastUsed: number;
+}
+
+export function getResumableProjects(): ResumableProject[] {
+  const projects = new Map<string, ResumableProject>();
 
   for (const entry of getLaunchHistory()) {
     if (getResumeSessionId(getHarnessArgs(entry)) === undefined) {
@@ -116,13 +120,18 @@ export function getResumableProjectPaths(): string[] {
     }
 
     const projectPath = path.resolve(entry.invocationCwd);
-    if (!seen.has(projectPath)) {
-      seen.add(projectPath);
-      projects.push(projectPath);
+    const lastUsed = getLastUsed(entry);
+    const existing = projects.get(projectPath);
+    if (!existing || lastUsed > existing.lastUsed) {
+      projects.set(projectPath, { path: projectPath, lastUsed });
     }
   }
 
-  return projects;
+  return [...projects.values()].sort((a, b) => b.lastUsed - a.lastUsed);
+}
+
+export function getResumableProjectPaths(): string[] {
+  return getResumableProjects().map((project) => project.path);
 }
 
 async function resumeFromFolder(targetCwd = process.cwd()): Promise<void> {

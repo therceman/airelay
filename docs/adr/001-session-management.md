@@ -59,7 +59,8 @@ The interactive TUI:
 
 1. Does NOT prompt for extra arguments (keeps flow simple)
 2. Offers project resume, current-project resume, and starting a new session
-3. Shows launch-history rows newest first, including session key and resume args
+3. Shows projects with latest-use times sorted newest first, then launch-history
+   rows newest first, including session key and resume args
 4. After harness exits, prompts for:
    - Session ID (from harness output)
    - Session key (pre-filled with default)

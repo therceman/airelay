@@ -1,4 +1,8 @@
-import { getResumableProjectPaths, resumeCommand } from '../src/commands/resume';
+import {
+  getResumableProjectPaths,
+  getResumableProjects,
+  resumeCommand,
+} from '../src/commands/resume';
 import { runCommand } from '../src/commands/run';
 import { pruneStaleSessions } from '../src/commands/sessions';
 import path from 'path';
@@ -81,6 +85,35 @@ describe('resumeCommand', () => {
     expect(getResumableProjectPaths()).toEqual([
       path.resolve('/tmp/project-b'),
       path.resolve('/tmp/project-a'),
+    ]);
+  });
+
+  it('returns each project with its newest resumable launch time', () => {
+    (getLaunchHistory as jest.Mock).mockReturnValue([
+      {
+        id: 'project-a-old',
+        invocationCwd: '/tmp/project-a',
+        startedAt: 100,
+        lastUsed: 200,
+        argv: ['start', 'codex', '--', 'resume', 'session-a-old'],
+      },
+      {
+        id: 'project-b',
+        invocationCwd: '/tmp/project-b',
+        startedAt: 300,
+        argv: ['start', 'codex', '--', 'resume', 'session-b'],
+      },
+      {
+        id: 'project-a-new',
+        invocationCwd: '/tmp/project-a',
+        startedAt: 400,
+        argv: ['start', 'codex', '--', 'resume', 'session-a-new'],
+      },
+    ]);
+
+    expect(getResumableProjects()).toEqual([
+      { path: path.resolve('/tmp/project-a'), lastUsed: 400 },
+      { path: path.resolve('/tmp/project-b'), lastUsed: 300 },
     ]);
   });
 

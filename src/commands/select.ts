@@ -7,7 +7,7 @@ import { loadConfig } from '../config/load';
 import { migrateLegacyHomeDirIfNeeded } from '../config/migrate';
 import { runCommand } from './run';
 import { addSession } from './sessions';
-import { getResumableProjectPaths, resumeCommand } from './resume';
+import { formatAge, getResumableProjects, resumeCommand } from './resume';
 
 function getLastUsedDirPath(): string {
   if (!process.env.AIRELAY_LAST_USED) {
@@ -86,8 +86,10 @@ export async function selectCommand(): Promise<void> {
   const defaultProfiles = profiles.filter((p) => DEFAULT_PROFILES.includes(p));
   const sortedProfiles = [...customProfiles, ...defaultProfiles];
 
-  const resumableProjects = getResumableProjectPaths();
-  const hasCurrentProjectSession = resumableProjects.includes(path.resolve(process.cwd()));
+  const resumableProjects = getResumableProjects();
+  const hasCurrentProjectSession = resumableProjects.some(
+    (project) => project.path === path.resolve(process.cwd())
+  );
 
   const mainChoices = buildMainChoices(resumableProjects.length > 0, hasCurrentProjectSession);
 
@@ -108,8 +110,8 @@ export async function selectCommand(): Promise<void> {
       name: 'project',
       message: 'Select a project to resume',
       choices: resumableProjects.map((project) => ({
-        name: project,
-        message: formatProjectPath(project),
+        name: project.path,
+        message: `[${formatAge(project.lastUsed)}] ${formatProjectPath(project.path)}`,
       })),
       initial: 0,
     })) as { project: string };
