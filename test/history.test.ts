@@ -176,6 +176,47 @@ describe('launch history', () => {
     });
   });
 
+  it('removes exact duplicate launches and keeps the freshest row', () => {
+    const older = recordLaunchHistory({
+      profile: 'worker',
+      sessionKey: 'same_key',
+      invocationCwd: process.cwd(),
+      argv: ['start', 'worker', '--key', 'same_key', '--', 'resume', 'same-session'],
+      startedAt: 100,
+    });
+    const newer = recordLaunchHistory({
+      profile: 'worker',
+      sessionKey: 'same_key',
+      invocationCwd: process.cwd(),
+      argv: ['start', 'worker', '--key', 'same_key', '--', 'resume', 'same-session'],
+      startedAt: 200,
+    });
+
+    expect(getLaunchHistory()).toEqual([newer]);
+    expect(JSON.parse(fs.readFileSync(testEnv.historyPath, 'utf8'))).toEqual([newer]);
+    expect(older.id).not.toBe(newer.id);
+  });
+
+  it('cleans exact duplicates already stored in history', () => {
+    const older = recordLaunchHistory({
+      profile: 'worker',
+      sessionKey: 'stored_key',
+      invocationCwd: process.cwd(),
+      argv: ['start', 'worker', '--key', 'stored_key', '--', 'resume', 'stored-session'],
+      startedAt: 100,
+    });
+    const newer = {
+      ...older,
+      id: 'newer-stored-entry',
+      startedAt: 200,
+      lastUsed: 300,
+    };
+    fs.writeFileSync(testEnv.historyPath, JSON.stringify([older, newer]), 'utf8');
+
+    expect(getLaunchHistory()).toEqual([newer]);
+    expect(JSON.parse(fs.readFileSync(testEnv.historyPath, 'utf8'))).toEqual([newer]);
+  });
+
   it('updates last-used time for one launch row only', () => {
     const first = recordLaunchHistory({
       profile: 'worker',
@@ -227,6 +268,7 @@ describe('launch history', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('airelay history'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('history remove <key>'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('separate launch rows'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Exact duplicate launches'));
   });
 
   it('quotes empty arguments and preserves the command prefix', () => {

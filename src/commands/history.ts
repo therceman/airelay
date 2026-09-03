@@ -18,9 +18,42 @@ const store = createJsonStore<LaunchHistoryEntry[]>({
   defaultPath: path.join(os.homedir(), '.airelay', 'launch-history.json'),
 });
 
+function getHistoryEntryTime(entry: LaunchHistoryEntry): number {
+  return entry.lastUsed ?? entry.startedAt;
+}
+
+function getHistoryEntryIdentity(entry: LaunchHistoryEntry): string {
+  return JSON.stringify([
+    entry.profile,
+    entry.sessionKey,
+    path.resolve(entry.invocationCwd),
+    entry.argv,
+  ]);
+}
+
+function deduplicateHistory(entries: LaunchHistoryEntry[]): LaunchHistoryEntry[] {
+  const unique = new Map<string, LaunchHistoryEntry>();
+  for (const entry of entries) {
+    const identity = getHistoryEntryIdentity(entry);
+    const existing = unique.get(identity);
+    if (!existing || getHistoryEntryTime(entry) > getHistoryEntryTime(existing)) {
+      unique.set(identity, entry);
+    }
+  }
+  return [...unique.values()];
+}
+
 function loadHistory(): LaunchHistoryEntry[] {
   const loaded = store.load();
-  return Array.isArray(loaded) ? loaded : [];
+  if (!Array.isArray(loaded)) {
+    return [];
+  }
+
+  const deduplicated = deduplicateHistory(loaded);
+  if (deduplicated.length !== loaded.length) {
+    store.save(deduplicated);
+  }
+  return deduplicated;
 }
 
 function shellQuote(value: string): string {
@@ -55,9 +88,8 @@ export function recordLaunchHistory(input: {
     command: renderLaunchCommand(input.argv),
   };
 
-  const history = loadHistory();
-  history.unshift(entry);
-  store.save(history.slice(0, 1000));
+  const history = [entry, ...loadHistory()];
+  store.save(deduplicateHistory(history).slice(0, 1000));
   return entry;
 }
 
@@ -119,8 +151,8 @@ Usage:
   airelay history help             Show this help
 
 History entries are kept as separate launch rows, even when they use the same
-session key. The remove command affects matching entries for the current
-directory.
+session key. Exact duplicate launches are collapsed, keeping the most recently
+used row. The remove command affects matching entries for the current directory.
 `);
 }
 
