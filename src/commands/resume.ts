@@ -1,6 +1,12 @@
 import { runCommand } from './run';
 import { loadConfig } from '../config/load';
-import { findSessionByKey, getSessions, SessionEntry, pruneStaleSessions } from './sessions';
+import {
+  findSessionByKey,
+  getSessions,
+  isControllerReachable,
+  SessionEntry,
+  pruneStaleSessions,
+} from './sessions';
 import { getLaunchHistory, LaunchHistoryEntry, markLaunchHistoryUsed } from './history';
 import Enquirer from 'enquirer';
 import path from 'path';
@@ -9,6 +15,59 @@ import path from 'path';
  * Shared helper to resume a session entry with prompt-capable launch.
  * Builds resumeArgs, warns about missing metadata, and calls runCommand with PTY.
  */
+function isProcessAlive(pid?: number): boolean {
+  if (pid === undefined) {
+    return false;
+  }
+
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function findActiveSession(
+  profile: string,
+  profileSessionId: string
+): Promise<SessionEntry | undefined> {
+  const candidates = getSessions(profile).filter(
+    (candidate) => candidate.profileSessionId === profileSessionId
+  );
+
+  for (const candidate of candidates) {
+    if (isProcessAlive(candidate.pid)) {
+      return candidate;
+    }
+    if (
+      candidate.controllerEndpoint &&
+      (await isControllerReachable(candidate.controllerEndpoint))
+    ) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+function reportActiveSession(profileSessionId: string): void {
+  console.error(
+    'Failed to resume session in this terminal, because this session is active in another terminal window.'
+  );
+  console.error(`Session ID: ${profileSessionId}`);
+  console.error('Use the existing terminal for this session, or choose "Start new session".');
+}
+
+async function rejectActiveSession(profile: string, profileSessionId: string): Promise<boolean> {
+  if (!(await findActiveSession(profile, profileSessionId))) {
+    return false;
+  }
+
+  reportActiveSession(profileSessionId);
+  return true;
+}
+
 async function resumeSession(profile: string, session: SessionEntry): Promise<number> {
   const resumeArgs =
     session.profileArgs && session.profileArgs.length > 0
@@ -172,7 +231,10 @@ async function resumeFromFolder(targetCwd = process.cwd()): Promise<void> {
     return;
   }
 
-  markLaunchHistoryUsed(selected.id);
+  if (await rejectActiveSession(selected.profile, profileSessionId)) {
+    process.exit(1);
+    return;
+  }
 
   const exitCode = await resumeSession(selected.profile, {
     id: profileSessionId,
@@ -183,6 +245,7 @@ async function resumeFromFolder(targetCwd = process.cwd()): Promise<void> {
     profileSessionId,
     profileArgs,
   });
+  markLaunchHistoryUsed(selected.id);
   process.exit(exitCode);
 }
 
@@ -200,6 +263,14 @@ export async function resumeCommand(
   const found = findSessionByKey(profileOrSessionKey);
 
   if (found) {
+    if (
+      found.session.profileSessionId &&
+      (await rejectActiveSession(found.profile, found.session.profileSessionId))
+    ) {
+      process.exit(1);
+      return;
+    }
+
     const exitCode = await resumeSession(found.profile, found.session);
     process.exit(exitCode);
     return;
@@ -244,6 +315,15 @@ export async function resumeCommand(
   if (!selectedSession) {
     console.error('Error: Selected session not found.');
     process.exit(1);
+    return;
+  }
+
+  if (
+    selectedSession.profileSessionId &&
+    (await rejectActiveSession(profileOrSessionKey, selectedSession.profileSessionId))
+  ) {
+    process.exit(1);
+    return;
   }
 
   const exitCode = await resumeSession(profileOrSessionKey, selectedSession);

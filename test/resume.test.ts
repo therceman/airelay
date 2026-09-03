@@ -35,7 +35,7 @@ jest.mock('enquirer', () => ({
   prompt: jest.fn().mockResolvedValue({ session: 'ses_abc' }),
 }));
 
-import { findSessionByKey } from '../src/commands/sessions';
+import { findSessionByKey, getSessions } from '../src/commands/sessions';
 import { getLaunchHistory, markLaunchHistoryUsed } from '../src/commands/history';
 import Enquirer from 'enquirer';
 
@@ -50,6 +50,7 @@ beforeEach(() => {
   console.error = jest.fn();
   console.warn = jest.fn();
   jest.clearAllMocks();
+  (getSessions as jest.Mock).mockReturnValue([]);
 });
 
 afterEach(() => {
@@ -317,5 +318,44 @@ describe('resumeCommand', () => {
     );
     expect(markLaunchHistoryUsed).toHaveBeenCalledWith('newest-row');
     jest.restoreAllMocks();
+  });
+
+  it('reports when the selected session is already running', async () => {
+    const profileSessionId = '01a0638b-bafd-7c82-ae0e-a2cdfeb4f63e';
+    const currentCwd = process.cwd();
+    (getLaunchHistory as jest.Mock).mockReturnValue([
+      {
+        id: 'active-row',
+        profile: 'codex2',
+        sessionKey: 'airelay_master',
+        invocationCwd: currentCwd,
+        startedAt: Date.now(),
+        argv: ['start', 'codex2', '--', 'resume', profileSessionId],
+      },
+    ]);
+    (getSessions as jest.Mock).mockReturnValue([
+      {
+        id: 'runtime-active',
+        profile: 'codex2',
+        profileSessionId,
+        pid: process.pid,
+        controllerEndpoint: '/tmp/active-session.sock',
+        lastUsed: Date.now(),
+      },
+    ]);
+    (Enquirer.prompt as jest.Mock).mockResolvedValueOnce({ historyEntry: 'active-row' });
+
+    await resumeCommand();
+
+    expect(runCommand).not.toHaveBeenCalled();
+    expect(markLaunchHistoryUsed).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(
+      'Failed to resume session in this terminal, because this session is active in another terminal window.'
+    );
+    expect(console.error).toHaveBeenCalledWith(`Session ID: ${profileSessionId}`);
+    expect(console.error).toHaveBeenCalledWith(
+      'Use the existing terminal for this session, or choose "Start new session".'
+    );
+    expect(process.exit).toHaveBeenCalledWith(1);
   });
 });
