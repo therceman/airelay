@@ -155,7 +155,13 @@ export async function selectCommand(): Promise<void> {
   setLastUsedProfile(profileName);
 
   let selectedSession:
-    | { id: string; sessionKey?: string; profileSessionId?: string; profileArgs?: string[] }
+    | {
+        id: string;
+        sessionKey?: string;
+        profileSessionId?: string;
+        profileArgs?: string[];
+        cwd?: string;
+      }
     | undefined;
   if (action === 'Resume') {
     const sessions = getSessions(profileName);
@@ -319,6 +325,8 @@ export async function selectCommand(): Promise<void> {
         : [`-s`, selectedSession.profileSessionId || selectedSession.id]
       : [];
     exitCode = await runCommand(profileName, resumeArgs, {
+      usePty: true,
+      cwd: selectedSession?.cwd,
       sessionKey: selectedSession?.sessionKey,
       profileSessionId: selectedSession?.profileSessionId,
       profileArgs: selectedSession?.profileArgs,

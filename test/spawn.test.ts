@@ -1,4 +1,5 @@
 import { spawnAndWait } from '../src/runtime/spawn';
+import { createPty } from '../src/runtime/pty';
 
 describe('spawnAndWait', () => {
   it('returns exit code from child process', async () => {
@@ -110,5 +111,35 @@ describe('spawnAndWait', () => {
     // Listener count should remain stable
     expect(process.listeners('SIGINT').length).toBe(beforeSigint);
     expect(process.listeners('SIGTERM').length).toBe(beforeSigterm);
+  });
+});
+
+describe('interactive PTY handoff', () => {
+  it('resumes stdin when a previous interactive prompt left it paused', async () => {
+    const stdin = process.stdin;
+    const isTTYDescriptor = Object.getOwnPropertyDescriptor(stdin, 'isTTY');
+    Object.defineProperty(stdin, 'isTTY', { configurable: true, value: true });
+    stdin.pause();
+    const resumeSpy = jest.spyOn(stdin, 'resume');
+    const pauseSpy = jest.spyOn(stdin, 'pause');
+
+    try {
+      const pty = createPty({
+        file: process.platform === 'win32' ? 'node.exe' : 'node',
+        args: ['-e', 'process.exit(0)'],
+      });
+      await pty.exitCode;
+
+      expect(resumeSpy).toHaveBeenCalled();
+      expect(pauseSpy).toHaveBeenCalled();
+    } finally {
+      resumeSpy.mockRestore();
+      pauseSpy.mockRestore();
+      if (isTTYDescriptor) {
+        Object.defineProperty(stdin, 'isTTY', isTTYDescriptor);
+      } else {
+        delete (stdin as unknown as { isTTY?: boolean }).isTTY;
+      }
+    }
   });
 });

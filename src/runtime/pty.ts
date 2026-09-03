@@ -50,15 +50,23 @@ export function createPty(options: PtyOptions): PtyInstance {
   const cleanups: (() => void)[] = [];
 
   if (!options.detached && process.stdin.isTTY) {
+    const stdinWasFlowing = process.stdin.readableFlowing;
     process.stdin.setRawMode?.(true);
     const onStdinData = (chunk: Buffer) => {
       term.write(chunk.toString());
     };
     process.stdin.on('data', onStdinData);
+    // Enquirer pauses stdin when its prompt closes. Adding a data listener
+    // alone does not resume an explicitly paused stream, so input would be
+    // silently swallowed after launching a PTY from an interactive picker.
+    process.stdin.resume();
     cleanups.push(() => {
       try {
         process.stdin.setRawMode?.(false);
         process.stdin.removeListener('data', onStdinData);
+        if (stdinWasFlowing === false) {
+          process.stdin.pause();
+        }
       } catch {
         // Ignore cleanup errors
       }
