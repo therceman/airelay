@@ -40,13 +40,14 @@ Users can customize the session key during session save.
 
 Sessions can be resumed by:
 
-1. Profile name (shows session list)
-2. Session key (direct resume)
-3. Session ID (direct resume)
+1. Project picker, followed by launch-history session picker
+2. Current project session picker
+3. Session key (direct resume)
+4. Session ID (direct resume)
 
 ### Commands
 
-- `airelay` (no args) → Interactive TUI with Resume/Start/Create options
+- `airelay` (no args) → Interactive TUI with project resume/current resume/start options
 - `airelay resume [profile|session-key]` → Select a launch from the current
   folder or resume an existing session by profile/key
 - `airelay start <profile> [args...]` → Start new session with optional args
@@ -57,8 +58,9 @@ Sessions can be resumed by:
 The interactive TUI:
 
 1. Does NOT prompt for extra arguments (keeps flow simple)
-2. Shows session keys in session list: `ses_... [opencode_XjhS] /path/to/cwd (Description)`
-3. After harness exits, prompts for:
+2. Offers project resume, current-project resume, and starting a new session
+3. Shows launch-history rows newest first, including session key and resume args
+4. After harness exits, prompts for:
    - Session ID (from harness output)
    - Session key (pre-filled with default)
    - Description (optional)

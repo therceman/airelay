@@ -1,6 +1,7 @@
-import { resumeCommand } from '../src/commands/resume';
+import { getResumableProjectPaths, resumeCommand } from '../src/commands/resume';
 import { runCommand } from '../src/commands/run';
 import { pruneStaleSessions } from '../src/commands/sessions';
+import path from 'path';
 
 jest.mock('../src/commands/run', () => ({
   runCommand: jest.fn().mockResolvedValue(0),
@@ -55,6 +56,34 @@ afterEach(() => {
 });
 
 describe('resumeCommand', () => {
+  it('returns unique resumable projects in recent-use order', () => {
+    (getLaunchHistory as jest.Mock).mockReturnValue([
+      {
+        id: 'project-b-new',
+        invocationCwd: '/tmp/project-b',
+        startedAt: 300,
+        argv: ['start', 'codex', '--', 'resume', 'session-b'],
+      },
+      {
+        id: 'project-a',
+        invocationCwd: '/tmp/project-a',
+        startedAt: 200,
+        argv: ['start', 'codex', 'resume', 'session-a'],
+      },
+      {
+        id: 'project-b-old',
+        invocationCwd: '/tmp/project-b',
+        startedAt: 100,
+        argv: ['start', 'codex', '--', 'resume', 'session-b-old'],
+      },
+    ]);
+
+    expect(getResumableProjectPaths()).toEqual([
+      path.resolve('/tmp/project-b'),
+      path.resolve('/tmp/project-a'),
+    ]);
+  });
+
   it('launches prompt-capable (usePty: true) with sessionKey and profileArgs', async () => {
     (findSessionByKey as jest.Mock).mockReturnValue({
       profile: 'testprofile',

@@ -33,7 +33,26 @@ async function resumeSession(profile: string, session: SessionEntry): Promise<nu
 
 function getHarnessArgs(entry: LaunchHistoryEntry): string[] {
   const separatorIndex = entry.argv.indexOf('--');
-  return separatorIndex === -1 ? [] : entry.argv.slice(separatorIndex + 1);
+  if (separatorIndex !== -1) {
+    return entry.argv.slice(separatorIndex + 1);
+  }
+
+  // `--` is optional after the profile name. Strip airelay-owned start flags
+  // so old and hand-written history rows can still be resumed.
+  let index = 2; // `start <profile>`
+  while (index < entry.argv.length) {
+    if (entry.argv[index] === '--key') {
+      index += 2;
+      continue;
+    }
+    if (entry.argv[index] === '--detached') {
+      index += 1;
+      continue;
+    }
+    return entry.argv.slice(index);
+  }
+
+  return [];
 }
 
 function getResumeSessionId(args: string[]): string | undefined {
@@ -76,8 +95,8 @@ function formatHistoryChoice(entry: LaunchHistoryEntry, now = Date.now()): strin
   return `[${formatAge(getLastUsed(entry), now)}] ${entry.profile} (${context})${args}`;
 }
 
-function getFolderHistory(): LaunchHistoryEntry[] {
-  const currentCwd = path.resolve(process.cwd());
+function getFolderHistory(targetCwd = process.cwd()): LaunchHistoryEntry[] {
+  const currentCwd = path.resolve(targetCwd);
   return getLaunchHistory()
     .filter(
       (entry) =>
@@ -87,10 +106,29 @@ function getFolderHistory(): LaunchHistoryEntry[] {
     .sort((a, b) => getLastUsed(b) - getLastUsed(a));
 }
 
-async function resumeFromFolder(): Promise<void> {
-  const history = getFolderHistory();
+export function getResumableProjectPaths(): string[] {
+  const projects: string[] = [];
+  const seen = new Set<string>();
+
+  for (const entry of getLaunchHistory()) {
+    if (getResumeSessionId(getHarnessArgs(entry)) === undefined) {
+      continue;
+    }
+
+    const projectPath = path.resolve(entry.invocationCwd);
+    if (!seen.has(projectPath)) {
+      seen.add(projectPath);
+      projects.push(projectPath);
+    }
+  }
+
+  return projects;
+}
+
+async function resumeFromFolder(targetCwd = process.cwd()): Promise<void> {
+  const history = getFolderHistory(targetCwd);
   if (history.length === 0) {
-    console.error(`No resumable sessions found in ${process.cwd()}`);
+    console.error(`No resumable sessions found in ${targetCwd}`);
     console.error('Run `airelay start <profile> -- resume <session-id>` first.');
     process.exit(1);
     return;
@@ -139,11 +177,14 @@ async function resumeFromFolder(): Promise<void> {
   process.exit(exitCode);
 }
 
-export async function resumeCommand(profileOrSessionKey?: string): Promise<void> {
+export async function resumeCommand(
+  profileOrSessionKey?: string,
+  targetCwd = process.cwd()
+): Promise<void> {
   await pruneStaleSessions();
 
   if (!profileOrSessionKey) {
-    await resumeFromFolder();
+    await resumeFromFolder(targetCwd);
     return;
   }
 

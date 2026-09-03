@@ -6,9 +6,8 @@ import Enquirer from 'enquirer';
 import { loadConfig } from '../config/load';
 import { migrateLegacyHomeDirIfNeeded } from '../config/migrate';
 import { runCommand } from './run';
-import { getSessions, addSession, deleteSession, getSessionsPath } from './sessions';
-import { createCommandInteractive } from './create-interactive';
-import { historyCommand } from './history';
+import { addSession } from './sessions';
+import { getResumableProjectPaths, resumeCommand } from './resume';
 
 function getLastUsedDirPath(): string {
   if (!process.env.AIRELAY_LAST_USED) {
@@ -66,13 +65,15 @@ export function setLastUsedProfile(profileName: string): void {
 }
 
 export function buildMainChoices(
-  hasAnySessions: boolean
+  hasAnyResumableProjects: boolean,
+  hasCurrentProjectSession = hasAnyResumableProjects
 ): Array<{ name: string; message: string }> {
   return [
-    ...(hasAnySessions ? [{ name: 'Resume', message: 'Resume an existing profile session' }] : []),
-    { name: 'Show', message: 'Show profile session history' },
-    { name: 'Start', message: 'Start a new profile session' },
-    { name: 'Create', message: 'Create a new profile' },
+    ...(hasAnyResumableProjects ? [{ name: 'Resume', message: 'Resume session' }] : []),
+    ...(hasCurrentProjectSession
+      ? [{ name: 'ResumeCurrent', message: 'Resume current project session' }]
+      : []),
+    { name: 'Start', message: 'Start new session' },
   ];
 }
 
@@ -85,10 +86,10 @@ export async function selectCommand(): Promise<void> {
   const defaultProfiles = profiles.filter((p) => DEFAULT_PROFILES.includes(p));
   const sortedProfiles = [...customProfiles, ...defaultProfiles];
 
-  // Check if any profiles have sessions
-  const hasAnySessions = sortedProfiles.some((name) => getSessions(name).length > 0);
+  const resumableProjects = getResumableProjectPaths();
+  const hasCurrentProjectSession = resumableProjects.includes(path.resolve(process.cwd()));
 
-  const mainChoices = buildMainChoices(hasAnySessions);
+  const mainChoices = buildMainChoices(resumableProjects.length > 0, hasCurrentProjectSession);
 
   const mainPrompt = {
     type: 'select',
@@ -101,27 +102,34 @@ export async function selectCommand(): Promise<void> {
   const mainResult = (await Enquirer.prompt(mainPrompt)) as { action: string };
   const action = mainResult.action;
 
-  if (action === 'Create') {
-    await createCommandInteractive();
+  if (action === 'Resume') {
+    const projectResult = (await Enquirer.prompt({
+      type: 'select',
+      name: 'project',
+      message: 'Select a project to resume',
+      choices: resumableProjects.map((project) => ({
+        name: project,
+        message: formatProjectPath(project),
+      })),
+      initial: 0,
+    })) as { project: string };
+
+    await resumeCommand(undefined, projectResult.project);
     return;
   }
 
-  if (action === 'Show') {
-    historyCommand();
+  if (action === 'ResumeCurrent') {
+    await resumeCommand(undefined, process.cwd());
     return;
   }
 
   if (profiles.length === 0) {
     console.log('No profiles configured.');
-    await createCommandInteractive();
     return;
   }
 
-  // For Resume action, filter to only profiles with sessions
+  // Start a new session with a profile selector.
   let profilesToSelect = sortedProfiles;
-  if (action === 'Resume') {
-    profilesToSelect = sortedProfiles.filter((name) => getSessions(name).length > 0);
-  }
 
   // For Start action, sort: custom profiles (newest first) then defaults
   if (action === 'Start') {
@@ -137,16 +145,9 @@ export async function selectCommand(): Promise<void> {
   const profilePrompt = {
     type: 'select',
     name: 'profile',
-    message: action === 'Resume' ? 'Select a profile to resume' : 'Select a profile to start',
+    message: 'Select a profile to start',
     initial: initialIndex,
-    choices: profilesToSelect.map((name) => {
-      const sessions = getSessions(name);
-      const sessionsCount = sessions.length > 0 ? ` (${sessions.length} sessions)` : '';
-      return {
-        name,
-        message: `${name}${sessionsCount}`,
-      };
-    }),
+    choices: profilesToSelect.map((name) => ({ name, message: name })),
   };
 
   const profileResult = (await Enquirer.prompt(profilePrompt)) as { profile: string };
@@ -154,153 +155,10 @@ export async function selectCommand(): Promise<void> {
 
   setLastUsedProfile(profileName);
 
-  let selectedSession:
-    | {
-        id: string;
-        sessionKey?: string;
-        profileSessionId?: string;
-        profileArgs?: string[];
-        cwd?: string;
-      }
-    | undefined;
-  if (action === 'Resume') {
-    const sessions = getSessions(profileName);
-    if (sessions.length > 0) {
-      const sessionChoices = [
-        ...sessions.map((s) => {
-          const cwdInfo = s.cwd ? ` ${s.cwd}` : '';
-          const keyInfo = s.sessionKey ? ` [${s.sessionKey}]` : '';
-          const profileInfo = s.profileSessionId ? ` (profile: ${s.profileSessionId})` : '';
-          return {
-            name: s.id,
-            message: `${s.id}${keyInfo}${cwdInfo}${profileInfo}`,
-          };
-        }),
-        { name: '__rename__', message: '[R] Rename a session' },
-        { name: '__delete__', message: '[D] Delete a session' },
-      ];
-
-      const enquirer = new Enquirer();
-      let sessionResult: { session: string } | undefined;
-
-      const sessionPrompt = {
-        type: 'select',
-        name: 'session',
-        message: 'Select a session to resume',
-        choices: sessionChoices,
-        initial: 0,
-        onRun: function (this: unknown) {
-          const selectPrompt = this as {
-            on: (event: string, handler: (ch: string, key: { name: string }) => void) => void;
-          };
-          selectPrompt.on('keypress', (ch, key) => {
-            if (key.name === 'r') {
-              (this as { cancel: () => void }).cancel();
-              sessionResult = { session: '__rename__' };
-            } else if (key.name === 'd') {
-              (this as { cancel: () => void }).cancel();
-              sessionResult = { session: '__delete__' };
-            }
-          });
-        },
-      };
-
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        try {
-          sessionResult = (await enquirer.prompt(sessionPrompt)) as { session: string };
-        } catch (e) {
-          if (
-            sessionResult &&
-            (sessionResult.session === '__rename__' || sessionResult.session === '__delete__')
-          ) {
-            // Handled by keypress
-          } else {
-            throw e;
-          }
-        }
-
-        if (sessionResult.session === '__rename__') {
-          const renamePrompt = {
-            type: 'select',
-            name: 'rename',
-            message: 'Select session to rename',
-            choices: sessions.map((s) => ({
-              name: s.id,
-              message: s.sessionKey || s.id,
-            })),
-          };
-          const renameResult = (await enquirer.prompt(renamePrompt)) as { rename: string };
-
-          const namePrompt = {
-            type: 'input',
-            name: 'name',
-            message: 'New key for session',
-            initial: sessions.find((s) => s.id === renameResult.rename)?.sessionKey || '',
-          };
-          const nameResult = (await enquirer.prompt(namePrompt)) as { name: string };
-
-          if (nameResult.name.trim()) {
-            const sessionsData = JSON.parse(fs.readFileSync(getSessionsPath(), 'utf-8'));
-            const entry = sessionsData[profileName]?.find(
-              (s: { id: string }) => s.id === renameResult.rename
-            );
-            if (entry) {
-              entry.sessionKey = nameResult.name.trim();
-              fs.writeFileSync(getSessionsPath(), JSON.stringify(sessionsData, null, 2));
-              console.log(`Session key updated to: ${nameResult.name.trim()}`);
-            }
-          }
-          continue;
-        }
-
-        if (sessionResult.session === '__delete__') {
-          const deletePrompt = {
-            type: 'select',
-            name: 'delete',
-            message: 'Select session to delete',
-            choices: sessions.map((s) => ({
-              name: s.id,
-              message: s.sessionKey || s.id,
-            })),
-          };
-          const deleteResult = (await enquirer.prompt(deletePrompt)) as { delete: string };
-
-          const confirmPrompt = {
-            type: 'confirm',
-            name: 'confirm',
-            message: `Delete session "${sessions.find((s) => s.id === deleteResult.delete)?.sessionKey || deleteResult.delete}"?`,
-            initial: false,
-          };
-          const confirmResult = (await enquirer.prompt(confirmPrompt)) as { confirm: boolean };
-
-          if (confirmResult.confirm) {
-            deleteSession(profileName, deleteResult.delete);
-            console.log('Session deleted');
-            sessions.splice(
-              sessions.findIndex((s) => s.id === deleteResult.delete),
-              1
-            );
-          }
-          continue;
-        }
-
-        const sessionValue = sessionResult?.session;
-        if (sessionValue) {
-          const foundSession = sessions.find((s) => s.id === sessionValue);
-          if (foundSession) {
-            selectedSession = foundSession;
-            break;
-          }
-        }
-      }
-    }
-  }
-
   const confirmPrompt = {
     type: 'confirm',
     name: 'confirm',
-    message: `${action} ${profileName}${selectedSession ? ` (session: ${selectedSession.sessionKey || selectedSession.id})` : ''}?`,
+    message: `Start new session with ${profileName}?`,
     initial: true,
   };
 
@@ -319,17 +177,8 @@ export async function selectCommand(): Promise<void> {
   };
 
   try {
-    const resumeArgs = selectedSession
-      ? selectedSession.profileArgs && selectedSession.profileArgs.length > 0
-        ? selectedSession.profileArgs
-        : [`-s`, selectedSession.profileSessionId || selectedSession.id]
-      : [];
-    exitCode = await runCommand(profileName, resumeArgs, {
+    exitCode = await runCommand(profileName, [], {
       usePty: true,
-      cwd: selectedSession?.cwd,
-      sessionKey: selectedSession?.sessionKey,
-      profileSessionId: selectedSession?.profileSessionId,
-      profileArgs: selectedSession?.profileArgs,
       onSessionStart: (info) => {
         sessionStartInfo.sessionKey = info.sessionKey;
         sessionStartInfo.controllerEndpoint = info.controllerEndpoint;
@@ -375,4 +224,15 @@ export async function selectCommand(): Promise<void> {
   }
 
   process.exit(exitCode);
+}
+
+function formatProjectPath(project: string): string {
+  const home = os.homedir();
+  if (project === home) {
+    return '~';
+  }
+  if (project.startsWith(`${home}${path.sep}`)) {
+    return `~${project.slice(home.length)}`;
+  }
+  return project;
 }

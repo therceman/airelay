@@ -67,20 +67,22 @@ describe('last-used tracking', () => {
 });
 
 describe('main selector choices', () => {
-  it('places profile session history after Resume and before Start/Create', () => {
-    expect(buildMainChoices(true)).toEqual([
-      { name: 'Resume', message: 'Resume an existing profile session' },
-      { name: 'Show', message: 'Show profile session history' },
-      { name: 'Start', message: 'Start a new profile session' },
-      { name: 'Create', message: 'Create a new profile' },
+  it('shows project resume, current project resume, and start choices', () => {
+    expect(buildMainChoices(true, true)).toEqual([
+      { name: 'Resume', message: 'Resume session' },
+      { name: 'ResumeCurrent', message: 'Resume current project session' },
+      { name: 'Start', message: 'Start new session' },
     ]);
   });
 
-  it('keeps history available when there are no active sessions', () => {
-    expect(buildMainChoices(false)).toEqual([
-      { name: 'Show', message: 'Show profile session history' },
-      { name: 'Start', message: 'Start a new profile session' },
-      { name: 'Create', message: 'Create a new profile' },
+  it('only shows current project resume when it has resumable history', () => {
+    expect(buildMainChoices(true, false)).toEqual([
+      { name: 'Resume', message: 'Resume session' },
+      { name: 'Start', message: 'Start new session' },
     ]);
+  });
+
+  it('keeps start available when there are no resumable sessions', () => {
+    expect(buildMainChoices(false)).toEqual([{ name: 'Start', message: 'Start new session' }]);
   });
 });

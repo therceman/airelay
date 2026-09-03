@@ -79,13 +79,12 @@ A user-friendly identifier for referencing sessions.
 
 Main menu with three options:
 
-1. **Resume an existing profile session**
-   - Select profile → Select session → Run with `-s <id>`
-   - Can rename/delete sessions (R/D keys)
-2. **Start a new profile session**
+1. **Resume session**
+   - Select project → Select session from that project's launch history
+2. **Resume current project session**
+   - Select a session from the current project's launch history
+3. **Start a new session**
    - Select profile → Run without session ID
-3. **Create a new profile**
-   - Interactive profile creation flow
 
 **Post-Run Flow:**
 After harness exits:
@@ -233,7 +232,7 @@ airelay resume opencode_XjhS
 ```bash
 # Via TUI
 airelay
-→ Start a new profile session
+→ Start new session
 → Select profile
 → Confirm
 
