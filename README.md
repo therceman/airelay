@@ -90,6 +90,7 @@ airelay resume [key]               # Pick a saved launch from this folder or res
 airelay sessions [--json] [--active]  # List saved sessions
 airelay prompt <session> <text>    # Send input to an active session
 airelay help                       # Show this help message
+airelay guide                      # New-machine setup guide
 ```
 
 ## Examples
@@ -104,6 +105,23 @@ airelay sessions --active
 airelay which opencode-work
 airelay doctor
 ```
+
+## New Machine: Two Profiles
+
+Run `airelay guide` for a copy-paste setup guide based on the runtimes detected
+on the machine. For example, two isolated profiles for the same runtime can be
+created with:
+
+```bash
+airelay create codex-work --executable codex
+airelay create codex-personal --executable codex
+airelay list
+airelay start codex-work
+airelay start codex-personal
+```
+
+Profile definitions are stored in `~/.airelay/config.yaml`. The `create`
+command prints the profile's isolated home/config directory after creation.
 
 > **Note**: `airelay start` launches with a pseudo-terminal (PTY), making sessions both terminal-compatible and promptable.
 > Use `airelay run` for simple inherited-terminal execution (non-promptable).

@@ -22,6 +22,7 @@ import { historyCommand, historyHelpCommand, removeHistoryCommand } from './comm
 import { transcriptCommand } from './commands/transcript';
 import { interruptCommand } from './commands/interrupt';
 import { attachCommand } from './commands/attach';
+import { guideCommand } from './commands/guide';
 import {
   detachedRuntimeMain,
   detachedListCommand,
@@ -49,6 +50,7 @@ const KNOWN_COMMANDS = [
   'doctor',
   'run',
   'help',
+  'guide',
   'select',
   'cleanup',
   'ps',
@@ -227,6 +229,7 @@ Commands:
   heartbeat <session>   Send periodic heartbeat to a session
   history               List executed airelay launch commands
   help                  Show this help message
+  guide                 Show setup instructions for a new machine
 
 Examples:
   airelay init
@@ -256,6 +259,7 @@ Examples:
   airelay history --json
   airelay history help
   airelay history remove <session-key>
+  airelay guide
 
 Create options:
   -e, --executable <name>  Executable name (opencode or codex)
@@ -429,6 +433,10 @@ async function runCli(): Promise<void> {
 
       case 'help':
         showHelp();
+        break;
+
+      case 'guide':
+        guideCommand();
         break;
 
       case 'error':

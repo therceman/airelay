@@ -26,6 +26,9 @@ jest.mock('../src/commands/init', () => ({
 jest.mock('../src/commands/create', () => ({
   createCommand: jest.fn().mockResolvedValue(undefined),
 }));
+jest.mock('../src/commands/guide', () => ({
+  guideCommand: jest.fn(),
+}));
 
 jest.mock('../src/commands/select', () => ({
   selectCommand: jest.fn().mockResolvedValue(undefined),
@@ -96,7 +99,16 @@ describe('runCli', () => {
     expect(output).toContain('Usage:');
     expect(output).toContain('Commands:');
     expect(output).toContain('help');
+    expect(output).toContain('guide');
     expect(process.exit).not.toHaveBeenCalled();
+  });
+
+  it('executes guide command', async () => {
+    process.argv = ['node', 'cli.js', 'guide'];
+    await runCli();
+
+    const { guideCommand } = require('../src/commands/guide');
+    expect(guideCommand).toHaveBeenCalled();
   });
 
   it('executes list command', async () => {

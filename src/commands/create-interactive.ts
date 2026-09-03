@@ -187,5 +187,5 @@ export async function createCommandInteractive(opts: CreateOptions = {}): Promis
 
   console.log(`\nCreated profile '${name}' in ${configPath}`);
   console.log(`Config directory: ${configDir}`);
-  console.log(`\nUsage: airelay ${name}`);
+  console.log(`\nUsage: airelay start ${name}`);
 }

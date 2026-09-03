@@ -87,6 +87,11 @@ Main menu with three options:
 3. **Start a new session**
    - Select profile → Run without session ID
 
+**`airelay guide`**
+
+- Shows copy-paste setup instructions for creating profiles on a new machine
+- Lists detected runtimes and the locations of profile configuration/data
+
 **Post-Run Flow:**
 After harness exits:
 

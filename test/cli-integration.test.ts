@@ -27,6 +27,7 @@ describe('CLI Integration', () => {
       expect(output).toContain('doctor');
       expect(output).toContain('run');
       expect(output).toContain('help');
+      expect(output).toContain('guide');
       expect(output).toContain('select');
     });
 
@@ -36,6 +37,14 @@ describe('CLI Integration', () => {
       expect(output).toContain('Examples:');
       expect(output).toContain('airelay init');
       expect(output).toContain('airelay create');
+    });
+
+    it('shows the new-machine guide', () => {
+      const output = execSync(`node ${CLI_PATH} guide`, { encoding: 'utf8' });
+
+      expect(output).toContain('airelay guide');
+      expect(output).toContain('Configuration locations:');
+      expect(output).toContain('Detected runtimes:');
     });
 
     it('shows help with create options', () => {

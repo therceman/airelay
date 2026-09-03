@@ -90,6 +90,11 @@ describe('parseArgs', () => {
     expect(result.command).toBe('help');
   });
 
+  it('parses guide command', () => {
+    const result = parseArgs(['node', 'airelay', 'guide']);
+    expect(result.command).toBe('guide');
+  });
+
   it('defaults to select when no command', () => {
     const result = parseArgs(['node', 'airelay']);
     expect(result.command).toBe('select');

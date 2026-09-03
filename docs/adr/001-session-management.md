@@ -52,6 +52,7 @@ Sessions can be resumed by:
   folder or resume an existing session by profile/key
 - `airelay start <profile> [args...]` → Start new session with optional args
 - `airelay new` → Create new profile (interactive)
+- `airelay guide` → Show new-machine profile setup instructions
 
 ### TUI Behavior
 
