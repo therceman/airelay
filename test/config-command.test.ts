@@ -83,6 +83,7 @@ describe('config command', () => {
       },
       createDirs: ['~/.codex-worker'],
     });
+    expect(fs.readdirSync(testEnv.testDir).some((name) => name.endsWith('.tmp'))).toBe(false);
   });
 
   it('rejects invalid setting values and keys', () => {

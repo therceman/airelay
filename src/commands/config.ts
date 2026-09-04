@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'crypto';
 import YAML from 'yaml';
 import { getConfigPath, loadConfig } from '../config/load';
 import {
@@ -168,6 +169,25 @@ function readRawConfig(configPath: string): Record<string, unknown> {
   return raw as Record<string, unknown>;
 }
 
+function writeConfigAtomically(configPath: string, config: Record<string, unknown>): void {
+  const temporaryPath = path.join(
+    path.dirname(configPath),
+    `.${path.basename(configPath)}.${process.pid}.${randomUUID()}.tmp`
+  );
+
+  try {
+    fs.writeFileSync(temporaryPath, YAML.stringify(config), 'utf-8');
+    fs.renameSync(temporaryPath, configPath);
+  } catch (error) {
+    try {
+      fs.unlinkSync(temporaryPath);
+    } catch {
+      // Keep the original error; cleanup is best effort.
+    }
+    throw error;
+  }
+}
+
 export function configListCommand(json = false): void {
   const configPath = getConfigPath();
   const config = redactConfig(loadConfig(configPath));
@@ -188,7 +208,7 @@ export function configSetCommand(key: string, value: string): void {
   const updated = setConfigValue(raw, key, value);
 
   ConfigSchema.parse(updated);
-  fs.writeFileSync(configPath, YAML.stringify(updated), 'utf-8');
+  writeConfigAtomically(configPath, updated);
   console.log(`Set ${key} in ${configPath}`);
 }
 
