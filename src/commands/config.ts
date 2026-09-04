@@ -6,15 +6,20 @@ import { getConfigPath, loadConfig } from '../config/load';
 import {
   Config,
   ConfigSchema,
+  DEFAULT_HIBERNATE_AFTER,
   DEFAULT_PROMPT_MAX_LENGTH,
   MAX_PROMPT_MAX_LENGTH,
   ProfileSchema,
   UNLIMITED_PROMPT_MAX_LENGTH,
 } from '../config/schema';
+import { isValidDuration } from '../utils/duration';
 
 const PROMPT_MAX_LENGTH_KEY = 'settings.promptMaxLength';
+const HIBERNATE_AFTER_KEY = 'settings.hibernateAfter';
 const PROMPT_MAX_LENGTH_DESCRIPTION =
   'Maximum prompt length in Unicode code points before airelay sends the text to a session.';
+const HIBERNATE_AFTER_DESCRIPTION =
+  'Time without observed session activity before an idle resumable session is hibernated.';
 const PROFILE_FIELDS = new Set(['executable', 'cwd', 'args', 'env', 'description', 'createDirs']);
 const ARRAY_PROFILE_FIELDS = new Set(['args', 'createDirs']);
 
@@ -63,6 +68,15 @@ function parsePromptMaxLength(value: string): number {
     );
   }
   return parsed;
+}
+
+function parseHibernateAfter(value: string): string {
+  if (!isValidDuration(value)) {
+    throw new Error(
+      `${HIBERNATE_AFTER_KEY} must be a duration such as 30s, 5m, or 2h, or off (maximum 30d).`
+    );
+  }
+  return value;
 }
 
 function parseYamlValue(value: string, key: string): unknown {
@@ -147,6 +161,17 @@ function setConfigValue(
     };
   }
 
+  if (key === HIBERNATE_AFTER_KEY) {
+    const settings = isRecord(raw.settings) ? raw.settings : {};
+    return {
+      ...raw,
+      settings: {
+        ...settings,
+        hibernateAfter: parseHibernateAfter(value),
+      },
+    };
+  }
+
   const keyParts = key.split('.');
   if (keyParts[0] === 'profiles') {
     return setProfileValue(raw, keyParts, value);
@@ -157,7 +182,7 @@ function setConfigValue(
   }
 
   throw new Error(
-    `Unknown config key "${key}". Supported keys: ${PROMPT_MAX_LENGTH_KEY} and profiles.<profile>.<field>.`
+    `Unknown config key "${key}". Supported keys: ${PROMPT_MAX_LENGTH_KEY}, ${HIBERNATE_AFTER_KEY} and profiles.<profile>.<field>.`
   );
 }
 
@@ -221,6 +246,7 @@ export function configHelpCommand(): void {
       '  airelay config list                   Show config and resolved defaults',
       '  airelay config list --json            Show config as JSON',
       `  airelay config set ${PROMPT_MAX_LENGTH_KEY} -1`,
+      `  airelay config set ${HIBERNATE_AFTER_KEY} 5m`,
       '  airelay config set profiles.my-profile.cwd ~/git/project',
       `  airelay config set profiles.my-profile.args '["--verbose"]'`,
       '  airelay config set profiles.my-profile.env.HARNESS_HOME ~/.airelay-profile',
@@ -230,6 +256,9 @@ export function configHelpCommand(): void {
       `    ${PROMPT_MAX_LENGTH_DESCRIPTION}`,
       `    Default: ${DEFAULT_PROMPT_MAX_LENGTH}; value: positive integer or -1 (unlimited).`,
       '    Counting uses Unicode code points (Array.from); emoji count as one, combining marks count separately.',
+      `  ${HIBERNATE_AFTER_KEY}`,
+      `    ${HIBERNATE_AFTER_DESCRIPTION}`,
+      `    Default: ${DEFAULT_HIBERNATE_AFTER}; value: <number><ms|s|m|h|d> or off; maximum 30d.`,
       '  profiles.<profile>.executable     Harness executable command.',
       '  profiles.<profile>.cwd            Working directory for the profile.',
       '  profiles.<profile>.args           Default harness arguments as a YAML/JSON array.',

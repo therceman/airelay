@@ -42,6 +42,7 @@ profiles:
     expect(config.profiles['test-profile']).toBeDefined();
     expect(config.profiles['test-profile']?.executable).toBe('opencode');
     expect(config.settings?.promptMaxLength).toBe(-1);
+    expect(config.settings?.hibernateAfter).toBe('5m');
   });
 
   it('supports AIRELAY_CONFIG env override', () => {

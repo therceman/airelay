@@ -178,7 +178,8 @@ export async function removeCommand(profileName?: string): Promise<void> {
     .join('\n\n');
 
   const promptMaxLength = config.settings?.promptMaxLength ?? DEFAULT_PROMPT_MAX_LENGTH;
-  const yamlContent = `version: 1\n\nsettings:\n  promptMaxLength: ${promptMaxLength}\n\nprofiles:\n${profileYaml}\n`;
+  const hibernateAfter = config.settings.hibernateAfter;
+  const yamlContent = `version: 1\n\nsettings:\n  promptMaxLength: ${promptMaxLength}\n  hibernateAfter: ${hibernateAfter}\n\nprofiles:\n${profileYaml}\n`;
   fs.writeFileSync(configPath, yamlContent, 'utf-8');
 
   console.log(`✓ Removed '${profileName}' from config`);

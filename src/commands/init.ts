@@ -3,7 +3,11 @@ import os from 'os';
 import path from 'path';
 import { execSync } from 'child_process';
 import { getConfigPath } from '../config/load';
-import { DEFAULT_PROMPT_MAX_LENGTH, ProfileSchema } from '../config/schema';
+import {
+  DEFAULT_HIBERNATE_AFTER,
+  DEFAULT_PROMPT_MAX_LENGTH,
+  ProfileSchema,
+} from '../config/schema';
 import { profileToYaml } from '../utils/yaml';
 
 function findExecutable(name: string): string | null {
@@ -87,7 +91,7 @@ export function initCommand(force: boolean = false): void {
     .map(([name, profile]) => profileToYaml(name, profile))
     .join('\n');
 
-  const configContent = `version: 1\n\nsettings:\n  promptMaxLength: ${DEFAULT_PROMPT_MAX_LENGTH}\n\nprofiles:\n${profileYaml}\n`;
+  const configContent = `version: 1\n\nsettings:\n  promptMaxLength: ${DEFAULT_PROMPT_MAX_LENGTH}\n  hibernateAfter: ${DEFAULT_HIBERNATE_AFTER}\n\nprofiles:\n${profileYaml}\n`;
 
   fs.writeFileSync(configPath, configContent, 'utf-8');
   console.log(`Created config: ${configPath}`);

@@ -273,6 +273,7 @@ Examples:
   airelay guide
   airelay config list
   airelay config set settings.promptMaxLength 512
+  airelay config set settings.hibernateAfter 10m
 
 Create options:
   -e, --executable <name>  Executable name (opencode or codex)

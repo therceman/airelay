@@ -169,6 +169,8 @@ offered.
 - `airelay config list` shows the config and resolved defaults
 - `airelay config set settings.promptMaxLength <number|-1>` changes the prompt limit
 - `settings.promptMaxLength` defaults to `-1`
+- `airelay config set settings.hibernateAfter <duration|off>` changes automatic hibernation
+- `settings.hibernateAfter` defaults to `5m`; durations use `ms`, `s`, `m`, `h` or `d` (maximum `30d`)
 - `-1` disables the prompt-length check; the IPC transport still limits one input to 256 KiB
 - Length is measured in Unicode code points via `Array.from`; emoji count as one and combining marks count separately
 - Schema-defined profile fields can be changed with `profiles.<profile>.<field>` without editing YAML
@@ -186,6 +188,7 @@ offered.
 version: 1
 settings:
   promptMaxLength: -1
+  hibernateAfter: 5m
 profiles:
   opencode:
     executable: opencode

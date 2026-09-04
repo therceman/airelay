@@ -47,6 +47,21 @@ describe('config command', () => {
     );
   });
 
+  it('sets and validates hibernate duration', () => {
+    configSetCommand('settings.hibernateAfter', '15m');
+
+    const saved = YAML.parse(fs.readFileSync(testEnv.configPath, 'utf8')) as {
+      settings: { hibernateAfter: string };
+    };
+    expect(saved.settings.hibernateAfter).toBe('15m');
+
+    configSetCommand('settings.hibernateAfter', 'off');
+    const disabled = YAML.parse(fs.readFileSync(testEnv.configPath, 'utf8')) as {
+      settings: { hibernateAfter: string };
+    };
+    expect(disabled.settings.hibernateAfter).toBe('off');
+  });
+
   it('supports unlimited prompt length with -1', () => {
     configSetCommand('settings.promptMaxLength', '-1');
 
@@ -94,6 +109,9 @@ describe('config command', () => {
     expect(() => configSetCommand('settings.promptMaxLength', 'unlimited')).toThrow(
       'positive integer or -1 (unlimited)'
     );
+    expect(() => configSetCommand('settings.hibernateAfter', '0m')).toThrow('duration');
+    expect(() => configSetCommand('settings.hibernateAfter', '5weeks')).toThrow('duration');
+    expect(() => configSetCommand('settings.hibernateAfter', '31d')).toThrow('duration');
     expect(() => configSetCommand('prompt.maxLength', '1')).toThrow('Unknown config key');
     expect(() => configSetCommand('profiles.worker.args', 'not-an-array')).toThrow();
     expect(() => configSetCommand('profiles.unknown.cwd', '~/missing')).toThrow(
@@ -107,6 +125,7 @@ describe('config command', () => {
 
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('airelay config list'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('settings.promptMaxLength'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('settings.hibernateAfter'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Unicode code points'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('profiles.<profile>.args'));
   });

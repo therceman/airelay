@@ -1,16 +1,27 @@
 import { z } from 'zod';
+import { parseDurationMs } from '../utils/duration';
 
 export const UNLIMITED_PROMPT_MAX_LENGTH = -1;
 export const DEFAULT_PROMPT_MAX_LENGTH = UNLIMITED_PROMPT_MAX_LENGTH;
 export const MAX_PROMPT_MAX_LENGTH = 256 * 1024;
+export const DEFAULT_HIBERNATE_AFTER = '5m';
+export const HIBERNATE_AFTER_PATTERN = /^(off|\d+(ms|s|m|h|d))$/;
 
 export const PromptMaxLengthSchema = z.union([
   z.literal(UNLIMITED_PROMPT_MAX_LENGTH),
   z.number().int().min(1).max(MAX_PROMPT_MAX_LENGTH),
 ]);
 
+export const HibernateAfterSchema = z
+  .string()
+  .regex(HIBERNATE_AFTER_PATTERN, 'must be a duration such as 30s, 5m, or 2h, or off')
+  .refine((value) => parseDurationMs(value) !== null, {
+    message: 'duration must be greater than zero and no longer than 30d, or off',
+  });
+
 export const SettingsSchema = z.object({
   promptMaxLength: PromptMaxLengthSchema.default(DEFAULT_PROMPT_MAX_LENGTH),
+  hibernateAfter: HibernateAfterSchema.default(DEFAULT_HIBERNATE_AFTER),
 });
 
 export const ProfileSchema = z.object({
@@ -25,7 +36,10 @@ export const ProfileSchema = z.object({
 export const ConfigSchema = z
   .object({
     version: z.literal(1),
-    settings: SettingsSchema.default({ promptMaxLength: DEFAULT_PROMPT_MAX_LENGTH }),
+    settings: SettingsSchema.default({
+      promptMaxLength: DEFAULT_PROMPT_MAX_LENGTH,
+      hibernateAfter: DEFAULT_HIBERNATE_AFTER,
+    }),
     profiles: z.record(z.string(), ProfileSchema),
   })
   .refine((data) => Object.keys(data.profiles).length > 0, {

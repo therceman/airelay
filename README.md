@@ -58,6 +58,7 @@ version: 1
 
 settings:
   promptMaxLength: -1
+  hibernateAfter: 5m
 
 profiles:
   opencode-work:
@@ -94,6 +95,7 @@ airelay sessions [--json] [--active]  # List saved sessions
 airelay prompt <session> <text>    # Send input to an active session
 airelay config list                # Show config and resolved defaults
 airelay config set settings.promptMaxLength 1024
+airelay config set settings.hibernateAfter 10m
 airelay config set profiles.my-profile.cwd ~/git/project
 airelay help                       # Show this help message
 airelay guide                      # New-machine setup guide
@@ -149,6 +151,15 @@ All schema-defined profile fields can also be changed without opening YAML:
 `createDirs`. Use YAML or JSON syntax for array/map values, for example
 `airelay config set profiles.my-profile.args '["--verbose"]'`.
 Every change is validated against the config schema before it is written.
+
+Resumable PTY sessions hibernate after five minutes without observed activity by
+default. Change the threshold with `airelay config set settings.hibernateAfter
+10m`; supported units are `ms`, `s`, `m`, `h` and `d` (maximum `30d`). Use
+`airelay config set settings.hibernateAfter off` to disable automatic hibernation.
+When hibernated, the Airelay controller stays alive and the harness process is
+started again from its saved native session when a key is pressed or a prompt is
+sent. New sessions without a known native session ID remain running until their
+native ID can be saved safely.
 
 > **Note**: `airelay start` launches with a pseudo-terminal (PTY), making sessions both terminal-compatible and promptable.
 > Use `airelay run` for simple inherited-terminal execution (non-promptable).

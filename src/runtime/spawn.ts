@@ -16,7 +16,11 @@ export interface SpawnOptions {
     pid: number;
     write: (data: string) => void;
     resize: (cols: number, rows: number) => void;
+    kill: (signal?: string) => void;
   }) => void;
+
+  /** Called when a foreground PTY client writes input to the child. */
+  onInput?: () => void;
 
   /**
    * Called with output data from the child process (chunks of stdout).
@@ -104,6 +108,7 @@ async function spawnAndWaitPty(options: SpawnOptions): Promise<number> {
     cwd: options.cwd,
     env: options.env,
     onOutput: options.onOutput,
+    onInput: options.onInput,
     detached: options.detached === true,
   });
 
@@ -116,6 +121,7 @@ async function spawnAndWaitPty(options: SpawnOptions): Promise<number> {
       pid: pty.pid,
       write: (data: string) => pty.write(data),
       resize: (cols: number, rows: number) => pty.resize(cols, rows),
+      kill: (signal?: string) => pty.kill(signal),
     });
   }
 

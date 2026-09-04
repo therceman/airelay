@@ -4,6 +4,7 @@ import path from 'path';
 import Enquirer from 'enquirer';
 import { getConfigPath, loadConfig } from '../config/load';
 import {
+  DEFAULT_HIBERNATE_AFTER,
   DEFAULT_PROMPT_MAX_LENGTH,
   Profile,
   ProfileSchema,
@@ -53,11 +54,13 @@ export async function createCommandInteractive(opts: CreateOptions = {}): Promis
   const configPath = getConfigPath();
   let configProfiles: Record<string, unknown>;
   let promptMaxLength: PromptMaxLength = DEFAULT_PROMPT_MAX_LENGTH;
+  let hibernateAfter = DEFAULT_HIBERNATE_AFTER;
 
   try {
     const existingConfig = loadConfig();
     configProfiles = existingConfig.profiles;
     promptMaxLength = existingConfig.settings?.promptMaxLength ?? DEFAULT_PROMPT_MAX_LENGTH;
+    hibernateAfter = existingConfig.settings.hibernateAfter;
   } catch {
     configProfiles = {};
   }
@@ -190,7 +193,7 @@ export async function createCommandInteractive(opts: CreateOptions = {}): Promis
   const profileYaml = Object.entries(typedProfiles)
     .map(([n, p]) => profileToYaml(n, p))
     .join('\n\n');
-  const yamlContent = `version: 1\n\nsettings:\n  promptMaxLength: ${promptMaxLength}\n\nprofiles:\n${profileYaml}\n`;
+  const yamlContent = `version: 1\n\nsettings:\n  promptMaxLength: ${promptMaxLength}\n  hibernateAfter: ${hibernateAfter}\n\nprofiles:\n${profileYaml}\n`;
 
   fs.writeFileSync(configPath, yamlContent, 'utf-8');
 

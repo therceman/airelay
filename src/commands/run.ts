@@ -20,6 +20,7 @@ import {
 } from '../runtime/detached-registry';
 import fs from 'fs';
 import { ensureCodexProfileStandalone } from '../utils/codex-standalone';
+import { parseDurationMs } from '../utils/duration';
 
 function generateSessionKey(profileName: string): string {
   const suffix = Math.random().toString(36).slice(2, 6);
@@ -62,6 +63,7 @@ function buildProfileEnv(
   cwd: string;
   env: Record<string, string>;
   args: string[];
+  hibernateAfterMs: number;
 } {
   const config = loadConfig();
   const configPath = getConfigPath();
@@ -90,6 +92,7 @@ function buildProfileEnv(
     cwd,
     env,
     args: [...(profile.args || []), ...extraArgs],
+    hibernateAfterMs: parseDurationMs(config.settings.hibernateAfter) ?? -1,
   };
 }
 
@@ -99,7 +102,9 @@ function setupController(
   ptyResize: { current: ((cols: number, rows: number) => void) | null },
   deliveryTracker: DeliveryTracker,
   onInputInjected?: (deliveryId: string, text: string, submitValue: string) => void,
-  onInterrupt?: () => Promise<InterruptResult>
+  onInterrupt?: () => Promise<InterruptResult>,
+  onWakeRequested?: () => Promise<void>,
+  onActivity?: () => void
 ) {
   const controller = new SessionController(sessionKey);
   controller.setDeliveryStatusProvider(() => deliveryTracker.get());
@@ -107,6 +112,10 @@ function setupController(
   controller.onRequest(async (request) => {
     if (request.method === 'session.input.raw') {
       if (!ptyWrite.current) {
+        if (onWakeRequested) {
+          await onWakeRequested();
+          return { delivered: false, waking: true, raw: true };
+        }
         throw new IpcError(
           IpcErrorCodes.INTERNAL_ERROR,
           'Raw input unavailable: the PTY for this session is not ready.',
@@ -114,6 +123,7 @@ function setupController(
         );
       }
       const data = (request.params as { data?: string })?.data ?? '';
+      onActivity?.();
       ptyWrite.current(data);
       return { delivered: true, raw: true };
     }
@@ -128,6 +138,11 @@ function setupController(
       return { resized: true };
     }
     if (request.method === 'session.input') {
+      if (!ptyWrite.current) {
+        if (onWakeRequested) {
+          await onWakeRequested();
+        }
+      }
       if (!ptyWrite.current) {
         throw new IpcError(
           IpcErrorCodes.INTERNAL_ERROR,
@@ -153,6 +168,7 @@ function setupController(
       }
 
       try {
+        onActivity?.();
         ptyWrite.current(text);
       } catch (error) {
         deliveryTracker.markFailure(deliveryId, controller.getLiveViewportLines());
@@ -214,7 +230,11 @@ export async function runCommand(
     onDetachedReady?: (info: DetachedReadyInfo) => void;
   }
 ): Promise<number> {
-  const { profile, cwd, env, args } = buildProfileEnv(profileName, extraArgs, options?.cwd);
+  const { profile, cwd, env, args, hibernateAfterMs } = buildProfileEnv(
+    profileName,
+    extraArgs,
+    options?.cwd
+  );
 
   const sessionKey = options?.sessionKey || generateSessionKey(profileName);
   // Generate a distinct internal runtime id (opaque, not the sessionKey)
@@ -223,9 +243,68 @@ export async function runCommand(
   const ptyResizeRef: { current: ((cols: number, rows: number) => void) | null } = {
     current: null,
   };
+  const ptyKillRef: { current: ((signal?: string) => void) | null } = { current: null };
   const usePty = options?.usePty === true;
+  const detectedProfileSessionId = options?.profileSessionId || detectResumeSessionId(args);
+  const hibernationEnabled =
+    usePty &&
+    hibernateAfterMs > 0 &&
+    !!detectedProfileSessionId &&
+    (options?.detached === true || process.stdin.isTTY === true);
   const harnessCapabilities = getHarnessCapabilities(detectHarness(profile.executable));
   const deliveryTracker = new DeliveryTracker();
+  let hibernated = false;
+  let hibernateRequested = false;
+  let wakeRequested = false;
+  let wakeSignal: Promise<void> | null = null;
+  let wakeSignalResolve: (() => void) | null = null;
+  let wakeReady: Promise<void> | null = null;
+  let wakeReadyResolve: (() => void) | null = null;
+  let wakeReadyReject: ((error: Error) => void) | null = null;
+  let foregroundWakeCleanup: (() => void) | null = null;
+  let hibernateTimer: ReturnType<typeof setTimeout> | null = null;
+  let resetHibernateTimer: () => void = () => undefined;
+
+  const prepareWake = (): void => {
+    wakeRequested = false;
+    wakeSignal = new Promise<void>((resolve) => {
+      wakeSignalResolve = resolve;
+    });
+    wakeReady = new Promise<void>((resolve, reject) => {
+      wakeReadyResolve = resolve;
+      wakeReadyReject = reject;
+    });
+  };
+
+  const requestWake = async (): Promise<void> => {
+    if (!hibernated) return;
+    wakeRequested = true;
+    wakeSignalResolve?.();
+    if (wakeReady) await wakeReady;
+  };
+
+  const waitForWake = async (): Promise<void> => {
+    if (!wakeRequested && wakeSignal) {
+      if (!options?.detached && process.stdin.isTTY) {
+        const onWakeKey = (chunk: Buffer): void => {
+          if (chunk.length > 0) void requestWake();
+        };
+        const stdinWasFlowing = process.stdin.readableFlowing;
+        process.stdin.setRawMode?.(true);
+        process.stdin.on('data', onWakeKey);
+        process.stdin.resume();
+        foregroundWakeCleanup = () => {
+          process.stdin.removeListener('data', onWakeKey);
+          process.stdin.setRawMode?.(false);
+          if (stdinWasFlowing === false) process.stdin.pause();
+        };
+      }
+      await wakeSignal;
+    }
+    foregroundWakeCleanup?.();
+    foregroundWakeCleanup = null;
+  };
+
   let currentDeliveryId: string | undefined;
   let turnGeneration = 0;
   let activeTurnGeneration: number | undefined;
@@ -305,10 +384,13 @@ export async function runCommand(
         completionTimer = null;
       }
       inputWatcher?.track(text, submitValue, deliveryId);
+      resetHibernateTimer();
     },
     () =>
       interruptController?.request() ||
-      Promise.resolve({ outcome: 'unsupported', requested: false } as InterruptResult)
+      Promise.resolve({ outcome: 'unsupported', requested: false } as InterruptResult),
+    requestWake,
+    () => resetHibernateTimer()
   );
   controllerRef = controller;
 
@@ -349,6 +431,60 @@ export async function runCommand(
   });
 
   const preview = (): string[] => controller.getLiveViewportLines();
+  const harnessLabel = detectHarness(profile.executable);
+  const isHarnessWorking = (): boolean => {
+    const hint = harnessCapabilities.uiWorkingHint;
+    return !!hint && preview().join(' ').includes(hint);
+  };
+  const canHibernate = (): boolean =>
+    hibernationEnabled &&
+    !hibernated &&
+    !hibernateRequested &&
+    activeTurnGeneration === undefined &&
+    !inputWatcher?.hasPending() &&
+    !isHarnessWorking() &&
+    controller.getAttachedClientCount() === 0;
+  const showHibernatedScreen = (): void => {
+    const label = harnessLabel === 'unknown' ? profile.executable : harnessLabel;
+    const screen =
+      `\x1b[2J\x1b[HAgent hibernated [${label}]\r\n` +
+      `Session: ${detectedProfileSessionId}\r\n` +
+      `Project: ${cwd}\r\n\r\n` +
+      'Press any key to wake\r\n';
+    // Keep the controller's viewport/attach stream truthful while the child
+    // process is gone. This also gives detached clients a useful idle screen.
+    controller.feedOutput(screen);
+    if (!process.stdout.isTTY || options?.detached === true) return;
+    try {
+      process.stdout.write(screen);
+    } catch {
+      // The terminal may have closed while the child was shutting down.
+    }
+  };
+  const requestHibernate = (): void => {
+    if (!canHibernate()) return;
+    hibernateRequested = true;
+    hibernated = true;
+    prepareWake();
+    const killPty = ptyKillRef.current;
+    ptyWriteRef.current = null;
+    ptyResizeRef.current = null;
+    ptyKillRef.current = null;
+    killPty?.(process.platform === 'win32' ? undefined : 'SIGTERM');
+  };
+  resetHibernateTimer = (): void => {
+    if (hibernateTimer) clearTimeout(hibernateTimer);
+    hibernateTimer = null;
+    if (!hibernationEnabled || hibernated || hibernateAfterMs <= 0) return;
+    hibernateTimer = setTimeout(() => {
+      hibernateTimer = null;
+      if (canHibernate()) {
+        requestHibernate();
+      } else {
+        resetHibernateTimer();
+      }
+    }, hibernateAfterMs);
+  };
   const observeDeliveryState = (): void => {
     if (!currentDeliveryId) return;
     const status = deliveryTracker.get(currentDeliveryId);
@@ -411,9 +547,6 @@ export async function runCommand(
     options.onSessionStart({ sessionKey, controllerEndpoint: controller.endpointPath });
   }
 
-  // Derive profileSessionId from extraArgs (resume <id> or -s <id>)
-  const detectedProfileSessionId = options?.profileSessionId || detectResumeSessionId(extraArgs);
-
   if (options?.recordLaunch) {
     const launchArgv = options.launchArgv || [
       'start',
@@ -466,6 +599,7 @@ export async function runCommand(
     spawnOpts.onPtyReady = (pty) => {
       ptyWriteRef.current = pty.write;
       ptyResizeRef.current = (cols, rows) => pty.resize(cols, rows);
+      ptyKillRef.current = pty.kill;
       const cols = process.stdout.isTTY ? process.stdout.columns : 80;
       const rows = process.stdout.isTTY ? process.stdout.rows : 24;
       controller.resize(cols, rows);
@@ -501,6 +635,14 @@ export async function runCommand(
         });
         options.onDetachedReady?.(info);
       }
+      if (hibernated) {
+        hibernated = false;
+        wakeReadyResolve?.();
+        wakeReadyResolve = null;
+        wakeReadyReject = null;
+        wakeReady = null;
+      }
+      resetHibernateTimer();
     };
   }
 
@@ -510,11 +652,30 @@ export async function runCommand(
     capacityWatcher?.observe(chunk);
     inputWatcher?.observeOutput(chunk);
     observeDeliveryState();
+    resetHibernateTimer();
   };
+  spawnOpts.onInput = () => resetHibernateTimer();
 
   try {
-    const exitCode = await spawnAndWait(spawnOpts);
+    let keepRunning = true;
+    let exitCode = 0;
+    while (keepRunning) {
+      exitCode = await spawnAndWait(spawnOpts);
+      ptyWriteRef.current = null;
+      ptyResizeRef.current = null;
+      ptyKillRef.current = null;
 
+      if (!hibernateRequested) {
+        keepRunning = false;
+        continue;
+      }
+
+      hibernateRequested = false;
+      showHibernatedScreen();
+      await waitForWake();
+      // Reuse the original resumable launch arguments. The harness restores
+      // its persisted conversation from the same native session ID.
+    }
     return exitCode;
   } catch (e: unknown) {
     if ((e as Error).message?.includes('Failed to spawn')) {
@@ -527,6 +688,13 @@ export async function runCommand(
     }
     throw e;
   } finally {
+    if (hibernateTimer) clearTimeout(hibernateTimer);
+    const cleanupWake = foregroundWakeCleanup as (() => void) | null;
+    foregroundWakeCleanup = null;
+    cleanupWake?.();
+    const rejectWake = wakeReadyReject as ((error: Error) => void) | null;
+    wakeReadyReject = null;
+    rejectWake?.(new Error('Session stopped before wake-up completed.'));
     if (completionTimer) clearTimeout(completionTimer);
     capacityWatcher?.dispose();
     inputWatcher?.dispose();

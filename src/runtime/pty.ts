@@ -6,6 +6,7 @@ export interface PtyOptions {
   cwd?: string;
   env?: Record<string, string>;
   onOutput?: (chunk: string) => void;
+  onInput?: () => void;
   /**
    * Detached mode: the PTY is owned by a supervised runtime process that has
    * no inherited terminal. Output is only forwarded to onOutput (never to
@@ -53,6 +54,7 @@ export function createPty(options: PtyOptions): PtyInstance {
     const stdinWasFlowing = process.stdin.readableFlowing;
     process.stdin.setRawMode?.(true);
     const onStdinData = (chunk: Buffer) => {
+      options.onInput?.();
       term.write(chunk.toString());
     };
     process.stdin.on('data', onStdinData);

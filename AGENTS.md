@@ -38,6 +38,7 @@ Config schema (`src/config/schema.ts`):
 
 - `version: 1`
 - `settings.promptMaxLength`: `-1` (unlimited) or a positive integer up to 262144 Unicode code points
+- `settings.hibernateAfter`: duration such as `5m`, `30s`, `2h`, or `off`; defaults to `5m`
 - `profiles: { <name>: { executable, cwd?, args?, env?, description?, createDirs? } }`
 
 `airelay config set <key> <value>` updates every schema-defined setting and
@@ -72,7 +73,7 @@ Env vars with path-like values (`HOME`, `XDG_*`, `*_HOME`, `*_CONFIG_DIR`) get `
 - **Tests MUST use `test/utils.ts`** — see `test/TEST-UTILS.md` for isolation patterns
 - **NEVER touch `~/.airelay` in tests** — always use `useTestEnv()` helper
 - TUI does NOT prompt for extra args (keep flow simple)
-- Session save is manual (prompt after harness exits)
+- Automatic hibernation is enabled for resumable sessions with known native session metadata; new sessions without a native ID are not hibernated yet.
 - Versioning policy:
   - `npm run build` must NOT bump package version.
   - Bump patch version only after a task is accepted and verified, before final commit/push.
