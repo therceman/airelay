@@ -348,8 +348,10 @@ export async function switchLastSessionProfile(targetCwd = process.cwd()): Promi
     return;
   }
 
+  console.log('');
   console.log('Last session:');
-  console.log(`> ${formatLastSessionSummary(selected)}`);
+  console.log(`  ${formatLastSessionSummary(selected)}`);
+  console.log('');
 
   const profileChoices = [
     ...alternativeProfiles.map((name) => ({ name, message: name })),

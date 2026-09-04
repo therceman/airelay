@@ -491,11 +491,13 @@ describe('resumeCommand', () => {
       { name: 'codex', message: 'codex (current)' },
     ]);
     expect(profilePrompt.initial).toBe(0);
-    expect(console.log).toHaveBeenNthCalledWith(1, 'Last session:');
+    expect(console.log).toHaveBeenNthCalledWith(1, '');
+    expect(console.log).toHaveBeenNthCalledWith(2, 'Last session:');
     expect(console.log).toHaveBeenNthCalledWith(
-      2,
-      '> airelay_master -- resume 01a0638b-bafd-7c82-ae0e-a2cdfeb4f63e --dangerously-bypass-approvals-and-sandbox'
+      3,
+      '  airelay_master -- resume 01a0638b-bafd-7c82-ae0e-a2cdfeb4f63e --dangerously-bypass-approvals-and-sandbox'
     );
+    expect(console.log).toHaveBeenNthCalledWith(4, '');
     expect(runCommand).toHaveBeenCalledWith(
       'codex2',
       [
