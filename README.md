@@ -56,6 +56,9 @@ This creates `~/.airelay/config.yaml` with example profiles.
 ```yaml
 version: 1
 
+settings:
+  promptMaxLength: 512
+
 profiles:
   opencode-work:
     executable: opencode
@@ -89,6 +92,8 @@ airelay init                       # Create starter config
 airelay resume [key]               # Pick a saved launch from this folder or resume by key
 airelay sessions [--json] [--active]  # List saved sessions
 airelay prompt <session> <text>    # Send input to an active session
+airelay config list                # Show config and resolved defaults
+airelay config set prompt.maxLength 1024
 airelay help                       # Show this help message
 airelay guide                      # New-machine setup guide
 ```
@@ -122,6 +127,10 @@ airelay start codex-personal
 
 Profile definitions are stored in `~/.airelay/config.yaml`. The `create`
 command prints the profile's isolated home/config directory after creation.
+
+The prompt length limit defaults to 512 characters. Change it with
+`airelay config set prompt.maxLength <number>`; use `airelay config list` to
+inspect the effective settings.
 
 > **Note**: `airelay start` launches with a pseudo-terminal (PTY), making sessions both terminal-compatible and promptable.
 > Use `airelay run` for simple inherited-terminal execution (non-promptable).

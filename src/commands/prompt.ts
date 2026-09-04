@@ -5,6 +5,7 @@ import { getIpcEndpointPath } from '../utils/ipc-path';
 import { readLines } from '../controller/protocol';
 import { detectHarness, getHarnessCapabilities } from '../utils/harness';
 import { loadConfig } from '../config/load';
+import { DEFAULT_PROMPT_MAX_LENGTH } from '../config/schema';
 import { preflightVersionCheck } from './session-ipc';
 
 const IPC_TIMEOUT = 5000;
@@ -202,6 +203,16 @@ export async function promptCommand(
   const sessionKey = found.session.sessionKey || found.session.id;
   const endpointPath = found.session.controllerEndpoint || getIpcEndpointPath(sessionKey);
   const deliveryId = options?.deliveryId || randomUUID();
+  const config = loadConfig();
+  const maxPromptLength = config.settings?.promptMaxLength ?? DEFAULT_PROMPT_MAX_LENGTH;
+  const promptLength = resolvedText ? Array.from(resolvedText).length : 0;
+  if (promptLength > maxPromptLength) {
+    console.error(
+      `Error: Prompt is too long (${promptLength} characters). Maximum is ${maxPromptLength}.`
+    );
+    console.error('Set a different limit with: airelay config set prompt.maxLength <number>');
+    return 1;
+  }
 
   // Determine submit byte based on mode and profile harness
   const callerEnter = options?.enter;
@@ -214,7 +225,6 @@ export async function promptCommand(
     submitDelayMs = TEXT_TO_SUBMIT_DELAY_MS;
   } else if (onlyEnter) {
     // --only-enter: send harness-default submit with no text
-    const config = loadConfig();
     const profile = config.profiles[found.profile] as { executable?: string } | undefined;
     const harness = profile?.executable ? detectHarness(profile.executable) : 'unknown';
     const caps = getHarnessCapabilities(harness);
@@ -228,7 +238,6 @@ export async function promptCommand(
     submitDelayMs = TEXT_TO_SUBMIT_DELAY_MS;
   } else {
     // Default: resolve from harness capabilities
-    const config = loadConfig();
     const profile = config.profiles[found.profile] as { executable?: string } | undefined;
     const harness = profile?.executable ? detectHarness(profile.executable) : 'unknown';
     const caps = getHarnessCapabilities(harness);

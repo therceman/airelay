@@ -48,6 +48,7 @@ jest.mock('../src/commands/session-ipc', () => ({
 
 import { findSessionByKey } from '../src/commands/sessions';
 import { preflightVersionCheck } from '../src/commands/session-ipc';
+import { loadConfig } from '../src/config/load';
 
 const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
@@ -125,6 +126,39 @@ describe('promptCommand', () => {
       const exitCode = await promptCommand('unknown_session', 'hello');
       expect(exitCode).toBe(1);
       expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Session not found'));
+    });
+
+    it('allows 512 characters by default and rejects longer prompts', async () => {
+      mockSessionFound();
+
+      const allowedPromise = promptCommand('testprofile_1234', 'x'.repeat(512));
+      await emitData({ id: 'prompt-1', type: 'success', data: {} });
+      expect(await allowedPromise).toBe(0);
+
+      mockSessionFound();
+      const exitCode = await promptCommand('testprofile_1234', 'x'.repeat(513));
+      expect(exitCode).toBe(1);
+      expect(console.error).toHaveBeenCalledWith(
+        'Error: Prompt is too long (513 characters). Maximum is 512.'
+      );
+    });
+
+    it('uses the configured prompt max length', async () => {
+      (loadConfig as jest.Mock).mockReturnValueOnce({
+        profiles: {
+          codexprof: { executable: 'codex' },
+          testprofile: { executable: 'opencode' },
+        },
+        settings: { promptMaxLength: 4 },
+      });
+      mockSessionFound();
+
+      const exitCode = await promptCommand('testprofile_1234', '12345');
+
+      expect(exitCode).toBe(1);
+      expect(console.error).toHaveBeenCalledWith(
+        'Error: Prompt is too long (5 characters). Maximum is 4.'
+      );
     });
   });
 

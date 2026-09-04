@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { loadConfig, getConfigPath } from '../config/load';
+import { DEFAULT_PROMPT_MAX_LENGTH } from '../config/schema';
 import { profileToYaml } from '../utils/yaml';
 import Enquirer from 'enquirer';
 
@@ -174,7 +175,8 @@ export async function removeCommand(profileName?: string): Promise<void> {
     .map(([n, p]) => profileToYaml(n, p))
     .join('\n\n');
 
-  const yamlContent = `version: 1\n\nprofiles:\n${profileYaml}\n`;
+  const promptMaxLength = config.settings?.promptMaxLength ?? DEFAULT_PROMPT_MAX_LENGTH;
+  const yamlContent = `version: 1\n\nsettings:\n  promptMaxLength: ${promptMaxLength}\n\nprofiles:\n${profileYaml}\n`;
   fs.writeFileSync(configPath, yamlContent, 'utf-8');
 
   console.log(`✓ Removed '${profileName}' from config`);

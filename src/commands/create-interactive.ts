@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import Enquirer from 'enquirer';
 import { getConfigPath, loadConfig } from '../config/load';
-import { Profile, ProfileSchema } from '../config/schema';
+import { DEFAULT_PROMPT_MAX_LENGTH, Profile, ProfileSchema } from '../config/schema';
 import { profileToYaml } from '../utils/yaml';
 import { detectHarness } from '../utils/harness';
 import { detectAvailableHarnesses } from '../utils/detect-harnesses';
@@ -47,9 +47,12 @@ export async function createCommandInteractive(opts: CreateOptions = {}): Promis
 
   const configPath = getConfigPath();
   let configProfiles: Record<string, unknown>;
+  let promptMaxLength = DEFAULT_PROMPT_MAX_LENGTH;
 
   try {
-    configProfiles = loadConfig().profiles;
+    const existingConfig = loadConfig();
+    configProfiles = existingConfig.profiles;
+    promptMaxLength = existingConfig.settings?.promptMaxLength ?? DEFAULT_PROMPT_MAX_LENGTH;
   } catch {
     configProfiles = {};
   }
@@ -181,7 +184,7 @@ export async function createCommandInteractive(opts: CreateOptions = {}): Promis
   const profileYaml = Object.entries(typedProfiles)
     .map(([n, p]) => profileToYaml(n, p))
     .join('\n\n');
-  const yamlContent = `version: 1\n\nprofiles:\n${profileYaml}\n`;
+  const yamlContent = `version: 1\n\nsettings:\n  promptMaxLength: ${promptMaxLength}\n\nprofiles:\n${profileYaml}\n`;
 
   fs.writeFileSync(configPath, yamlContent, 'utf-8');
 

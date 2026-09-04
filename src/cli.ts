@@ -23,6 +23,7 @@ import { transcriptCommand } from './commands/transcript';
 import { interruptCommand } from './commands/interrupt';
 import { attachCommand } from './commands/attach';
 import { guideCommand } from './commands/guide';
+import { configHelpCommand, configListCommand, configSetCommand } from './commands/config';
 import {
   detachedRuntimeMain,
   detachedListCommand,
@@ -51,6 +52,7 @@ const KNOWN_COMMANDS = [
   'run',
   'help',
   'guide',
+  'config',
   'select',
   'cleanup',
   'ps',
@@ -230,6 +232,7 @@ Commands:
   history               List executed airelay launch commands
   help                  Show this help message
   guide                 Show setup instructions for a new machine
+  config                Read or update airelay settings
 
 Examples:
   airelay init
@@ -260,6 +263,8 @@ Examples:
   airelay history help
   airelay history remove <session-key>
   airelay guide
+  airelay config list
+  airelay config set prompt.maxLength 512
 
 Create options:
   -e, --executable <name>  Executable name (opencode or codex)
@@ -437,6 +442,24 @@ async function runCli(): Promise<void> {
 
       case 'guide':
         guideCommand();
+        break;
+
+      case 'config':
+        if (profile === 'help' || (!profile && args.length === 0)) {
+          configHelpCommand();
+          break;
+        }
+        if (profile === 'list' && args.length === 0) {
+          configListCommand(flags.json === true);
+          break;
+        }
+        if (profile === 'set' && args.length === 2) {
+          configSetCommand(args[0], args[1]);
+          break;
+        }
+        console.error('Usage: airelay config list [--json]');
+        console.error('       airelay config set <key> <value>');
+        process.exit(1);
         break;
 
       case 'error':

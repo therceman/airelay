@@ -1,5 +1,17 @@
 import { z } from 'zod';
 
+export const DEFAULT_PROMPT_MAX_LENGTH = 512;
+export const MAX_PROMPT_MAX_LENGTH = 256 * 1024;
+
+export const SettingsSchema = z.object({
+  promptMaxLength: z
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_PROMPT_MAX_LENGTH)
+    .default(DEFAULT_PROMPT_MAX_LENGTH),
+});
+
 export const ProfileSchema = z.object({
   executable: z.string().min(1),
   cwd: z.string().optional(),
@@ -11,6 +23,7 @@ export const ProfileSchema = z.object({
 export const ConfigSchema = z
   .object({
     version: z.literal(1),
+    settings: SettingsSchema.default({ promptMaxLength: DEFAULT_PROMPT_MAX_LENGTH }),
     profiles: z.record(z.string(), ProfileSchema),
   })
   .refine((data) => Object.keys(data.profiles).length > 0, {

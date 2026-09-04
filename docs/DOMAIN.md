@@ -150,6 +150,12 @@ After harness exits:
 
 - Initialize config with auto-detected runtimes
 
+**`airelay config`**
+
+- `airelay config list` shows the config and resolved defaults
+- `airelay config set prompt.maxLength <number>` changes the prompt character limit
+- The prompt limit defaults to 512 characters
+
 ## Data Storage
 
 ### Config File
@@ -160,6 +166,8 @@ After harness exits:
 
 ```yaml
 version: 1
+settings:
+  promptMaxLength: 512
 profiles:
   opencode:
     executable: opencode

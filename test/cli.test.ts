@@ -95,6 +95,13 @@ describe('parseArgs', () => {
     expect(result.command).toBe('guide');
   });
 
+  it('parses config set command', () => {
+    const result = parseArgs(['node', 'airelay', 'config', 'set', 'prompt.maxLength', '1024']);
+    expect(result.command).toBe('config');
+    expect(result.profile).toBe('set');
+    expect(result.args).toEqual(['prompt.maxLength', '1024']);
+  });
+
   it('defaults to select when no command', () => {
     const result = parseArgs(['node', 'airelay']);
     expect(result.command).toBe('select');

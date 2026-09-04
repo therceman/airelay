@@ -29,6 +29,11 @@ jest.mock('../src/commands/create', () => ({
 jest.mock('../src/commands/guide', () => ({
   guideCommand: jest.fn(),
 }));
+jest.mock('../src/commands/config', () => ({
+  configHelpCommand: jest.fn(),
+  configListCommand: jest.fn(),
+  configSetCommand: jest.fn(),
+}));
 
 jest.mock('../src/commands/select', () => ({
   selectCommand: jest.fn().mockResolvedValue(undefined),
@@ -109,6 +114,22 @@ describe('runCli', () => {
 
     const { guideCommand } = require('../src/commands/guide');
     expect(guideCommand).toHaveBeenCalled();
+  });
+
+  it('executes config list command', async () => {
+    process.argv = ['node', 'cli.js', 'config', 'list', '--json'];
+    await runCli();
+
+    const { configListCommand } = require('../src/commands/config');
+    expect(configListCommand).toHaveBeenCalledWith(true);
+  });
+
+  it('executes config set command', async () => {
+    process.argv = ['node', 'cli.js', 'config', 'set', 'prompt.maxLength', '1024'];
+    await runCli();
+
+    const { configSetCommand } = require('../src/commands/config');
+    expect(configSetCommand).toHaveBeenCalledWith('prompt.maxLength', '1024');
   });
 
   it('executes list command', async () => {
