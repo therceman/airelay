@@ -154,7 +154,7 @@ After harness exits:
 
 - `airelay config list` shows the config and resolved defaults
 - `airelay config set settings.promptMaxLength <number|unlimited>` changes the prompt limit
-- `settings.promptMaxLength` defaults to 512 Unicode code points
+- `settings.promptMaxLength` defaults to `unlimited`
 - `unlimited` disables the prompt-length check; the IPC transport still limits one input to 256 KiB
 - Length is measured in Unicode code points via `Array.from`; emoji count as one and combining marks count separately
 
@@ -169,7 +169,7 @@ After harness exits:
 ```yaml
 version: 1
 settings:
-  promptMaxLength: 512
+  promptMaxLength: unlimited
 profiles:
   opencode:
     executable: opencode

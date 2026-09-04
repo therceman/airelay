@@ -128,19 +128,12 @@ describe('promptCommand', () => {
       expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Session not found'));
     });
 
-    it('allows 512 characters by default and rejects longer prompts', async () => {
+    it('allows prompts longer than 512 characters by default', async () => {
       mockSessionFound();
 
-      const allowedPromise = promptCommand('testprofile_1234', 'x'.repeat(512));
+      const allowedPromise = promptCommand('testprofile_1234', 'x'.repeat(513));
       await emitData({ id: 'prompt-1', type: 'success', data: {} });
       expect(await allowedPromise).toBe(0);
-
-      mockSessionFound();
-      const exitCode = await promptCommand('testprofile_1234', 'x'.repeat(513));
-      expect(exitCode).toBe(1);
-      expect(console.error).toHaveBeenCalledWith(
-        'Error: Prompt is too long (513 characters). Maximum is 512.'
-      );
     });
 
     it('uses the configured prompt max length', async () => {

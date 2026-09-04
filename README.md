@@ -57,7 +57,7 @@ This creates `~/.airelay/config.yaml` with example profiles.
 version: 1
 
 settings:
-  promptMaxLength: 512
+  promptMaxLength: unlimited
 
 profiles:
   opencode-work:
@@ -128,7 +128,7 @@ airelay start codex-personal
 Profile definitions are stored in `~/.airelay/config.yaml`. The `create`
 command prints the profile's isolated home/config directory after creation.
 
-The prompt length limit defaults to 512 Unicode code points. Change it with
+The prompt length check is disabled by default. Set a numeric limit with
 `airelay config set settings.promptMaxLength <number|unlimited>`; use
 `airelay config list` or `airelay config help` to inspect the effective setting
 and its description. `unlimited` disables airelay's prompt-length check; the

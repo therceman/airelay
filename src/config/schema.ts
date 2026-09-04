@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
-export const DEFAULT_PROMPT_MAX_LENGTH = 512;
-export const MAX_PROMPT_MAX_LENGTH = 256 * 1024;
 export const UNLIMITED_PROMPT_MAX_LENGTH = 'unlimited' as const;
+export const DEFAULT_PROMPT_MAX_LENGTH = UNLIMITED_PROMPT_MAX_LENGTH;
+export const MAX_PROMPT_MAX_LENGTH = 256 * 1024;
 
 export const PromptMaxLengthSchema = z.union([
   z.literal(UNLIMITED_PROMPT_MAX_LENGTH),

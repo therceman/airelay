@@ -27,7 +27,7 @@ describe('config command', () => {
 
     const calls = (console.log as jest.Mock).mock.calls;
     expect(calls[0][0]).toContain(testEnv.configPath);
-    expect(calls[1][0]).toContain('promptMaxLength: 512');
+    expect(calls[1][0]).toContain('promptMaxLength: unlimited');
     expect(calls[1][0]).toContain('TEST_API_KEY: <redacted>');
     expect(calls[1][0]).toContain('TEST_HOME: /tmp/worker');
     expect(calls[1][0]).not.toContain('secret-value');
