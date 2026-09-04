@@ -7,13 +7,15 @@ import {
   ConfigSchema,
   DEFAULT_PROMPT_MAX_LENGTH,
   MAX_PROMPT_MAX_LENGTH,
-  PromptMaxLength,
+  ProfileSchema,
   UNLIMITED_PROMPT_MAX_LENGTH,
 } from '../config/schema';
 
 const PROMPT_MAX_LENGTH_KEY = 'settings.promptMaxLength';
 const PROMPT_MAX_LENGTH_DESCRIPTION =
   'Maximum prompt length in Unicode code points before airelay sends the text to a session.';
+const PROFILE_FIELDS = new Set(['executable', 'cwd', 'args', 'env', 'description', 'createDirs']);
+const ARRAY_PROFILE_FIELDS = new Set(['args', 'createDirs']);
 
 function isSensitiveEnvKey(key: string): boolean {
   return /(api[_-]?key|token|secret|password)/i.test(key);
@@ -41,29 +43,121 @@ function redactConfig(config: Config): Config {
   };
 }
 
-function parsePromptMaxLength(value: string): PromptMaxLength {
-  if (value === UNLIMITED_PROMPT_MAX_LENGTH) {
+function parsePromptMaxLength(value: string): number {
+  if (value === String(UNLIMITED_PROMPT_MAX_LENGTH)) {
     return UNLIMITED_PROMPT_MAX_LENGTH;
   }
 
   if (!/^\d+$/.test(value)) {
-    throw new Error(
-      `${PROMPT_MAX_LENGTH_KEY} must be a positive integer or "${UNLIMITED_PROMPT_MAX_LENGTH}".`
-    );
+    throw new Error(`${PROMPT_MAX_LENGTH_KEY} must be a positive integer or -1 (unlimited).`);
   }
 
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 1) {
-    throw new Error(
-      `${PROMPT_MAX_LENGTH_KEY} must be a positive integer or "${UNLIMITED_PROMPT_MAX_LENGTH}".`
-    );
+    throw new Error(`${PROMPT_MAX_LENGTH_KEY} must be a positive integer or -1 (unlimited).`);
   }
   if (parsed > MAX_PROMPT_MAX_LENGTH) {
     throw new Error(
-      `${PROMPT_MAX_LENGTH_KEY} must be between 1 and ${MAX_PROMPT_MAX_LENGTH.toLocaleString('en-US')}, or "${UNLIMITED_PROMPT_MAX_LENGTH}".`
+      `${PROMPT_MAX_LENGTH_KEY} must be between 1 and ${MAX_PROMPT_MAX_LENGTH.toLocaleString('en-US')}, or -1 (unlimited).`
     );
   }
   return parsed;
+}
+
+function parseYamlValue(value: string, key: string): unknown {
+  try {
+    return YAML.parse(value);
+  } catch (error) {
+    throw new Error(`Invalid YAML value for ${key}: ${(error as Error).message}`);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function setProfileValue(
+  raw: Record<string, unknown>,
+  keyParts: string[],
+  value: string
+): Record<string, unknown> {
+  const profileName = keyParts[1];
+  const field = keyParts[2];
+  if (!profileName || !field) {
+    throw new Error(
+      'Profile config keys must look like profiles.<profile>.<field> or profiles.<profile>.env.<name>.'
+    );
+  }
+
+  const profiles = isRecord(raw.profiles) ? raw.profiles : {};
+  const existingProfile = profiles[profileName];
+  if (!isRecord(existingProfile)) {
+    throw new Error(
+      `Profile not found: ${profileName}. Use "airelay config list" to see profiles.`
+    );
+  }
+  if (!PROFILE_FIELDS.has(field)) {
+    throw new Error(
+      `Unknown profile config key "${field}". Supported fields: executable, cwd, args, env, description, createDirs.`
+    );
+  }
+
+  const profile = { ...existingProfile };
+  if (field === 'env' && keyParts.length > 3) {
+    const envName = keyParts.slice(3).join('.');
+    if (!envName) throw new Error('Environment variable name is required.');
+    const env = isRecord(profile.env) ? { ...profile.env } : {};
+    env[envName] = value;
+    profile.env = env;
+  } else {
+    if (keyParts.length !== 3) {
+      throw new Error(`The config key "${keyParts.slice(0, 3).join('.')}" cannot be nested.`);
+    }
+    profile[field] =
+      ARRAY_PROFILE_FIELDS.has(field) || field === 'env'
+        ? parseYamlValue(value, keyParts.join('.'))
+        : value;
+  }
+
+  const updated = {
+    ...raw,
+    profiles: {
+      ...profiles,
+      [profileName]: profile,
+    },
+  };
+  ProfileSchema.parse(profile);
+  return updated;
+}
+
+function setConfigValue(
+  raw: Record<string, unknown>,
+  key: string,
+  value: string
+): Record<string, unknown> {
+  if (key === PROMPT_MAX_LENGTH_KEY) {
+    const settings = isRecord(raw.settings) ? raw.settings : {};
+    return {
+      ...raw,
+      settings: {
+        ...settings,
+        promptMaxLength: parsePromptMaxLength(value),
+      },
+    };
+  }
+
+  const keyParts = key.split('.');
+  if (keyParts[0] === 'profiles') {
+    return setProfileValue(raw, keyParts, value);
+  }
+
+  if (key === 'version') {
+    throw new Error('Config key "version" is read-only and cannot be changed.');
+  }
+
+  throw new Error(
+    `Unknown config key "${key}". Supported keys: ${PROMPT_MAX_LENGTH_KEY} and profiles.<profile>.<field>.`
+  );
 }
 
 function readRawConfig(configPath: string): Record<string, unknown> {
@@ -85,40 +179,17 @@ export function configListCommand(json = false): void {
 
   console.log(`Config: ${configPath}`);
   console.log(YAML.stringify(config));
-  console.log('Setting descriptions:');
-  console.log(`  ${PROMPT_MAX_LENGTH_KEY}: ${PROMPT_MAX_LENGTH_DESCRIPTION}`);
-  console.log(
-    `  Length is measured in Unicode code points (emoji count as one; combining marks count separately).`
-  );
-  console.log(
-    `  Value: positive integer, or "${UNLIMITED_PROMPT_MAX_LENGTH}" to disable this check.`
-  );
 }
 
 export function configSetCommand(key: string, value: string): void {
-  if (key !== PROMPT_MAX_LENGTH_KEY) {
-    throw new Error(`Unknown config key "${key}". Supported key: ${PROMPT_MAX_LENGTH_KEY}.`);
-  }
-
-  const promptMaxLength = parsePromptMaxLength(value);
   const configPath = getConfigPath();
   loadConfig(configPath);
   const raw = readRawConfig(configPath);
-  const rawSettings =
-    typeof raw.settings === 'object' && raw.settings !== null && !Array.isArray(raw.settings)
-      ? raw.settings
-      : {};
-  const updated = {
-    ...raw,
-    settings: {
-      ...rawSettings,
-      promptMaxLength,
-    },
-  };
+  const updated = setConfigValue(raw, key, value);
 
   ConfigSchema.parse(updated);
   fs.writeFileSync(configPath, YAML.stringify(updated), 'utf-8');
-  console.log(`Set ${PROMPT_MAX_LENGTH_KEY} = ${promptMaxLength} in ${configPath}`);
+  console.log(`Set ${key} in ${configPath}`);
 }
 
 export function configHelpCommand(): void {
@@ -129,15 +200,26 @@ export function configHelpCommand(): void {
       'Usage:',
       '  airelay config list                   Show config and resolved defaults',
       '  airelay config list --json            Show config as JSON',
-      `  airelay config set ${PROMPT_MAX_LENGTH_KEY} 512`,
-      `  airelay config set ${PROMPT_MAX_LENGTH_KEY} unlimited`,
+      `  airelay config set ${PROMPT_MAX_LENGTH_KEY} -1`,
+      '  airelay config set profiles.my-profile.cwd ~/git/project',
+      `  airelay config set profiles.my-profile.args '["--verbose"]'`,
+      '  airelay config set profiles.my-profile.env.HARNESS_HOME ~/.airelay-profile',
       '',
-      'Supported settings:',
+      'Supported config keys:',
       `  ${PROMPT_MAX_LENGTH_KEY}`,
       `    ${PROMPT_MAX_LENGTH_DESCRIPTION}`,
-      `    Default: ${DEFAULT_PROMPT_MAX_LENGTH}; value: positive integer or ${UNLIMITED_PROMPT_MAX_LENGTH}.`,
+      `    Default: ${DEFAULT_PROMPT_MAX_LENGTH}; value: positive integer or -1 (unlimited).`,
       '    Counting uses Unicode code points (Array.from); emoji count as one, combining marks count separately.',
+      '  profiles.<profile>.executable     Harness executable command.',
+      '  profiles.<profile>.cwd            Working directory for the profile.',
+      '  profiles.<profile>.args           Default harness arguments as a YAML/JSON array.',
+      '  profiles.<profile>.env.<name>     Profile environment variable as a string.',
+      '  profiles.<profile>.env            Environment map as a YAML/JSON object.',
+      '  profiles.<profile>.description    Human-readable profile description.',
+      '  profiles.<profile>.createDirs     Directories as a YAML/JSON array to create before launch.',
+      '  version                           Read-only config schema version.',
       '',
+      'Use YAML or JSON syntax for arrays and maps. Changes are validated against the config schema.',
       'Config path:',
       `  ${path.join('~', '.airelay', 'config.yaml')} (or AIRELAY_CONFIG)`,
       '',

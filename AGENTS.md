@@ -13,6 +13,15 @@ npm run verify         # build → lint → format:check → test → audit
 
 Pre-commit runs `npm run verify`. Husky is configured via `prepare` script.
 
+## Completion Gates
+
+Before coding and before finalizing any task, follow the canonical universal
+20-gate contract in [GATES.md](GATES.md). Evaluate Gates 1, 2, 3, 4, 10 and 20
+before implementation where applicable, then evaluate all Gates 1–20 against
+the final artifact. The completion response must record each gate as PASS,
+FAIL or N/A with concise evidence or rationale. Any material change after
+verification requires re-evaluation of affected gates.
+
 ## Architecture
 
 - Entry: `src/index.ts` → `src/cli.ts:runCli()`
@@ -28,7 +37,14 @@ Pre-commit runs `npm run verify`. Husky is configured via `prepare` script.
 Config schema (`src/config/schema.ts`):
 
 - `version: 1`
+- `settings.promptMaxLength`: `-1` (unlimited) or a positive integer up to 262144 Unicode code points
 - `profiles: { <name>: { executable, cwd?, args?, env?, description?, createDirs? } }`
+
+`airelay config set <key> <value>` updates every schema-defined setting and
+profile field without requiring direct YAML editing. Use YAML/JSON syntax for
+array and map values; changes are validated before writing. See
+`airelay config help` for the public key descriptions and [GATES.md](GATES.md)
+for the mandatory completion contract.
 
 Session schema (`src/commands/sessions.ts`):
 

@@ -76,6 +76,7 @@ export function initCommand(force: boolean = false): void {
       ProfileSchema.parse({
         executable: c.executable,
         cwd: c.cwd,
+        description: c.description,
         env: c.env,
         createDirs: c.createDirs,
         args: c.args,

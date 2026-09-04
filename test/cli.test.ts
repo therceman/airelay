@@ -109,6 +109,20 @@ describe('parseArgs', () => {
     expect(result.args).toEqual(['settings.promptMaxLength', '1024']);
   });
 
+  it('parses a negative config value as a positional value', () => {
+    const result = parseArgs([
+      'node',
+      'airelay',
+      'config',
+      'set',
+      'settings.promptMaxLength',
+      '-1',
+    ]);
+    expect(result.profile).toBe('set');
+    expect(result.args).toEqual(['settings.promptMaxLength', '-1']);
+    expect(result.flags).toEqual({});
+  });
+
   it('defaults to select when no command', () => {
     const result = parseArgs(['node', 'airelay']);
     expect(result.command).toBe('select');

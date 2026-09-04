@@ -7,7 +7,7 @@ export const DEFAULT_CONFIG_FILE = path.join(DEFAULT_CONFIG_DIR, 'config.yaml');
 export const STARTER_CONFIG = `version: 1
 
 settings:
-  promptMaxLength: unlimited
+  promptMaxLength: -1
 
 profiles:
   opencode-work:

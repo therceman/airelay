@@ -7,6 +7,10 @@ export function profileToYaml(name: string, profile: Profile): string {
     yaml += `\n    cwd: ${profile.cwd}`;
   }
 
+  if (profile.description) {
+    yaml += `\n    description: ${profile.description}`;
+  }
+
   if (profile.args && profile.args.length > 0) {
     yaml += `\n    args:`;
     for (const arg of profile.args) {

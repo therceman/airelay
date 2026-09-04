@@ -155,6 +155,7 @@ export async function removeCommand(profileName?: string): Promise<void> {
     {
       executable: string;
       cwd?: string;
+      description?: string;
       env?: Record<string, string>;
       createDirs?: string[];
       args?: string[];
@@ -165,6 +166,7 @@ export async function removeCommand(profileName?: string): Promise<void> {
     typedProfiles[n] = {
       executable: prof.executable as string,
       cwd: prof.cwd as string | undefined,
+      description: prof.description as string | undefined,
       env: prof.env as Record<string, string> | undefined,
       createDirs: prof.createDirs as string[] | undefined,
       args: prof.args as string[] | undefined,

@@ -211,7 +211,7 @@ export async function promptCommand(
       `Error: Prompt is too long (${promptLength} characters). Maximum is ${maxPromptLength}.`
     );
     console.error(
-      'Set a different limit with: airelay config set settings.promptMaxLength <number|unlimited>'
+      'Set a different limit with: airelay config set settings.promptMaxLength <number|-1>'
     );
     return 1;
   }

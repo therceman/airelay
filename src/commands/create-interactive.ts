@@ -181,6 +181,7 @@ export async function createCommandInteractive(opts: CreateOptions = {}): Promis
     typedProfiles[n] = ProfileSchema.parse({
       executable: prof.executable,
       cwd: prof.cwd,
+      description: prof.description,
       env: prof.env,
       createDirs: prof.createDirs,
       args: prof.args,

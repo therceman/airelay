@@ -121,6 +121,14 @@ function parseArgs(argv: string[]): ParseResult {
   while (i < args.length) {
     const arg = args[i];
 
+    // Config values are positional and may legitimately start with a dash,
+    // e.g. the -1 prompt limit value or a harness argument in a YAML array.
+    if (command === 'config' && positional[0] === 'set') {
+      positional.push(arg);
+      i++;
+      continue;
+    }
+
     if (arg === '--') {
       extraArgs.push(...args.slice(i + 1));
       break;
@@ -458,7 +466,7 @@ async function runCli(): Promise<void> {
           break;
         }
         console.error('Usage: airelay config list [--json]');
-        console.error('       airelay config set settings.promptMaxLength <number|unlimited>');
+        console.error('       airelay config set <key> <value>');
         process.exit(1);
         break;
 

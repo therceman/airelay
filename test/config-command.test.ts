@@ -27,7 +27,7 @@ describe('config command', () => {
 
     const calls = (console.log as jest.Mock).mock.calls;
     expect(calls[0][0]).toContain(testEnv.configPath);
-    expect(calls[1][0]).toContain('promptMaxLength: unlimited');
+    expect(calls[1][0]).toContain('promptMaxLength: -1');
     expect(calls[1][0]).toContain('TEST_API_KEY: <redacted>');
     expect(calls[1][0]).toContain('TEST_HOME: /tmp/worker');
     expect(calls[1][0]).not.toContain('secret-value');
@@ -43,25 +43,61 @@ describe('config command', () => {
     expect(saved.settings.promptMaxLength).toBe(1024);
     expect(saved.profiles.worker).toBeDefined();
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringContaining('Set settings.promptMaxLength = 1024')
+      expect.stringContaining('Set settings.promptMaxLength in')
     );
   });
 
-  it('supports unlimited prompt length', () => {
-    configSetCommand('settings.promptMaxLength', 'unlimited');
+  it('supports unlimited prompt length with -1', () => {
+    configSetCommand('settings.promptMaxLength', '-1');
 
     const saved = YAML.parse(fs.readFileSync(testEnv.configPath, 'utf8')) as {
-      settings: { promptMaxLength: string };
+      settings: { promptMaxLength: number };
     };
-    expect(saved.settings.promptMaxLength).toBe('unlimited');
+    expect(saved.settings.promptMaxLength).toBe(-1);
+  });
+
+  it('updates profile fields without editing YAML', () => {
+    configSetCommand('profiles.worker.cwd', '~/git/work');
+    configSetCommand('profiles.worker.description', 'Worker profile');
+    configSetCommand('profiles.worker.args', '["--sandbox", "workspace-write"]');
+    configSetCommand('profiles.worker.env.CODEX_HOME', '~/.codex-worker');
+    configSetCommand('profiles.worker.createDirs', '["~/.codex-worker"]');
+
+    const saved = YAML.parse(fs.readFileSync(testEnv.configPath, 'utf8')) as {
+      profiles: {
+        worker: {
+          cwd: string;
+          description: string;
+          args: string[];
+          env: Record<string, string>;
+          createDirs: string[];
+        };
+      };
+    };
+    expect(saved.profiles.worker).toMatchObject({
+      cwd: '~/git/work',
+      description: 'Worker profile',
+      args: ['--sandbox', 'workspace-write'],
+      env: {
+        CODEX_HOME: '~/.codex-worker',
+      },
+      createDirs: ['~/.codex-worker'],
+    });
   });
 
   it('rejects invalid setting values and keys', () => {
     expect(() => configSetCommand('settings.promptMaxLength', '0')).toThrow('positive integer');
-    expect(() => configSetCommand('settings.promptMaxLength', 'not-unlimited')).toThrow(
-      'positive integer or "unlimited"'
+    expect(() => configSetCommand('settings.promptMaxLength', 'not-a-number')).toThrow(
+      'positive integer or -1 (unlimited)'
+    );
+    expect(() => configSetCommand('settings.promptMaxLength', 'unlimited')).toThrow(
+      'positive integer or -1 (unlimited)'
     );
     expect(() => configSetCommand('prompt.maxLength', '1')).toThrow('Unknown config key');
+    expect(() => configSetCommand('profiles.worker.args', 'not-an-array')).toThrow();
+    expect(() => configSetCommand('profiles.unknown.cwd', '~/missing')).toThrow(
+      'Profile not found'
+    );
     expect(() => configSetCommand('unknown.key', '1')).toThrow('Unknown config key');
   });
 
@@ -71,5 +107,6 @@ describe('config command', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('airelay config list'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('settings.promptMaxLength'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Unicode code points'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('profiles.<profile>.args'));
   });
 });

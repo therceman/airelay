@@ -22,6 +22,16 @@ describe('profileToYaml', () => {
     expect(yaml).toContain('cwd: ~/test');
   });
 
+  it('includes description when present', () => {
+    const profile = ProfileSchema.parse({
+      executable: 'opencode',
+      description: 'Work profile',
+    });
+
+    const yaml = profileToYaml('test', profile);
+    expect(yaml).toContain('description: Work profile');
+  });
+
   it('includes args when present', () => {
     const profile = ProfileSchema.parse({
       executable: 'opencode',

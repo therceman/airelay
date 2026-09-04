@@ -41,6 +41,7 @@ profiles:
     const config = loadConfig(testConfigPath);
     expect(config.profiles['test-profile']).toBeDefined();
     expect(config.profiles['test-profile']?.executable).toBe('opencode');
+    expect(config.settings?.promptMaxLength).toBe(-1);
   });
 
   it('supports AIRELAY_CONFIG env override', () => {

@@ -153,10 +153,12 @@ After harness exits:
 **`airelay config`**
 
 - `airelay config list` shows the config and resolved defaults
-- `airelay config set settings.promptMaxLength <number|unlimited>` changes the prompt limit
-- `settings.promptMaxLength` defaults to `unlimited`
-- `unlimited` disables the prompt-length check; the IPC transport still limits one input to 256 KiB
+- `airelay config set settings.promptMaxLength <number|-1>` changes the prompt limit
+- `settings.promptMaxLength` defaults to `-1`
+- `-1` disables the prompt-length check; the IPC transport still limits one input to 256 KiB
 - Length is measured in Unicode code points via `Array.from`; emoji count as one and combining marks count separately
+- Schema-defined profile fields can be changed with `profiles.<profile>.<field>` without editing YAML
+- Array/map values use YAML or JSON syntax and every change is validated against the config schema
 
 ## Data Storage
 
@@ -169,7 +171,7 @@ After harness exits:
 ```yaml
 version: 1
 settings:
-  promptMaxLength: unlimited
+  promptMaxLength: -1
 profiles:
   opencode:
     executable: opencode

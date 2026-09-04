@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const UNLIMITED_PROMPT_MAX_LENGTH = 'unlimited' as const;
+export const UNLIMITED_PROMPT_MAX_LENGTH = -1;
 export const DEFAULT_PROMPT_MAX_LENGTH = UNLIMITED_PROMPT_MAX_LENGTH;
 export const MAX_PROMPT_MAX_LENGTH = 256 * 1024;
 
@@ -18,6 +18,7 @@ export const ProfileSchema = z.object({
   cwd: z.string().optional(),
   args: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),
+  description: z.string().optional(),
   createDirs: z.array(z.string()).optional(),
 });
 

@@ -154,13 +154,13 @@ describe('promptCommand', () => {
       );
     });
 
-    it('allows prompts of any length when configured as unlimited', async () => {
+    it('allows prompts of any length when configured as -1', async () => {
       (loadConfig as jest.Mock).mockReturnValueOnce({
         profiles: {
           codexprof: { executable: 'codex' },
           testprofile: { executable: 'opencode' },
         },
-        settings: { promptMaxLength: 'unlimited' },
+        settings: { promptMaxLength: -1 },
       });
       mockSessionFound();
 

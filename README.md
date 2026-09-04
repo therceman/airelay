@@ -57,7 +57,7 @@ This creates `~/.airelay/config.yaml` with example profiles.
 version: 1
 
 settings:
-  promptMaxLength: unlimited
+  promptMaxLength: -1
 
 profiles:
   opencode-work:
@@ -94,6 +94,7 @@ airelay sessions [--json] [--active]  # List saved sessions
 airelay prompt <session> <text>    # Send input to an active session
 airelay config list                # Show config and resolved defaults
 airelay config set settings.promptMaxLength 1024
+airelay config set profiles.my-profile.cwd ~/git/project
 airelay help                       # Show this help message
 airelay guide                      # New-machine setup guide
 ```
@@ -128,11 +129,18 @@ airelay start codex-personal
 Profile definitions are stored in `~/.airelay/config.yaml`. The `create`
 command prints the profile's isolated home/config directory after creation.
 
-The prompt length check is disabled by default. Set a numeric limit with
-`airelay config set settings.promptMaxLength <number|unlimited>`; use
+The prompt length check is disabled by default (`settings.promptMaxLength: -1`).
+Set a numeric limit with `airelay config set settings.promptMaxLength <number>`;
+use
 `airelay config list` or `airelay config help` to inspect the effective setting
-and its description. `unlimited` disables airelay's prompt-length check; the
-IPC transport still limits one input to 256 KiB.
+and its description. `-1` disables airelay's prompt-length check; the IPC
+transport still limits one input to 256 KiB.
+
+All schema-defined profile fields can also be changed without opening YAML:
+`profiles.<profile>.executable`, `cwd`, `description`, `args`, `env` and
+`createDirs`. Use YAML or JSON syntax for array/map values, for example
+`airelay config set profiles.my-profile.args '["--verbose"]'`.
+Every change is validated against the config schema before it is written.
 
 > **Note**: `airelay start` launches with a pseudo-terminal (PTY), making sessions both terminal-compatible and promptable.
 > Use `airelay run` for simple inherited-terminal execution (non-promptable).
