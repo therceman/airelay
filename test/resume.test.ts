@@ -331,6 +331,12 @@ describe('resumeCommand', () => {
   it('reports when the selected session is already running', async () => {
     const profileSessionId = '01a0638b-bafd-7c82-ae0e-a2cdfeb4f63e';
     const currentCwd = process.cwd();
+    (loadConfig as jest.Mock).mockReturnValue({
+      profiles: {
+        codex2: { executable: 'codex' },
+        codex: { executable: 'codex' },
+      },
+    });
     (getLaunchHistory as jest.Mock).mockReturnValue([
       {
         id: 'active-row',
@@ -351,12 +357,19 @@ describe('resumeCommand', () => {
         lastUsed: Date.now(),
       },
     ]);
-    (Enquirer.prompt as jest.Mock).mockResolvedValueOnce({ historyEntry: 'active-row' });
+    (Enquirer.prompt as jest.Mock)
+      .mockResolvedValueOnce({ historyEntry: 'active-row' })
+      .mockResolvedValueOnce({ resumeAction: 'launch' });
 
     await resumeCommand();
 
     expect(runCommand).not.toHaveBeenCalled();
     expect(markLaunchHistoryUsed).not.toHaveBeenCalled();
+    expect(Enquirer.prompt).toHaveBeenCalledTimes(2);
+    expect((Enquirer.prompt as jest.Mock).mock.calls[1][0].choices).toEqual([
+      { name: 'launch', message: 'Launch' },
+      { name: 'switchProfile', message: 'Use another profile (same harness)' },
+    ]);
     expect(console.error).toHaveBeenCalledWith(
       'Failed to resume session in this terminal, because this session is active in another terminal window.'
     );

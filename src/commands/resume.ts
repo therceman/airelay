@@ -302,15 +302,11 @@ async function resumeFromFolder(targetCwd = process.cwd()): Promise<void> {
     return;
   }
 
-  if (await rejectActiveSession(selected.profile, profileSessionId)) {
-    process.exit(1);
-    return;
-  }
-
   const launchProfile = await chooseResumeProfile(selected.profile);
   if (
-    launchProfile !== selected.profile &&
-    (await rejectActiveSession(launchProfile, profileSessionId))
+    (await rejectActiveSession(selected.profile, profileSessionId)) ||
+    (launchProfile !== selected.profile &&
+      (await rejectActiveSession(launchProfile, profileSessionId)))
   ) {
     process.exit(1);
     return;
@@ -341,11 +337,6 @@ export async function switchLastSessionProfile(targetCwd = process.cwd()): Promi
   const profileSessionId = getResumeSessionId(profileArgs);
   if (!profileSessionId) {
     console.error('Error: Last session does not contain a resumable session ID.');
-    process.exit(1);
-    return;
-  }
-
-  if (await rejectActiveSession(selected.profile, profileSessionId)) {
     process.exit(1);
     return;
   }
@@ -382,8 +373,9 @@ export async function switchLastSessionProfile(targetCwd = process.cwd()): Promi
   }
 
   if (
-    launchProfile !== selected.profile &&
-    (await rejectActiveSession(launchProfile, profileSessionId))
+    (await rejectActiveSession(selected.profile, profileSessionId)) ||
+    (launchProfile !== selected.profile &&
+      (await rejectActiveSession(launchProfile, profileSessionId)))
   ) {
     process.exit(1);
     return;
@@ -471,19 +463,13 @@ export async function resumeCommand(
     return;
   }
 
-  if (
-    selectedSession.profileSessionId &&
-    (await rejectActiveSession(profileOrSessionKey, selectedSession.profileSessionId))
-  ) {
-    process.exit(1);
-    return;
-  }
-
   const launchProfile = await chooseResumeProfile(profileOrSessionKey);
   if (
-    launchProfile !== profileOrSessionKey &&
-    selectedSession.profileSessionId &&
-    (await rejectActiveSession(launchProfile, selectedSession.profileSessionId))
+    (selectedSession.profileSessionId &&
+      (await rejectActiveSession(profileOrSessionKey, selectedSession.profileSessionId))) ||
+    (launchProfile !== profileOrSessionKey &&
+      selectedSession.profileSessionId &&
+      (await rejectActiveSession(launchProfile, selectedSession.profileSessionId)))
   ) {
     process.exit(1);
     return;
