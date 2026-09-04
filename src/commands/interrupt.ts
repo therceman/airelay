@@ -3,6 +3,8 @@ import { getIpcEndpointPath } from '../utils/ipc-path';
 import { preflightVersionCheck, sendControllerRequest } from './session-ipc';
 import type { InterruptResult } from '../runtime/interrupt';
 
+const INTERRUPT_IPC_TIMEOUT = 1000;
+
 export async function interruptCommand(
   sessionKeyOrId: string,
   options?: { json?: boolean; noWarn?: boolean }
@@ -26,10 +28,14 @@ export async function interruptCommand(
   }
 
   try {
-    const response = await sendControllerRequest(endpoint, {
-      id: `interrupt-${Date.now()}`,
-      method: 'session.interrupt',
-    });
+    const response = await sendControllerRequest(
+      endpoint,
+      {
+        id: `interrupt-${Date.now()}`,
+        method: 'session.interrupt',
+      },
+      INTERRUPT_IPC_TIMEOUT
+    );
     if (response.type === 'error') {
       const message = response.error?.message || 'Controller rejected interrupt';
       console.error(`Error: ${message}`);

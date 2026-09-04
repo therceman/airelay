@@ -77,6 +77,8 @@ export interface HarnessCapabilities {
   inputSubmitRetry?: {
     retryDelayMs: number;
     maxRetries: number;
+    /** Absolute time after the initial submit during which retries are allowed. */
+    maxWindowMs: number;
   };
 
   /** Native terminal control used to interrupt an active turn without killing the PTY. */
@@ -108,8 +110,9 @@ const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
       retryDelaysMs: [10000, 20000, 40000],
     },
     inputSubmitRetry: {
-      retryDelayMs: 2500,
+      retryDelayMs: 100,
       maxRetries: 3,
+      maxWindowMs: 500,
     },
   },
   unknown: {
@@ -136,8 +139,8 @@ export function getHarnessCapabilities(harness: HarnessType): HarnessCapabilitie
     ...capabilities,
     interrupt: {
       value: DEFAULT_INTERRUPT_SEQUENCE,
-      ackTimeoutMs: 2000,
-      pollIntervalMs: 50,
+      ackTimeoutMs: 500,
+      pollIntervalMs: 25,
       ...capabilities.interrupt,
     },
   };

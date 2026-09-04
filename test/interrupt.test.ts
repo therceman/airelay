@@ -315,6 +315,8 @@ describe('interrupt controller', () => {
     for (const harness of ['opencode', 'codex', 'unknown'] as const) {
       expect(getHarnessCapabilities(harness).interrupt).toMatchObject({
         value: DEFAULT_INTERRUPT_SEQUENCE,
+        ackTimeoutMs: 500,
+        pollIntervalMs: 25,
       });
     }
   });

@@ -21,9 +21,36 @@ describe('input submit watcher', () => {
 
   it('declares the audited half retry timeout for codex', () => {
     expect(getHarnessCapabilities('codex').inputSubmitRetry).toMatchObject({
-      retryDelayMs: 2500,
+      retryDelayMs: 100,
       maxRetries: 3,
+      maxWindowMs: 500,
     });
+  });
+
+  it('never extends the retry window when output keeps arriving', () => {
+    const writes: string[] = [];
+    const onExhausted = jest.fn();
+    const watcher = new InputSubmitWatcher({
+      retryDelayMs: 100,
+      maxRetries: 10,
+      maxWindowMs: 500,
+      write: () => (data) => writes.push(data),
+      isInputVisible: () => true,
+      onExhausted,
+    });
+
+    watcher.track('hello', '\r');
+    jest.advanceTimersByTime(100);
+    watcher.observeOutput('progress');
+    jest.advanceTimersByTime(100);
+    watcher.observeOutput('progress');
+    jest.advanceTimersByTime(100);
+    watcher.observeOutput('progress');
+    jest.advanceTimersByTime(200);
+
+    expect(writes).toHaveLength(4);
+    expect(onExhausted).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
   });
 
   it('retries only the submit key after the retry delay when input remains visible', () => {

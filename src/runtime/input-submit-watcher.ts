@@ -1,6 +1,7 @@
 export interface InputSubmitWatcherOptions {
   retryDelayMs: number;
   maxRetries: number;
+  maxWindowMs?: number;
   write: () => ((data: string) => void) | null;
   isInputVisible: (text: string) => boolean;
   onAcknowledged?: (deliveryId?: string) => void;
@@ -13,6 +14,7 @@ interface PendingInput {
   submitValue: string;
   deliveryId?: string;
   retries: number;
+  retryDeadlineAt?: number;
 }
 
 /** Retries only the submit key when text remains visible but the app is idle. */
@@ -29,9 +31,19 @@ export class InputSubmitWatcher {
 
   track(text: string, submitValue: string, deliveryId?: string): void {
     if (this.disposed || !text.trim()) return;
-    this.pending = { text, submitValue, deliveryId, retries: 0 };
-    this.lastActivityAt = Date.now();
-    this.schedule(this.options.retryDelayMs);
+    const startedAt = Date.now();
+    this.pending = {
+      text,
+      submitValue,
+      deliveryId,
+      retries: 0,
+      retryDeadlineAt:
+        this.options.maxWindowMs !== undefined
+          ? startedAt + Math.max(0, this.options.maxWindowMs)
+          : undefined,
+    };
+    this.lastActivityAt = startedAt;
+    this.schedule(this.getNextDelay(this.options.retryDelayMs, this.pending));
   }
 
   observeOutput(chunk: string): void {
@@ -70,9 +82,16 @@ export class InputSubmitWatcher {
     const pending = this.pending;
     if (this.disposed || !pending) return;
 
-    const elapsed = Date.now() - this.lastActivityAt;
+    const now = Date.now();
+    if (pending.retryDeadlineAt !== undefined && now >= pending.retryDeadlineAt) {
+      this.pending = null;
+      this.options.onExhausted?.(pending.deliveryId);
+      return;
+    }
+
+    const elapsed = now - this.lastActivityAt;
     if (elapsed < this.options.retryDelayMs) {
-      this.schedule(this.options.retryDelayMs - elapsed);
+      this.schedule(this.getNextDelay(this.options.retryDelayMs - elapsed, pending));
       return;
     }
 
@@ -98,7 +117,15 @@ export class InputSubmitWatcher {
     pending.retries += 1;
     this.options.onRetry?.(pending.deliveryId);
     this.lastActivityAt = Date.now();
-    this.schedule(this.options.retryDelayMs);
+    this.schedule(this.getNextDelay(this.options.retryDelayMs, pending));
+  }
+
+  private getNextDelay(delayMs: number, pending: PendingInput): number {
+    if (pending.retryDeadlineAt === undefined) {
+      return delayMs;
+    }
+
+    return Math.min(delayMs, Math.max(0, pending.retryDeadlineAt - Date.now()));
   }
 
   private clearTimer(): void {

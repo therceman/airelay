@@ -477,9 +477,9 @@ describe('promptCommand', () => {
       const socket = mockSocketInstance;
 
       const written = socket?.write.mock.calls[0][0];
-      // codex now uses Enter (\r) with the reduced audited delay
+      // codex now uses Enter (\r) with the reduced submit delay
       expect(written).toContain('"enter":"\\r"');
-      expect(written).toContain('"submitDelayMs":1000');
+      expect(written).toContain('"submitDelayMs":250');
     });
 
     it('uses the reduced submit delay for the ordinary prompt path', async () => {
@@ -490,7 +490,7 @@ describe('promptCommand', () => {
 
       await exitCodePromise;
       const socket = mockSocketInstance;
-      expect(socket?.write).toHaveBeenCalledWith(expect.stringContaining('"submitDelayMs":1000'));
+      expect(socket?.write).toHaveBeenCalledWith(expect.stringContaining('"submitDelayMs":250'));
     });
 
     it('fastEnter overrides the submit delay to 0', async () => {
