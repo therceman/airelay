@@ -153,8 +153,10 @@ After harness exits:
 **`airelay config`**
 
 - `airelay config list` shows the config and resolved defaults
-- `airelay config set prompt.maxLength <number>` changes the prompt character limit
-- The prompt limit defaults to 512 characters
+- `airelay config set settings.promptMaxLength <number|unlimited>` changes the prompt limit
+- `settings.promptMaxLength` defaults to 512 Unicode code points
+- `unlimited` disables the prompt-length check; the IPC transport still limits one input to 256 KiB
+- Length is measured in Unicode code points via `Array.from`; emoji count as one and combining marks count separately
 
 ## Data Storage
 

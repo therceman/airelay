@@ -2,14 +2,15 @@ import { z } from 'zod';
 
 export const DEFAULT_PROMPT_MAX_LENGTH = 512;
 export const MAX_PROMPT_MAX_LENGTH = 256 * 1024;
+export const UNLIMITED_PROMPT_MAX_LENGTH = 'unlimited' as const;
+
+export const PromptMaxLengthSchema = z.union([
+  z.literal(UNLIMITED_PROMPT_MAX_LENGTH),
+  z.number().int().min(1).max(MAX_PROMPT_MAX_LENGTH),
+]);
 
 export const SettingsSchema = z.object({
-  promptMaxLength: z
-    .number()
-    .int()
-    .min(1)
-    .max(MAX_PROMPT_MAX_LENGTH)
-    .default(DEFAULT_PROMPT_MAX_LENGTH),
+  promptMaxLength: PromptMaxLengthSchema.default(DEFAULT_PROMPT_MAX_LENGTH),
 });
 
 export const ProfileSchema = z.object({
@@ -31,4 +32,5 @@ export const ConfigSchema = z
   });
 
 export type Profile = z.infer<typeof ProfileSchema>;
+export type PromptMaxLength = z.infer<typeof PromptMaxLengthSchema>;
 export type Config = z.infer<typeof ConfigSchema>;

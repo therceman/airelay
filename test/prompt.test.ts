@@ -160,6 +160,38 @@ describe('promptCommand', () => {
         'Error: Prompt is too long (5 characters). Maximum is 4.'
       );
     });
+
+    it('allows prompts of any length when configured as unlimited', async () => {
+      (loadConfig as jest.Mock).mockReturnValueOnce({
+        profiles: {
+          codexprof: { executable: 'codex' },
+          testprofile: { executable: 'opencode' },
+        },
+        settings: { promptMaxLength: 'unlimited' },
+      });
+      mockSessionFound();
+
+      const promptPromise = promptCommand('testprofile_1234', '😀'.repeat(513));
+      await emitData({ id: 'prompt-unlimited', type: 'success', data: {} });
+
+      expect(await promptPromise).toBe(0);
+    });
+
+    it('counts an emoji as one prompt character', async () => {
+      (loadConfig as jest.Mock).mockReturnValueOnce({
+        profiles: {
+          codexprof: { executable: 'codex' },
+          testprofile: { executable: 'opencode' },
+        },
+        settings: { promptMaxLength: 1 },
+      });
+      mockSessionFound();
+
+      const promptPromise = promptCommand('testprofile_1234', '😀');
+      await emitData({ id: 'prompt-emoji', type: 'success', data: {} });
+
+      expect(await promptPromise).toBe(0);
+    });
   });
 
   describe('IPC success', () => {

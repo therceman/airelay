@@ -96,10 +96,17 @@ describe('parseArgs', () => {
   });
 
   it('parses config set command', () => {
-    const result = parseArgs(['node', 'airelay', 'config', 'set', 'prompt.maxLength', '1024']);
+    const result = parseArgs([
+      'node',
+      'airelay',
+      'config',
+      'set',
+      'settings.promptMaxLength',
+      '1024',
+    ]);
     expect(result.command).toBe('config');
     expect(result.profile).toBe('set');
-    expect(result.args).toEqual(['prompt.maxLength', '1024']);
+    expect(result.args).toEqual(['settings.promptMaxLength', '1024']);
   });
 
   it('defaults to select when no command', () => {

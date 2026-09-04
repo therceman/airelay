@@ -125,11 +125,11 @@ describe('runCli', () => {
   });
 
   it('executes config set command', async () => {
-    process.argv = ['node', 'cli.js', 'config', 'set', 'prompt.maxLength', '1024'];
+    process.argv = ['node', 'cli.js', 'config', 'set', 'settings.promptMaxLength', '1024'];
     await runCli();
 
     const { configSetCommand } = require('../src/commands/config');
-    expect(configSetCommand).toHaveBeenCalledWith('prompt.maxLength', '1024');
+    expect(configSetCommand).toHaveBeenCalledWith('settings.promptMaxLength', '1024');
   });
 
   it('executes list command', async () => {

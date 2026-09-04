@@ -93,7 +93,7 @@ airelay resume [key]               # Pick a saved launch from this folder or res
 airelay sessions [--json] [--active]  # List saved sessions
 airelay prompt <session> <text>    # Send input to an active session
 airelay config list                # Show config and resolved defaults
-airelay config set prompt.maxLength 1024
+airelay config set settings.promptMaxLength 1024
 airelay help                       # Show this help message
 airelay guide                      # New-machine setup guide
 ```
@@ -128,9 +128,11 @@ airelay start codex-personal
 Profile definitions are stored in `~/.airelay/config.yaml`. The `create`
 command prints the profile's isolated home/config directory after creation.
 
-The prompt length limit defaults to 512 characters. Change it with
-`airelay config set prompt.maxLength <number>`; use `airelay config list` to
-inspect the effective settings.
+The prompt length limit defaults to 512 Unicode code points. Change it with
+`airelay config set settings.promptMaxLength <number|unlimited>`; use
+`airelay config list` or `airelay config help` to inspect the effective setting
+and its description. `unlimited` disables airelay's prompt-length check; the
+IPC transport still limits one input to 256 KiB.
 
 > **Note**: `airelay start` launches with a pseudo-terminal (PTY), making sessions both terminal-compatible and promptable.
 > Use `airelay run` for simple inherited-terminal execution (non-promptable).

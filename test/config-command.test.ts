@@ -34,7 +34,7 @@ describe('config command', () => {
   });
 
   it('sets prompt max length and preserves existing config', () => {
-    configSetCommand('prompt.maxLength', '1024');
+    configSetCommand('settings.promptMaxLength', '1024');
 
     const saved = YAML.parse(fs.readFileSync(testEnv.configPath, 'utf8')) as {
       settings: { promptMaxLength: number };
@@ -43,12 +43,25 @@ describe('config command', () => {
     expect(saved.settings.promptMaxLength).toBe(1024);
     expect(saved.profiles.worker).toBeDefined();
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringContaining('Set prompt.maxLength = 1024')
+      expect.stringContaining('Set settings.promptMaxLength = 1024')
     );
   });
 
+  it('supports unlimited prompt length', () => {
+    configSetCommand('settings.promptMaxLength', 'unlimited');
+
+    const saved = YAML.parse(fs.readFileSync(testEnv.configPath, 'utf8')) as {
+      settings: { promptMaxLength: string };
+    };
+    expect(saved.settings.promptMaxLength).toBe('unlimited');
+  });
+
   it('rejects invalid setting values and keys', () => {
-    expect(() => configSetCommand('prompt.maxLength', '0')).toThrow('positive integer');
+    expect(() => configSetCommand('settings.promptMaxLength', '0')).toThrow('positive integer');
+    expect(() => configSetCommand('settings.promptMaxLength', 'not-unlimited')).toThrow(
+      'positive integer or "unlimited"'
+    );
+    expect(() => configSetCommand('prompt.maxLength', '1')).toThrow('Unknown config key');
     expect(() => configSetCommand('unknown.key', '1')).toThrow('Unknown config key');
   });
 
@@ -56,6 +69,7 @@ describe('config command', () => {
     configHelpCommand();
 
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('airelay config list'));
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('prompt.maxLength'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('settings.promptMaxLength'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Unicode code points'));
   });
 });

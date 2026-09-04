@@ -5,7 +5,7 @@ import { getIpcEndpointPath } from '../utils/ipc-path';
 import { readLines } from '../controller/protocol';
 import { detectHarness, getHarnessCapabilities } from '../utils/harness';
 import { loadConfig } from '../config/load';
-import { DEFAULT_PROMPT_MAX_LENGTH } from '../config/schema';
+import { DEFAULT_PROMPT_MAX_LENGTH, UNLIMITED_PROMPT_MAX_LENGTH } from '../config/schema';
 import { preflightVersionCheck } from './session-ipc';
 
 const IPC_TIMEOUT = 5000;
@@ -206,11 +206,13 @@ export async function promptCommand(
   const config = loadConfig();
   const maxPromptLength = config.settings?.promptMaxLength ?? DEFAULT_PROMPT_MAX_LENGTH;
   const promptLength = resolvedText ? Array.from(resolvedText).length : 0;
-  if (promptLength > maxPromptLength) {
+  if (maxPromptLength !== UNLIMITED_PROMPT_MAX_LENGTH && promptLength > maxPromptLength) {
     console.error(
       `Error: Prompt is too long (${promptLength} characters). Maximum is ${maxPromptLength}.`
     );
-    console.error('Set a different limit with: airelay config set prompt.maxLength <number>');
+    console.error(
+      'Set a different limit with: airelay config set settings.promptMaxLength <number|unlimited>'
+    );
     return 1;
   }
 

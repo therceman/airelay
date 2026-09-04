@@ -264,7 +264,7 @@ Examples:
   airelay history remove <session-key>
   airelay guide
   airelay config list
-  airelay config set prompt.maxLength 512
+  airelay config set settings.promptMaxLength 512
 
 Create options:
   -e, --executable <name>  Executable name (opencode or codex)
@@ -458,7 +458,7 @@ async function runCli(): Promise<void> {
           break;
         }
         console.error('Usage: airelay config list [--json]');
-        console.error('       airelay config set <key> <value>');
+        console.error('       airelay config set settings.promptMaxLength <number|unlimited>');
         process.exit(1);
         break;
 

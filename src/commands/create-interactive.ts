@@ -3,7 +3,12 @@ import os from 'os';
 import path from 'path';
 import Enquirer from 'enquirer';
 import { getConfigPath, loadConfig } from '../config/load';
-import { DEFAULT_PROMPT_MAX_LENGTH, Profile, ProfileSchema } from '../config/schema';
+import {
+  DEFAULT_PROMPT_MAX_LENGTH,
+  Profile,
+  ProfileSchema,
+  PromptMaxLength,
+} from '../config/schema';
 import { profileToYaml } from '../utils/yaml';
 import { detectHarness } from '../utils/harness';
 import { detectAvailableHarnesses } from '../utils/detect-harnesses';
@@ -47,7 +52,7 @@ export async function createCommandInteractive(opts: CreateOptions = {}): Promis
 
   const configPath = getConfigPath();
   let configProfiles: Record<string, unknown>;
-  let promptMaxLength = DEFAULT_PROMPT_MAX_LENGTH;
+  let promptMaxLength: PromptMaxLength = DEFAULT_PROMPT_MAX_LENGTH;
 
   try {
     const existingConfig = loadConfig();
