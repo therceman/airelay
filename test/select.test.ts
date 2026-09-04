@@ -85,4 +85,13 @@ describe('main selector choices', () => {
   it('keeps start available when there are no resumable sessions', () => {
     expect(buildMainChoices(false)).toEqual([{ name: 'Start', message: 'Start new session' }]);
   });
+
+  it('adds last-session profile switching when an alternative is available', () => {
+    expect(buildMainChoices(true, true, true)).toEqual([
+      { name: 'Resume', message: 'Resume session' },
+      { name: 'ResumeCurrent', message: 'Resume current project session' },
+      { name: 'SwitchLast', message: 'Switch last session profile (same harness)' },
+      { name: 'Start', message: 'Start new session' },
+    ]);
+  });
 });

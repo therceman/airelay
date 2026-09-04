@@ -99,6 +99,14 @@ airelay help                       # Show this help message
 airelay guide                      # New-machine setup guide
 ```
 
+When resuming from the interactive project/session picker, `Launch` uses the
+recorded profile. `Use another profile (same harness)` keeps the project
+directory, session key, session ID and recorded harness arguments, changing
+only the selected profile. Profiles for a different harness are not offered.
+The main menu also offers `Switch last session profile (same harness)` for the
+latest session in the current project; it selects an alternative profile first
+and lists the recorded profile last with `(current)`.
+
 ## Examples
 
 ```bash

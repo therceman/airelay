@@ -10,6 +10,7 @@ import {
 import { getLaunchHistory, LaunchHistoryEntry, markLaunchHistoryUsed } from './history';
 import Enquirer from 'enquirer';
 import path from 'path';
+import { detectHarness } from '../utils/harness';
 
 /**
  * Shared helper to resume a session entry with prompt-capable launch.
@@ -90,6 +91,60 @@ async function resumeSession(profile: string, session: SessionEntry): Promise<nu
   });
 }
 
+export function getSameHarnessProfiles(profile: string): string[] {
+  const config = loadConfig();
+  const selectedProfile = config.profiles[profile];
+  if (!selectedProfile) {
+    return [];
+  }
+
+  const harness = detectHarness(selectedProfile.executable);
+  return Object.entries(config.profiles)
+    .filter(
+      ([name, candidate]) => name !== profile && detectHarness(candidate.executable) === harness
+    )
+    .map(([name]) => name)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+async function chooseResumeProfile(profile: string): Promise<string> {
+  const alternativeProfiles = getSameHarnessProfiles(profile);
+  if (alternativeProfiles.length === 0) {
+    return profile;
+  }
+
+  const actionResult = (await Enquirer.prompt({
+    type: 'select',
+    name: 'resumeAction',
+    message: 'Select how to resume this session',
+    choices: [
+      { name: 'launch', message: 'Launch' },
+      { name: 'switchProfile', message: 'Use another profile (same harness)' },
+    ],
+    initial: 0,
+  })) as { resumeAction: string };
+
+  if (actionResult.resumeAction !== 'switchProfile') {
+    return profile;
+  }
+
+  const profileResult = (await Enquirer.prompt({
+    type: 'select',
+    name: 'profile',
+    message: 'Select another profile (same harness)',
+    choices: alternativeProfiles.map((name) => ({ name, message: name })),
+    initial: 0,
+  })) as { profile: string };
+
+  if (!alternativeProfiles.includes(profileResult.profile)) {
+    console.error('Error: Selected profile is not available for this session.');
+    process.exit(1);
+    return profile;
+  }
+
+  return profileResult.profile;
+}
+
 function getHarnessArgs(entry: LaunchHistoryEntry): string[] {
   const separatorIndex = entry.argv.indexOf('--');
   if (separatorIndex !== -1) {
@@ -165,6 +220,22 @@ function getFolderHistory(targetCwd = process.cwd()): LaunchHistoryEntry[] {
     .sort((a, b) => getLastUsed(b) - getLastUsed(a));
 }
 
+export function getLatestResumableSession(
+  targetCwd = process.cwd()
+): LaunchHistoryEntry | undefined {
+  return getFolderHistory(targetCwd)[0];
+}
+
+export function hasSwitchableLastSession(targetCwd = process.cwd()): boolean {
+  const latestSession = getLatestResumableSession(targetCwd);
+  return !!latestSession && getSameHarnessProfiles(latestSession.profile).length > 0;
+}
+
+function formatLastSessionSummary(entry: LaunchHistoryEntry): string {
+  const sessionKey = entry.sessionKey ? `${entry.sessionKey} -- ` : '';
+  return `${sessionKey}${getHarnessArgs(entry).join(' ')}`;
+}
+
 export interface ResumableProject {
   path: string;
   lastUsed: number;
@@ -236,7 +307,89 @@ async function resumeFromFolder(targetCwd = process.cwd()): Promise<void> {
     return;
   }
 
-  const exitCode = await resumeSession(selected.profile, {
+  const launchProfile = await chooseResumeProfile(selected.profile);
+  if (
+    launchProfile !== selected.profile &&
+    (await rejectActiveSession(launchProfile, profileSessionId))
+  ) {
+    process.exit(1);
+    return;
+  }
+
+  const exitCode = await resumeSession(launchProfile, {
+    id: profileSessionId,
+    profile: selected.profile,
+    lastUsed: getLastUsed(selected),
+    cwd: selected.invocationCwd,
+    sessionKey: selected.sessionKey,
+    profileSessionId,
+    profileArgs,
+  });
+  markLaunchHistoryUsed(selected.id);
+  process.exit(exitCode);
+}
+
+export async function switchLastSessionProfile(targetCwd = process.cwd()): Promise<void> {
+  const selected = getLatestResumableSession(targetCwd);
+  if (!selected) {
+    console.error(`No resumable sessions found in ${targetCwd}`);
+    process.exit(1);
+    return;
+  }
+
+  const profileArgs = getHarnessArgs(selected);
+  const profileSessionId = getResumeSessionId(profileArgs);
+  if (!profileSessionId) {
+    console.error('Error: Last session does not contain a resumable session ID.');
+    process.exit(1);
+    return;
+  }
+
+  if (await rejectActiveSession(selected.profile, profileSessionId)) {
+    process.exit(1);
+    return;
+  }
+
+  const alternativeProfiles = getSameHarnessProfiles(selected.profile);
+  if (alternativeProfiles.length === 0) {
+    console.error('No alternative profiles use the same harness as the last session.');
+    process.exit(1);
+    return;
+  }
+
+  console.log('Last session:');
+  console.log(`> ${formatLastSessionSummary(selected)}`);
+
+  const profileChoices = [
+    ...alternativeProfiles.map((name) => ({ name, message: name })),
+    { name: selected.profile, message: `${selected.profile} (current)` },
+  ];
+  const result = (await Enquirer.prompt({
+    type: 'select',
+    name: 'profile',
+    message: 'Select a profile',
+    choices: profileChoices,
+    initial: 0,
+  })) as { profile: string };
+
+  const launchProfile = profileChoices.some((choice) => choice.name === result.profile)
+    ? result.profile
+    : undefined;
+  if (!launchProfile) {
+    console.error('Error: Selected profile is not available for this session.');
+    process.exit(1);
+    return;
+  }
+
+  if (
+    launchProfile !== selected.profile &&
+    (await rejectActiveSession(launchProfile, profileSessionId))
+  ) {
+    process.exit(1);
+    return;
+  }
+
+  const exitCode = await resumeSession(launchProfile, {
     id: profileSessionId,
     profile: selected.profile,
     lastUsed: getLastUsed(selected),
@@ -326,6 +479,16 @@ export async function resumeCommand(
     return;
   }
 
-  const exitCode = await resumeSession(profileOrSessionKey, selectedSession);
+  const launchProfile = await chooseResumeProfile(profileOrSessionKey);
+  if (
+    launchProfile !== profileOrSessionKey &&
+    selectedSession.profileSessionId &&
+    (await rejectActiveSession(launchProfile, selectedSession.profileSessionId))
+  ) {
+    process.exit(1);
+    return;
+  }
+
+  const exitCode = await resumeSession(launchProfile, selectedSession);
   process.exit(exitCode);
 }

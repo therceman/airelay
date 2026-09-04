@@ -7,7 +7,13 @@ import { loadConfig } from '../config/load';
 import { migrateLegacyHomeDirIfNeeded } from '../config/migrate';
 import { runCommand } from './run';
 import { addSession } from './sessions';
-import { formatAge, getResumableProjects, resumeCommand } from './resume';
+import {
+  formatAge,
+  getResumableProjects,
+  hasSwitchableLastSession,
+  resumeCommand,
+  switchLastSessionProfile,
+} from './resume';
 
 function getLastUsedDirPath(): string {
   if (!process.env.AIRELAY_LAST_USED) {
@@ -66,12 +72,16 @@ export function setLastUsedProfile(profileName: string): void {
 
 export function buildMainChoices(
   hasAnyResumableProjects: boolean,
-  hasCurrentProjectSession = hasAnyResumableProjects
+  hasCurrentProjectSession = hasAnyResumableProjects,
+  hasSwitchableSession = false
 ): Array<{ name: string; message: string }> {
   return [
     ...(hasAnyResumableProjects ? [{ name: 'Resume', message: 'Resume session' }] : []),
     ...(hasCurrentProjectSession
       ? [{ name: 'ResumeCurrent', message: 'Resume current project session' }]
+      : []),
+    ...(hasSwitchableSession
+      ? [{ name: 'SwitchLast', message: 'Switch last session profile (same harness)' }]
       : []),
     { name: 'Start', message: 'Start new session' },
   ];
@@ -90,8 +100,13 @@ export async function selectCommand(): Promise<void> {
   const hasCurrentProjectSession = resumableProjects.some(
     (project) => project.path === path.resolve(process.cwd())
   );
+  const hasSwitchableSession = hasSwitchableLastSession(process.cwd());
 
-  const mainChoices = buildMainChoices(resumableProjects.length > 0, hasCurrentProjectSession);
+  const mainChoices = buildMainChoices(
+    resumableProjects.length > 0,
+    hasCurrentProjectSession,
+    hasSwitchableSession
+  );
 
   const mainPrompt = {
     type: 'select',
@@ -122,6 +137,11 @@ export async function selectCommand(): Promise<void> {
 
   if (action === 'ResumeCurrent') {
     await resumeCommand(undefined, process.cwd());
+    return;
+  }
+
+  if (action === 'SwitchLast') {
+    await switchLastSessionProfile(process.cwd());
     return;
   }
 

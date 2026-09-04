@@ -77,14 +77,22 @@ A user-friendly identifier for referencing sessions.
 
 **`airelay`** (no arguments)
 
-Main menu with three options:
+Main menu with four options when profile switching is available:
 
 1. **Resume session**
    - Select project, shown with its latest-use time and sorted newest first
    - Select session from that project's launch history
+   - Launch with the recorded profile or choose another configured profile of
+     the same harness
 2. **Resume current project session**
    - Select a session from the current project's launch history
-3. **Start a new session**
+   - Launch with the recorded profile or choose another configured profile of
+     the same harness
+3. **Switch last session profile (same harness)**
+   - Show the latest resumable session in the current project
+   - Select another profile from the same harness; alternatives are listed
+     first and the recorded profile is listed last with `(current)`
+4. **Start a new session**
    - Select profile → Run without session ID
 
 **`airelay guide`**
@@ -107,6 +115,12 @@ After harness exits:
   launch history, sorted newest first.
 - With a profile or session key, resume using the existing session selector or
   direct key lookup.
+
+When more than one profile uses the same detected harness, the interactive
+session picker offers `Use another profile (same harness)`. The project
+directory, session key, session ID and recorded harness arguments are
+preserved; only the profile changes. Profiles for a different harness are not
+offered.
 
 **`airelay start <profile> [args...]`**
 

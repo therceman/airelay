@@ -1,7 +1,9 @@
 import {
+  hasSwitchableLastSession,
   getResumableProjectPaths,
   getResumableProjects,
   resumeCommand,
+  switchLastSessionProfile,
 } from '../src/commands/resume';
 import { runCommand } from '../src/commands/run';
 import { pruneStaleSessions } from '../src/commands/sessions';
@@ -37,6 +39,7 @@ jest.mock('enquirer', () => ({
 
 import { findSessionByKey, getSessions } from '../src/commands/sessions';
 import { getLaunchHistory, markLaunchHistoryUsed } from '../src/commands/history';
+import { loadConfig } from '../src/config/load';
 import Enquirer from 'enquirer';
 
 const originalExit = process.exit;
@@ -51,6 +54,11 @@ beforeEach(() => {
   console.warn = jest.fn();
   jest.clearAllMocks();
   (getSessions as jest.Mock).mockReturnValue([]);
+  (loadConfig as jest.Mock).mockReturnValue({
+    profiles: {
+      testprofile: { executable: 'opencode' },
+    },
+  });
 });
 
 afterEach(() => {
@@ -357,5 +365,133 @@ describe('resumeCommand', () => {
       'Use the existing terminal for this session, or choose "Start new session".'
     );
     expect(process.exit).toHaveBeenCalledWith(1);
+  });
+
+  it('offers only same-harness profiles and preserves the selected session launch', async () => {
+    const now = 1_000_000_000;
+    const currentCwd = process.cwd();
+    jest.spyOn(Date, 'now').mockReturnValue(now);
+    (loadConfig as jest.Mock).mockReturnValue({
+      profiles: {
+        codex: { executable: 'codex' },
+        codex2: { executable: 'codex' },
+        opencode: { executable: 'opencode' },
+      },
+    });
+    (getLaunchHistory as jest.Mock).mockReturnValue([
+      {
+        id: 'codex-row',
+        profile: 'codex',
+        sessionKey: 'airelay_master',
+        invocationCwd: currentCwd,
+        startedAt: now - 30 * 60 * 1000,
+        argv: [
+          'start',
+          'codex',
+          '--key',
+          'airelay_master',
+          '--',
+          'resume',
+          '01a0638b-bafd-7c82-ae0e-a2cdfeb4f63e',
+          '--dangerously-bypass-approvals-and-sandbox',
+        ],
+        command:
+          'airelay start codex --key airelay_master -- resume 01a0638b-bafd-7c82-ae0e-a2cdfeb4f63e --dangerously-bypass-approvals-and-sandbox',
+      },
+    ]);
+    (Enquirer.prompt as jest.Mock)
+      .mockResolvedValueOnce({ historyEntry: 'codex-row' })
+      .mockResolvedValueOnce({ resumeAction: 'switchProfile' })
+      .mockResolvedValueOnce({ profile: 'codex2' });
+
+    await resumeCommand();
+
+    const actionPrompt = (Enquirer.prompt as jest.Mock).mock.calls[1][0];
+    expect(actionPrompt.choices).toEqual([
+      { name: 'launch', message: 'Launch' },
+      { name: 'switchProfile', message: 'Use another profile (same harness)' },
+    ]);
+    const profilePrompt = (Enquirer.prompt as jest.Mock).mock.calls[2][0];
+    expect(profilePrompt.choices).toEqual([{ name: 'codex2', message: 'codex2' }]);
+    expect(runCommand).toHaveBeenCalledWith(
+      'codex2',
+      [
+        'resume',
+        '01a0638b-bafd-7c82-ae0e-a2cdfeb4f63e',
+        '--dangerously-bypass-approvals-and-sandbox',
+      ],
+      expect.objectContaining({
+        cwd: currentCwd,
+        sessionKey: 'airelay_master',
+        profileSessionId: '01a0638b-bafd-7c82-ae0e-a2cdfeb4f63e',
+        profileArgs: [
+          'resume',
+          '01a0638b-bafd-7c82-ae0e-a2cdfeb4f63e',
+          '--dangerously-bypass-approvals-and-sandbox',
+        ],
+        usePty: true,
+      })
+    );
+    jest.restoreAllMocks();
+  });
+
+  it('switches the latest session with alternatives first and marks the current profile', async () => {
+    const now = 1_000_000_000;
+    const currentCwd = process.cwd();
+    jest.spyOn(Date, 'now').mockReturnValue(now);
+    (loadConfig as jest.Mock).mockReturnValue({
+      profiles: {
+        codex: { executable: 'codex' },
+        codex2: { executable: 'codex' },
+        opencode: { executable: 'opencode' },
+      },
+    });
+    (getLaunchHistory as jest.Mock).mockReturnValue([
+      {
+        id: 'latest-row',
+        profile: 'codex',
+        sessionKey: 'airelay_master',
+        invocationCwd: currentCwd,
+        startedAt: now - 30 * 60 * 1000,
+        argv: [
+          'start',
+          'codex',
+          '--key',
+          'airelay_master',
+          '--',
+          'resume',
+          '01a0638b-bafd-7c82-ae0e-a2cdfeb4f63e',
+          '--dangerously-bypass-approvals-and-sandbox',
+        ],
+        command:
+          'airelay start codex --key airelay_master -- resume 01a0638b-bafd-7c82-ae0e-a2cdfeb4f63e --dangerously-bypass-approvals-and-sandbox',
+      },
+    ]);
+    expect(hasSwitchableLastSession()).toBe(true);
+    (Enquirer.prompt as jest.Mock).mockResolvedValueOnce({ profile: 'codex2' });
+
+    await switchLastSessionProfile();
+
+    const profilePrompt = (Enquirer.prompt as jest.Mock).mock.calls[0][0];
+    expect(profilePrompt.choices).toEqual([
+      { name: 'codex2', message: 'codex2' },
+      { name: 'codex', message: 'codex (current)' },
+    ]);
+    expect(profilePrompt.initial).toBe(0);
+    expect(console.log).toHaveBeenNthCalledWith(1, 'Last session:');
+    expect(console.log).toHaveBeenNthCalledWith(
+      2,
+      '> airelay_master -- resume 01a0638b-bafd-7c82-ae0e-a2cdfeb4f63e --dangerously-bypass-approvals-and-sandbox'
+    );
+    expect(runCommand).toHaveBeenCalledWith(
+      'codex2',
+      [
+        'resume',
+        '01a0638b-bafd-7c82-ae0e-a2cdfeb4f63e',
+        '--dangerously-bypass-approvals-and-sandbox',
+      ],
+      expect.objectContaining({ cwd: currentCwd, sessionKey: 'airelay_master', usePty: true })
+    );
+    jest.restoreAllMocks();
   });
 });
