@@ -69,6 +69,7 @@ function fetchSessionInfo(endpoint: string): Promise<{
   controllerProtocolVersion?: number;
   startedAt?: number;
   lastOutputChangeAt?: number;
+  state?: 'busy' | 'idle';
   compatError?: string;
   delivery?: DeliveryStatus;
 }> {
@@ -106,6 +107,7 @@ function fetchSessionInfo(endpoint: string): Promise<{
               controllerProtocolVersion: parsed.data.controllerProtocolVersion as number,
               startedAt: parsed.data.startedAt as number,
               lastOutputChangeAt: parsed.data.lastOutputChangeAt as number | undefined,
+              state: parsed.data.state as 'busy' | 'idle' | undefined,
               delivery: parsed.data.delivery as DeliveryStatus | undefined,
             });
           } else if (parsed.type === 'error') {
@@ -161,11 +163,14 @@ export async function sessionStatusCommand(
     fetchSessionInfo(endpointPath),
   ]);
 
-  // Compute activity state from last output change timestamp
+  // Prefer the controller's semantic state. The timestamp fallback keeps
+  // session-status useful with controllers from before the state field existed.
   let state: string | undefined;
-  if (info.lastOutputChangeAt !== undefined) {
+  if (info.state) {
+    state = info.state;
+  } else if (info.lastOutputChangeAt !== undefined) {
     const elapsed = Date.now() - info.lastOutputChangeAt;
-    state = elapsed < ACTIVITY_WINDOW_MS ? 'busy' : 'free';
+    state = elapsed < ACTIVITY_WINDOW_MS ? 'busy' : 'idle';
   }
 
   const ALLOWED_FIELDS = [

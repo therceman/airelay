@@ -427,6 +427,7 @@ export async function runCommand(
       activeTurnGeneration = undefined;
       currentDeliveryId = undefined;
       workingSeen = false;
+      resetHibernateTimer();
     },
   });
 
@@ -436,13 +437,14 @@ export async function runCommand(
     const hint = harnessCapabilities.uiWorkingHint;
     return !!hint && preview().join(' ').includes(hint);
   };
+  const isAgentIdle = (): boolean =>
+    activeTurnGeneration === undefined && !inputWatcher?.hasPending() && !isHarnessWorking();
+  controller.setActivityStateProvider(() => (isAgentIdle() ? 'idle' : 'busy'));
   const canHibernate = (): boolean =>
     hibernationEnabled &&
     !hibernated &&
     !hibernateRequested &&
-    activeTurnGeneration === undefined &&
-    !inputWatcher?.hasPending() &&
-    !isHarnessWorking() &&
+    isAgentIdle() &&
     controller.getAttachedClientCount() === 0;
   const showHibernatedScreen = (): void => {
     const label = harnessLabel === 'unknown' ? profile.executable : harnessLabel;
@@ -530,6 +532,7 @@ export async function runCommand(
           activeTurnGeneration = undefined;
           currentDeliveryId = undefined;
           workingSeen = false;
+          resetHibernateTimer();
         }, 500);
       }
     }
@@ -652,7 +655,7 @@ export async function runCommand(
     capacityWatcher?.observe(chunk);
     inputWatcher?.observeOutput(chunk);
     observeDeliveryState();
-    resetHibernateTimer();
+    if (activeTurnGeneration !== undefined) resetHibernateTimer();
   };
   spawnOpts.onInput = () => resetHibernateTimer();
 

@@ -128,6 +128,8 @@ export interface PingData {
 export interface SessionInfoData {
   sessionKey: string;
   active: boolean;
+  /** Semantic harness availability state used by external watchers. */
+  state?: 'busy' | 'idle';
   airelayVersion: string;
   controllerProtocolVersion: number;
   startedAt: number;

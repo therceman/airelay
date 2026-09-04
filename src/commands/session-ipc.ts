@@ -9,6 +9,7 @@ export interface ControllerInfo {
   airelayVersion?: string;
   controllerProtocolVersion?: number;
   startedAt?: number;
+  state?: 'busy' | 'idle';
   delivery?: DeliveryStatus;
   /** Number of currently attached viewport clients, when reported by the controller. */
   attached?: number;
@@ -121,6 +122,7 @@ export function fetchControllerInfo(
               airelayVersion: parsed.data.airelayVersion as string,
               controllerProtocolVersion: parsed.data.controllerProtocolVersion as number,
               startedAt: parsed.data.startedAt as number,
+              state: parsed.data.state as 'busy' | 'idle' | undefined,
               delivery: parsed.data.delivery as DeliveryStatus | undefined,
               attached: parsed.data.attached as number | undefined,
             });

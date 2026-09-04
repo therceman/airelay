@@ -167,6 +167,7 @@ offered.
 **`airelay config`**
 
 - `airelay config list` shows the config and resolved defaults
+- `airelay session-status <session>` reports the canonical `State: idle` or `State: busy` used by external watchers
 - `airelay config set settings.promptMaxLength <number|-1>` changes the prompt limit
 - `settings.promptMaxLength` defaults to `-1`
 - `airelay config set settings.hibernateAfter <duration|off>` changes automatic hibernation

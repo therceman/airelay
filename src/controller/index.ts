@@ -73,6 +73,7 @@ export class SessionController {
   private pendingTranscriptTimer: ReturnType<typeof setTimeout> | null = null;
   private transcriptPersistenceEnabled = false;
   private deliveryStatusProvider: (() => DeliveryStatus | undefined) | null = null;
+  private activityStateProvider: (() => 'busy' | 'idle') | null = null;
   /** Open sockets that are attached viewport clients (tracked for session.info / registry). */
   private attachedClients: Set<net.Socket> = new Set();
   private onAttachedChangeCb: ((count: number) => void) | null = null;
@@ -288,6 +289,11 @@ export class SessionController {
     this.deliveryStatusProvider = provider;
   }
 
+  /** Register the canonical semantic availability state for this session. */
+  setActivityStateProvider(provider: () => 'busy' | 'idle'): void {
+    this.activityStateProvider = provider;
+  }
+
   async start(): Promise<void> {
     const dir = path.dirname(this.socketPath);
     if (!fs.existsSync(dir)) {
@@ -407,6 +413,7 @@ export class SessionController {
         response = createSuccessResponse(request.id, {
           sessionKey: this.sessionKey,
           active: !!this.handler,
+          state: this.activityStateProvider?.(),
           airelayVersion: this.airelayVersion,
           controllerProtocolVersion: this.protocolVersion,
           startedAt: this.startedAt,

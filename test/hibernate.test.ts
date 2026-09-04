@@ -82,7 +82,7 @@ describe('automatic hibernation', () => {
         profiles: {
           sleeper: {
             executable: 'node',
-            args: ['-e', 'setInterval(() => {}, 1000)'],
+            args: ['-e', "setInterval(() => process.stdout.write('heartbeat\\n'), 50)"],
           },
         },
       })

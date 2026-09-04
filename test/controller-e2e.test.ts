@@ -97,6 +97,18 @@ describe('controller E2E: real IPC socket flow', () => {
     await controller.stop();
   });
 
+  it('exposes canonical idle state through session.info', async () => {
+    const controller = new SessionController('e2e_idle_info');
+    controller.setActivityStateProvider(() => 'idle');
+    controller.onRequest(async () => ({ handled: false }));
+    await controller.start();
+
+    const info = await fetchControllerInfo(controller.endpointPath);
+
+    expect(info.state).toBe('idle');
+    await controller.stop();
+  });
+
   it('prompt delivers input to controller handler via real socket', async () => {
     const sessionKey = 'e2e_test_key';
     const controller = new SessionController(sessionKey);
