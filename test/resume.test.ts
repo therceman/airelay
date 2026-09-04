@@ -445,6 +445,7 @@ describe('resumeCommand', () => {
         usePty: true,
       })
     );
+    expect(markLaunchHistoryUsed).toHaveBeenCalledWith('codex-row', expect.any(Number), 'codex2');
     jest.restoreAllMocks();
   });
 
@@ -507,6 +508,7 @@ describe('resumeCommand', () => {
       ],
       expect.objectContaining({ cwd: currentCwd, sessionKey: 'airelay_master', usePty: true })
     );
+    expect(markLaunchHistoryUsed).toHaveBeenCalledWith('latest-row', expect.any(Number), 'codex2');
     jest.restoreAllMocks();
   });
 });

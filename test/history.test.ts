@@ -240,6 +240,26 @@ describe('launch history', () => {
     ]);
   });
 
+  it('records a switched profile without changing the saved harness arguments', () => {
+    const entry = recordLaunchHistory({
+      profile: 'worker',
+      sessionKey: 'switch_key',
+      invocationCwd: process.cwd(),
+      argv: ['start', 'worker', '--key', 'switch_key', '--', 'resume', 'switch-session'],
+      startedAt: 100,
+    });
+
+    expect(markLaunchHistoryUsed(entry.id, 200, 'worker-alt')).toBe(true);
+    expect(getLaunchHistory()).toEqual([
+      expect.objectContaining({
+        profile: 'worker-alt',
+        lastUsed: 200,
+        argv: ['start', 'worker-alt', '--key', 'switch_key', '--', 'resume', 'switch-session'],
+        command: 'airelay start worker-alt --key switch_key -- resume switch-session',
+      }),
+    ]);
+  });
+
   it('preserves legacy rows with duplicate session keys', () => {
     const older = recordLaunchHistory({
       profile: 'worker',

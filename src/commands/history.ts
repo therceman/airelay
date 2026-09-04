@@ -97,13 +97,25 @@ export function getLaunchHistory(): LaunchHistoryEntry[] {
   return loadHistory().sort((a, b) => (b.lastUsed ?? b.startedAt) - (a.lastUsed ?? a.startedAt));
 }
 
-export function markLaunchHistoryUsed(id: string, lastUsed = Date.now()): boolean {
+/** Mark a launch as used and optionally record the profile selected for its next resume. */
+export function markLaunchHistoryUsed(
+  id: string,
+  lastUsed = Date.now(),
+  profile?: string
+): boolean {
   const history = loadHistory();
   const entry = history.find((candidate) => candidate.id === id);
   if (!entry) {
     return false;
   }
 
+  if (profile !== undefined) {
+    entry.profile = profile;
+    if (entry.argv[0] === 'start' && entry.argv.length > 1) {
+      entry.argv[1] = profile;
+      entry.command = renderLaunchCommand(entry.argv);
+    }
+  }
   entry.lastUsed = lastUsed;
   store.save(history);
   return true;

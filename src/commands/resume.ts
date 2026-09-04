@@ -236,6 +236,15 @@ function formatLastSessionSummary(entry: LaunchHistoryEntry): string {
   return `${sessionKey}${getHarnessArgs(entry).join(' ')}`;
 }
 
+function markResumeHistoryUsed(entry: LaunchHistoryEntry, profile: string): void {
+  if (profile === entry.profile) {
+    markLaunchHistoryUsed(entry.id);
+    return;
+  }
+
+  markLaunchHistoryUsed(entry.id, Date.now(), profile);
+}
+
 export interface ResumableProject {
   path: string;
   lastUsed: number;
@@ -321,7 +330,7 @@ async function resumeFromFolder(targetCwd = process.cwd()): Promise<void> {
     profileSessionId,
     profileArgs,
   });
-  markLaunchHistoryUsed(selected.id);
+  markResumeHistoryUsed(selected, launchProfile);
   process.exit(exitCode);
 }
 
@@ -392,7 +401,7 @@ export async function switchLastSessionProfile(targetCwd = process.cwd()): Promi
     profileSessionId,
     profileArgs,
   });
-  markLaunchHistoryUsed(selected.id);
+  markResumeHistoryUsed(selected, launchProfile);
   process.exit(exitCode);
 }
 
