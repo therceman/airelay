@@ -59,6 +59,7 @@ version: 1
 settings:
   promptMaxLength: -1
   hibernateAfter: 5m
+  harnessSelfUpdate: false
 
 profiles:
   opencode-work:
@@ -97,6 +98,7 @@ airelay prompt <session> <text>    # Send input to an active session
 airelay config list                # Show config and resolved defaults
 airelay config set settings.promptMaxLength 1024
 airelay config set settings.hibernateAfter 10m
+airelay config set settings.harnessSelfUpdate false
 airelay config set profiles.my-profile.cwd ~/git/project
 airelay help                       # Show this help message
 airelay guide                      # New-machine setup guide
@@ -157,6 +159,17 @@ Resumable PTY sessions hibernate after five minutes without observed activity by
 default. Change the threshold with `airelay config set settings.hibernateAfter
 10m`; supported units are `ms`, `s`, `m`, `h` and `d` (maximum `30d`). Use
 `airelay config set settings.hibernateAfter off` to disable automatic hibernation.
+
+Harness self-update checks are disabled by default when launched through Airelay,
+including after a hibernated session wakes. This prevents update prompts from
+interfering with automated startup and wake-up logic. To enable them, run:
+
+```bash
+airelay config set settings.harnessSelfUpdate true
+```
+
+For manual updates, use the harness directly: `codex update` for Codex or
+`opencode upgrade` for OpenCode.
 When hibernated, the Airelay controller stays alive and the harness process is
 started again from its saved native session when a key is pressed or a prompt is
 sent. New sessions without a known native session ID remain running until their

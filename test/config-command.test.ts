@@ -62,6 +62,21 @@ describe('config command', () => {
     expect(disabled.settings.hibernateAfter).toBe('off');
   });
 
+  it('sets and validates harness self-update policy', () => {
+    configSetCommand('settings.harnessSelfUpdate', 'true');
+
+    const enabled = YAML.parse(fs.readFileSync(testEnv.configPath, 'utf8')) as {
+      settings: { harnessSelfUpdate: boolean };
+    };
+    expect(enabled.settings.harnessSelfUpdate).toBe(true);
+
+    configSetCommand('settings.harnessSelfUpdate', 'false');
+    const disabled = YAML.parse(fs.readFileSync(testEnv.configPath, 'utf8')) as {
+      settings: { harnessSelfUpdate: boolean };
+    };
+    expect(disabled.settings.harnessSelfUpdate).toBe(false);
+  });
+
   it('supports unlimited prompt length with -1', () => {
     configSetCommand('settings.promptMaxLength', '-1');
 
@@ -112,6 +127,7 @@ describe('config command', () => {
     expect(() => configSetCommand('settings.hibernateAfter', '0m')).toThrow('duration');
     expect(() => configSetCommand('settings.hibernateAfter', '5weeks')).toThrow('duration');
     expect(() => configSetCommand('settings.hibernateAfter', '31d')).toThrow('duration');
+    expect(() => configSetCommand('settings.harnessSelfUpdate', 'yes')).toThrow('true or false');
     expect(() => configSetCommand('prompt.maxLength', '1')).toThrow('Unknown config key');
     expect(() => configSetCommand('profiles.worker.args', 'not-an-array')).toThrow();
     expect(() => configSetCommand('profiles.unknown.cwd', '~/missing')).toThrow(
@@ -126,6 +142,7 @@ describe('config command', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('airelay config list'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('settings.promptMaxLength'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('settings.hibernateAfter'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('settings.harnessSelfUpdate'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Unicode code points'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('profiles.<profile>.args'));
   });

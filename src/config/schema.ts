@@ -5,6 +5,7 @@ export const UNLIMITED_PROMPT_MAX_LENGTH = -1;
 export const DEFAULT_PROMPT_MAX_LENGTH = UNLIMITED_PROMPT_MAX_LENGTH;
 export const MAX_PROMPT_MAX_LENGTH = 256 * 1024;
 export const DEFAULT_HIBERNATE_AFTER = '5m';
+export const DEFAULT_HARNESS_SELF_UPDATE = false;
 export const HIBERNATE_AFTER_PATTERN = /^(off|\d+(ms|s|m|h|d))$/;
 
 export const PromptMaxLengthSchema = z.union([
@@ -22,6 +23,7 @@ export const HibernateAfterSchema = z
 export const SettingsSchema = z.object({
   promptMaxLength: PromptMaxLengthSchema.default(DEFAULT_PROMPT_MAX_LENGTH),
   hibernateAfter: HibernateAfterSchema.default(DEFAULT_HIBERNATE_AFTER),
+  harnessSelfUpdate: z.boolean().default(DEFAULT_HARNESS_SELF_UPDATE),
 });
 
 export const ProfileSchema = z.object({
@@ -39,6 +41,7 @@ export const ConfigSchema = z
     settings: SettingsSchema.default({
       promptMaxLength: DEFAULT_PROMPT_MAX_LENGTH,
       hibernateAfter: DEFAULT_HIBERNATE_AFTER,
+      harnessSelfUpdate: DEFAULT_HARNESS_SELF_UPDATE,
     }),
     profiles: z.record(z.string(), ProfileSchema),
   })

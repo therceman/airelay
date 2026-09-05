@@ -9,6 +9,7 @@ export const STARTER_CONFIG = `version: 1
 settings:
   promptMaxLength: -1
   hibernateAfter: 5m
+  harnessSelfUpdate: false
 
 profiles:
   opencode-work:

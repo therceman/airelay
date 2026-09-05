@@ -87,6 +87,12 @@ export interface HarnessCapabilities {
     ackTimeoutMs?: number;
     pollIntervalMs?: number;
   };
+
+  /** Provider-specific launch overrides that disable harness self-update checks. */
+  selfUpdateDisabled?: {
+    args?: string[];
+    env?: Record<string, string>;
+  };
 }
 
 const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
@@ -95,6 +101,9 @@ const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
     submitValue: '\r',
     submitDelayMs: 0,
     uiWorkingHint: 'esc interrupt',
+    selfUpdateDisabled: {
+      env: { OPENCODE_DISABLE_AUTOUPDATE: 'true' },
+    },
   },
   codex: {
     submitMode: 'byte',
@@ -113,6 +122,9 @@ const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
       retryDelayMs: 2500,
       maxRetries: 3,
       maxWindowMs: 10000,
+    },
+    selfUpdateDisabled: {
+      args: ['-c', 'check_for_update_on_startup=false'],
     },
   },
   unknown: {
@@ -143,6 +155,21 @@ export function getHarnessCapabilities(harness: HarnessType): HarnessCapabilitie
       pollIntervalMs: 25,
       ...capabilities.interrupt,
     },
+  };
+}
+
+export function getHarnessSelfUpdateOverrides(
+  harness: HarnessType,
+  selfUpdateAllowed: boolean
+): { args: string[]; env: Record<string, string> } {
+  if (selfUpdateAllowed) {
+    return { args: [], env: {} };
+  }
+
+  const policy = getHarnessCapabilities(harness).selfUpdateDisabled;
+  return {
+    args: policy?.args ? [...policy.args] : [],
+    env: policy?.env ? { ...policy.env } : {},
   };
 }
 

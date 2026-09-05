@@ -8,7 +8,11 @@ import { IpcError, IpcErrorCodes, IpcErrorReasons } from '../types/controller';
 import { addSession, deleteSession, updateSessionPid } from './sessions';
 import { recordLaunchHistory } from './history';
 import { getAirelayVersion, CONTROLLER_PROTOCOL_VERSION } from '../utils/version';
-import { detectHarness, getHarnessCapabilities } from '../utils/harness';
+import {
+  detectHarness,
+  getHarnessCapabilities,
+  getHarnessSelfUpdateOverrides,
+} from '../utils/harness';
 import { CapacityContinuationWatcher } from '../runtime/capacity-watcher';
 import { InputSubmitWatcher } from '../runtime/input-submit-watcher';
 import { DeliveryTracker } from '../runtime/delivery';
@@ -84,15 +88,22 @@ function buildProfileEnv(
       : process.cwd();
   ensureDirectories(profile, cwd);
   const env = buildEnv(profile, configPath);
-  if (detectHarness(profile.executable) === 'codex' && env.CODEX_HOME) {
+  const harness = detectHarness(profile.executable);
+  if (harness === 'codex' && env.CODEX_HOME) {
     ensureCodexProfileStandalone(env.CODEX_HOME);
   }
+
+  const selfUpdateOverrides = getHarnessSelfUpdateOverrides(
+    harness,
+    config.settings.harnessSelfUpdate
+  );
+  Object.assign(env, selfUpdateOverrides.env);
 
   return {
     profile,
     cwd,
     env,
-    args: [...(profile.args || []), ...extraArgs],
+    args: [...(profile.args || []), ...selfUpdateOverrides.args, ...extraArgs],
     hibernateAfterMs: parseDurationMs(config.settings.hibernateAfter) ?? -1,
   };
 }

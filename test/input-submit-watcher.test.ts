@@ -1,5 +1,5 @@
 import { InputSubmitWatcher, isInputTextVisible } from '../src/runtime/input-submit-watcher';
-import { getHarnessCapabilities } from '../src/utils/harness';
+import { getHarnessCapabilities, getHarnessSelfUpdateOverrides } from '../src/utils/harness';
 
 describe('input submit watcher', () => {
   beforeEach(() => {
@@ -25,6 +25,20 @@ describe('input submit watcher', () => {
       maxRetries: 3,
       maxWindowMs: 10000,
     });
+  });
+
+  it('declares provider-specific self-update suppression', () => {
+    expect(getHarnessCapabilities('codex').selfUpdateDisabled).toEqual({
+      args: ['-c', 'check_for_update_on_startup=false'],
+    });
+    expect(getHarnessCapabilities('opencode').selfUpdateDisabled).toEqual({
+      env: { OPENCODE_DISABLE_AUTOUPDATE: 'true' },
+    });
+    expect(getHarnessSelfUpdateOverrides('codex', false)).toEqual({
+      args: ['-c', 'check_for_update_on_startup=false'],
+      env: {},
+    });
+    expect(getHarnessSelfUpdateOverrides('opencode', true)).toEqual({ args: [], env: {} });
   });
 
   it('never extends the retry window when output keeps arriving', () => {

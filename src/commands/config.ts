@@ -6,6 +6,7 @@ import { getConfigPath, loadConfig } from '../config/load';
 import {
   Config,
   ConfigSchema,
+  DEFAULT_HARNESS_SELF_UPDATE,
   DEFAULT_HIBERNATE_AFTER,
   DEFAULT_PROMPT_MAX_LENGTH,
   MAX_PROMPT_MAX_LENGTH,
@@ -16,10 +17,13 @@ import { isValidDuration } from '../utils/duration';
 
 const PROMPT_MAX_LENGTH_KEY = 'settings.promptMaxLength';
 const HIBERNATE_AFTER_KEY = 'settings.hibernateAfter';
+const HARNESS_SELF_UPDATE_KEY = 'settings.harnessSelfUpdate';
 const PROMPT_MAX_LENGTH_DESCRIPTION =
   'Maximum prompt length in Unicode code points before airelay sends the text to a session.';
 const HIBERNATE_AFTER_DESCRIPTION =
   'Time without observed session activity before an idle resumable session is hibernated.';
+const HARNESS_SELF_UPDATE_DESCRIPTION =
+  'Allow harnesses to check for self-updates on startup and wake; disabled by default for reliable automation.';
 const PROFILE_FIELDS = new Set(['executable', 'cwd', 'args', 'env', 'description', 'createDirs']);
 const ARRAY_PROFILE_FIELDS = new Set(['args', 'createDirs']);
 
@@ -172,6 +176,20 @@ function setConfigValue(
     };
   }
 
+  if (key === HARNESS_SELF_UPDATE_KEY) {
+    const settings = isRecord(raw.settings) ? raw.settings : {};
+    if (value !== 'true' && value !== 'false') {
+      throw new Error(`${HARNESS_SELF_UPDATE_KEY} must be true or false.`);
+    }
+    return {
+      ...raw,
+      settings: {
+        ...settings,
+        harnessSelfUpdate: value === 'true',
+      },
+    };
+  }
+
   const keyParts = key.split('.');
   if (keyParts[0] === 'profiles') {
     return setProfileValue(raw, keyParts, value);
@@ -182,7 +200,7 @@ function setConfigValue(
   }
 
   throw new Error(
-    `Unknown config key "${key}". Supported keys: ${PROMPT_MAX_LENGTH_KEY}, ${HIBERNATE_AFTER_KEY} and profiles.<profile>.<field>.`
+    `Unknown config key "${key}". Supported keys: ${PROMPT_MAX_LENGTH_KEY}, ${HIBERNATE_AFTER_KEY}, ${HARNESS_SELF_UPDATE_KEY} and profiles.<profile>.<field>.`
   );
 }
 
@@ -259,6 +277,9 @@ export function configHelpCommand(): void {
       `  ${HIBERNATE_AFTER_KEY}`,
       `    ${HIBERNATE_AFTER_DESCRIPTION}`,
       `    Default: ${DEFAULT_HIBERNATE_AFTER}; value: <number><ms|s|m|h|d> or off; maximum 30d.`,
+      `  ${HARNESS_SELF_UPDATE_KEY}`,
+      `    ${HARNESS_SELF_UPDATE_DESCRIPTION}`,
+      `    Default: ${DEFAULT_HARNESS_SELF_UPDATE}; value: true or false.`,
       '  profiles.<profile>.executable     Harness executable command.',
       '  profiles.<profile>.cwd            Working directory for the profile.',
       '  profiles.<profile>.args           Default harness arguments as a YAML/JSON array.',
