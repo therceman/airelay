@@ -55,6 +55,7 @@ export type IpcHandler = (request: IpcRequest) => Promise<unknown> | unknown;
 
 export class SessionController {
   private server: net.Server | null = null;
+  private stopPromise: Promise<void> | null = null;
   private socketPath: string;
   private socketIdentity: SocketIdentity | null = null;
   private handler: IpcHandler | null = null;
@@ -498,7 +499,15 @@ export class SessionController {
     }
   }
 
-  async stop(): Promise<void> {
+  stop(): Promise<void> {
+    if (this.stopPromise) {
+      return this.stopPromise;
+    }
+    this.stopPromise = this.stopInternal();
+    return this.stopPromise;
+  }
+
+  private async stopInternal(): Promise<void> {
     this.transcriptPersistenceEnabled = false;
     if (this.snapshotTimer) {
       clearInterval(this.snapshotTimer);
@@ -516,6 +525,19 @@ export class SessionController {
         settled = true;
         clearTimeout(timer);
         this.cleanupSocket();
+        this.server = null;
+        this.handler = null;
+        this.deliveryStatusProvider = null;
+        this.activityStateProvider = null;
+        this.runtimeInfoProvider = null;
+        this.rawRing.length = 0;
+        this.rawRingBytes = 0;
+        this.outputBuf.length = 0;
+        this.snapshotWindow.length = 0;
+        this.snapshotLineSet.clear();
+        this.lastTranscriptLines = null;
+        this.pendingTranscriptLines = null;
+        this.terminal.dispose();
         resolve();
       };
       if (!server) {

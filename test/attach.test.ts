@@ -1,4 +1,5 @@
 import net from 'net';
+import fs from 'fs';
 import { parseRequest, serializeStreamFrame } from '../src/controller/protocol';
 import { IpcError, IpcErrorCodes } from '../src/types/controller';
 import { SessionController } from '../src/controller';
@@ -197,6 +198,20 @@ describe('SessionController raw stream bootstrap and broadcast over a real socke
     expect(Date.now() - start).toBeLessThan(5000);
     expect(controller.getAttachedClientCount()).toBe(0);
     await until(() => socket.destroyed);
+  });
+
+  it('makes repeated stop calls share one cleanup promise', async () => {
+    const controller = new SessionController('stop_idempotent');
+    await controller.start();
+    controller.feedOutput('buffered output\n');
+
+    const firstStop = controller.stop();
+    const secondStop = controller.stop();
+    expect(secondStop).toBe(firstStop);
+    await Promise.all([firstStop, secondStop]);
+    expect(fs.existsSync(controller.endpointPath)).toBe(false);
+
+    await controller.stop();
   });
 });
 
