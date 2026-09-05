@@ -19,6 +19,7 @@ import {
   getHarnessIsolationConfig,
 } from '../utils/harness-isolate';
 import { ensureCodexStandaloneExecutable } from '../utils/codex-standalone';
+import { withAirelayPromptSymbols } from '../utils/enquirer';
 
 interface CreateOptions {
   name?: string;
@@ -47,7 +48,9 @@ export async function createCommandInteractive(opts: CreateOptions = {}): Promis
         return true;
       },
     };
-    const nameResult = (await Enquirer.prompt(namePrompt)) as { name: string };
+    const nameResult = (await Enquirer.prompt(withAirelayPromptSymbols(namePrompt))) as {
+      name: string;
+    };
     name = nameResult.name.trim();
   }
 
@@ -72,7 +75,9 @@ export async function createCommandInteractive(opts: CreateOptions = {}): Promis
       message: `Profile '${name}' already exists. Overwrite?`,
       initial: false,
     };
-    const confirmResult = (await Enquirer.prompt(confirmPrompt)) as { overwrite: boolean };
+    const confirmResult = (await Enquirer.prompt(withAirelayPromptSymbols(confirmPrompt))) as {
+      overwrite: boolean;
+    };
     if (!confirmResult.overwrite) {
       console.log('Cancelled');
       return;
@@ -102,7 +107,9 @@ export async function createCommandInteractive(opts: CreateOptions = {}): Promis
         choices,
         initial: available.findIndex((h) => h.available) >= 0 ? 0 : 0,
       };
-      const execResult = (await Enquirer.prompt(execPrompt)) as { executable: string };
+      const execResult = (await Enquirer.prompt(withAirelayPromptSymbols(execPrompt))) as {
+        executable: string;
+      };
       execName = execResult.executable;
     }
   }
@@ -152,7 +159,9 @@ export async function createCommandInteractive(opts: CreateOptions = {}): Promis
         name: 'apiKey',
         message: 'OPENCODE_API_KEY (optional, press enter to skip)',
       };
-      const apiKeyResult = (await Enquirer.prompt(apiKeyPrompt)) as { apiKey: string };
+      const apiKeyResult = (await Enquirer.prompt(withAirelayPromptSymbols(apiKeyPrompt))) as {
+        apiKey: string;
+      };
       apiKeyVal = apiKeyResult.apiKey;
     }
   }

@@ -11,6 +11,7 @@ import { getLaunchHistory, LaunchHistoryEntry, markLaunchHistoryUsed } from './h
 import Enquirer from 'enquirer';
 import path from 'path';
 import { detectHarness } from '../utils/harness';
+import { withAirelayPromptSymbols } from '../utils/enquirer';
 
 /**
  * Shared helper to resume a session entry with prompt-capable launch.
@@ -113,28 +114,32 @@ async function chooseResumeProfile(profile: string): Promise<string> {
     return profile;
   }
 
-  const actionResult = (await Enquirer.prompt({
-    type: 'select',
-    name: 'resumeAction',
-    message: 'Select how to resume this session',
-    choices: [
-      { name: 'launch', message: 'Launch' },
-      { name: 'switchProfile', message: 'Use another profile (same harness)' },
-    ],
-    initial: 0,
-  })) as { resumeAction: string };
+  const actionResult = (await Enquirer.prompt(
+    withAirelayPromptSymbols({
+      type: 'select',
+      name: 'resumeAction',
+      message: 'Select how to resume this session',
+      choices: [
+        { name: 'launch', message: 'Launch' },
+        { name: 'switchProfile', message: 'Use another profile (same harness)' },
+      ],
+      initial: 0,
+    })
+  )) as { resumeAction: string };
 
   if (actionResult.resumeAction !== 'switchProfile') {
     return profile;
   }
 
-  const profileResult = (await Enquirer.prompt({
-    type: 'select',
-    name: 'profile',
-    message: 'Select another profile (same harness)',
-    choices: alternativeProfiles.map((name) => ({ name, message: name })),
-    initial: 0,
-  })) as { profile: string };
+  const profileResult = (await Enquirer.prompt(
+    withAirelayPromptSymbols({
+      type: 'select',
+      name: 'profile',
+      message: 'Select another profile (same harness)',
+      choices: alternativeProfiles.map((name) => ({ name, message: name })),
+      initial: 0,
+    })
+  )) as { profile: string };
 
   if (!alternativeProfiles.includes(profileResult.profile)) {
     console.error('Error: Selected profile is not available for this session.');
@@ -207,6 +212,25 @@ function formatHistoryChoice(entry: LaunchHistoryEntry, now = Date.now()): strin
   const harnessArgs = getHarnessArgs(entry);
   const args = harnessArgs.length > 0 ? ` -- ${harnessArgs.join(' ')}` : '';
   return `[${formatAge(getLastUsed(entry), now)}] ${entry.profile} (${context})${args}`;
+}
+
+function formatResumeChoiceName(
+  profile: string,
+  sessionKey: string | undefined,
+  duplicateNumber: number
+): string {
+  const identity = sessionKey ? `${profile} (${sessionKey})` : `${profile} (unkeyed)`;
+  return duplicateNumber > 1 ? `${identity} #${duplicateNumber}` : identity;
+}
+
+function getResumeChoiceNames(entries: LaunchHistoryEntry[]): string[] {
+  const counts = new Map<string, number>();
+  return entries.map((entry) => {
+    const base = formatResumeChoiceName(entry.profile, entry.sessionKey, 1);
+    const nextCount = (counts.get(base) || 0) + 1;
+    counts.set(base, nextCount);
+    return formatResumeChoiceName(entry.profile, entry.sessionKey, nextCount);
+  });
 }
 
 function getFolderHistory(targetCwd = process.cwd()): LaunchHistoryEntry[] {
@@ -282,18 +306,21 @@ async function resumeFromFolder(targetCwd = process.cwd()): Promise<void> {
     return;
   }
 
+  const choiceNames = getResumeChoiceNames(history);
   const choices = history.map((entry, index) => ({
-    // A history row, rather than a session key/id, is the choice identity.
-    name: entry.id || `history-${index}`,
+    // Keep the prompt summary user-facing; history IDs remain internal.
+    name: choiceNames[index],
     message: formatHistoryChoice(entry),
   }));
-  const result = (await Enquirer.prompt({
-    type: 'select',
-    name: 'historyEntry',
-    message: 'Select a session to resume',
-    choices,
-    initial: 0,
-  })) as { historyEntry: string };
+  const result = (await Enquirer.prompt(
+    withAirelayPromptSymbols({
+      type: 'select',
+      name: 'historyEntry',
+      message: 'Select a session to resume',
+      choices,
+      initial: 0,
+    })
+  )) as { historyEntry: string };
 
   const selectedIndex = choices.findIndex((choice) => choice.name === result.historyEntry);
   const selected = selectedIndex === -1 ? undefined : history[selectedIndex];
@@ -366,13 +393,15 @@ export async function switchLastSessionProfile(targetCwd = process.cwd()): Promi
     ...alternativeProfiles.map((name) => ({ name, message: name })),
     { name: selected.profile, message: `${selected.profile} (current)` },
   ];
-  const result = (await Enquirer.prompt({
-    type: 'select',
-    name: 'profile',
-    message: 'Select a profile',
-    choices: profileChoices,
-    initial: 0,
-  })) as { profile: string };
+  const result = (await Enquirer.prompt(
+    withAirelayPromptSymbols({
+      type: 'select',
+      name: 'profile',
+      message: 'Select a profile',
+      choices: profileChoices,
+      initial: 0,
+    })
+  )) as { profile: string };
 
   const launchProfile = profileChoices.some((choice) => choice.name === result.profile)
     ? result.profile
@@ -447,26 +476,31 @@ export async function resumeCommand(
     process.exit(1);
   }
 
+  const sessionCounts = new Map<string, number>();
   const sessionChoices = sessions.map((s) => {
     const cwdInfo = s.cwd ? ` ${s.cwd}` : '';
     const keyInfo = s.sessionKey ? ` [${s.sessionKey}]` : '';
     const pidInfo = s.profileSessionId ? ` (profile: ${s.profileSessionId})` : '';
+    const baseName = formatResumeChoiceName(profileOrSessionKey, s.sessionKey, 1);
+    const nextCount = (sessionCounts.get(baseName) || 0) + 1;
+    sessionCounts.set(baseName, nextCount);
     return {
-      name: s.id,
+      name: formatResumeChoiceName(profileOrSessionKey, s.sessionKey, nextCount),
       message: `[${formatAge(s.lastUsed)}] ${s.id}${keyInfo}${cwdInfo}${pidInfo}`,
     };
   });
 
-  const sessionPrompt = {
+  const sessionPrompt = withAirelayPromptSymbols({
     type: 'select',
     name: 'session',
     message: 'Select a session to resume',
     choices: sessionChoices,
     initial: 0,
-  };
+  });
 
   const sessionResult = (await Enquirer.prompt(sessionPrompt)) as { session: string };
-  const selectedSession = sessions.find((s) => s.id === sessionResult.session);
+  const selectedIndex = sessionChoices.findIndex((choice) => choice.name === sessionResult.session);
+  const selectedSession = selectedIndex === -1 ? undefined : sessions[selectedIndex];
 
   if (!selectedSession) {
     console.error('Error: Selected session not found.');

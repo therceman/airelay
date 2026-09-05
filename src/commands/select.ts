@@ -14,6 +14,7 @@ import {
   resumeCommand,
   switchLastSessionProfile,
 } from './resume';
+import { withAirelayPromptSymbols } from '../utils/enquirer';
 
 function getLastUsedDirPath(): string {
   if (!process.env.AIRELAY_LAST_USED) {
@@ -108,28 +109,30 @@ export async function selectCommand(): Promise<void> {
     hasSwitchableSession
   );
 
-  const mainPrompt = {
+  const mainPrompt = withAirelayPromptSymbols({
     type: 'select',
     name: 'action',
     message: 'Select an option',
     choices: mainChoices,
     initial: 0,
-  };
+  });
 
   const mainResult = (await Enquirer.prompt(mainPrompt)) as { action: string };
   const action = mainResult.action;
 
   if (action === 'Resume') {
-    const projectResult = (await Enquirer.prompt({
-      type: 'select',
-      name: 'project',
-      message: 'Select a project to resume',
-      choices: resumableProjects.map((project) => ({
-        name: project.path,
-        message: `[${formatAge(project.lastUsed)}] ${formatProjectPath(project.path)}`,
-      })),
-      initial: 0,
-    })) as { project: string };
+    const projectResult = (await Enquirer.prompt(
+      withAirelayPromptSymbols({
+        type: 'select',
+        name: 'project',
+        message: 'Select a project to resume',
+        choices: resumableProjects.map((project) => ({
+          name: project.path,
+          message: `[${formatAge(project.lastUsed)}] ${formatProjectPath(project.path)}`,
+        })),
+        initial: 0,
+      })
+    )) as { project: string };
 
     await resumeCommand(undefined, projectResult.project);
     return;
@@ -164,25 +167,25 @@ export async function selectCommand(): Promise<void> {
   // Always select first profile
   const initialIndex = 0;
 
-  const profilePrompt = {
+  const profilePrompt = withAirelayPromptSymbols({
     type: 'select',
     name: 'profile',
     message: 'Select a profile to start',
     initial: initialIndex,
     choices: profilesToSelect.map((name) => ({ name, message: name })),
-  };
+  });
 
   const profileResult = (await Enquirer.prompt(profilePrompt)) as { profile: string };
   const profileName = profileResult.profile;
 
   setLastUsedProfile(profileName);
 
-  const confirmPrompt = {
+  const confirmPrompt = withAirelayPromptSymbols({
     type: 'confirm',
     name: 'confirm',
     message: `Start new session with ${profileName}?`,
     initial: true,
-  };
+  });
 
   const confirmResult = (await Enquirer.prompt(confirmPrompt)) as { confirm: boolean };
 
@@ -217,22 +220,22 @@ export async function selectCommand(): Promise<void> {
   }
 
   console.log('\n');
-  const sessionPrompt = {
+  const sessionPrompt = withAirelayPromptSymbols({
     type: 'input',
     name: 'sessionId',
     message: 'Session ID to save (or press enter to skip)',
-  };
+  });
   const sessionResult = (await Enquirer.prompt(sessionPrompt)) as { sessionId: string };
   if (sessionResult.sessionId.trim()) {
     const sessionId = sessionResult.sessionId.trim();
     const defaultKey = `${profileName}_${sessionId.slice(-4)}`;
 
-    const keyPrompt = {
+    const keyPrompt = withAirelayPromptSymbols({
       type: 'input',
       name: 'sessionKey',
       message: 'Session key',
       initial: defaultKey,
-    };
+    });
     const keyResult = (await Enquirer.prompt(keyPrompt)) as { sessionKey: string };
 
     addSession(

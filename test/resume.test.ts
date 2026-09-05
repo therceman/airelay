@@ -292,21 +292,24 @@ describe('resumeCommand', () => {
         },
       ].reverse()
     );
-    (Enquirer.prompt as jest.Mock).mockResolvedValueOnce({ historyEntry: 'newest-row' });
+    (Enquirer.prompt as jest.Mock).mockResolvedValueOnce({
+      historyEntry: 'codex (gpt-tunnel-gateway_master)',
+    });
 
     await resumeCommand();
 
     const prompt = (Enquirer.prompt as jest.Mock).mock.calls[0][0];
     expect(prompt.choices).toEqual([
       {
-        name: 'newest-row',
+        name: 'codex (gpt-tunnel-gateway_master)',
         message: expect.stringContaining('[30m ago] codex ('),
       },
       {
-        name: 'older-row',
+        name: 'codex2 (gpt-tunnel-gateway_master)',
         message: expect.stringContaining('[12h ago] codex2 ('),
       },
     ]);
+    expect(prompt.symbols.prefix.submitted).toBe('>');
     expect(prompt.choices[0].message).toContain('[30m ago] codex (gpt-tunnel-gateway_master)');
     expect(prompt.choices[0].message).toContain(
       '-- resume 019faea5-f0b2-73a3-b286-ef54956ddd0f --dangerously-bypass-approvals-and-sandbox'
@@ -358,7 +361,7 @@ describe('resumeCommand', () => {
       },
     ]);
     (Enquirer.prompt as jest.Mock)
-      .mockResolvedValueOnce({ historyEntry: 'active-row' })
+      .mockResolvedValueOnce({ historyEntry: 'codex2 (airelay_master)' })
       .mockResolvedValueOnce({ resumeAction: 'launch' });
 
     await resumeCommand();
@@ -378,6 +381,44 @@ describe('resumeCommand', () => {
       'Use the existing terminal for this session, or choose "Start new session".'
     );
     expect(process.exit).toHaveBeenCalledWith(1);
+  });
+
+  it('disambiguates duplicate profile/session-key labels without exposing history IDs', async () => {
+    const currentCwd = process.cwd();
+    (getLaunchHistory as jest.Mock).mockReturnValue([
+      {
+        id: 'first-internal-row',
+        profile: 'codex',
+        sessionKey: 'same_key',
+        invocationCwd: currentCwd,
+        startedAt: 200,
+        argv: ['start', 'codex', '--', 'resume', 'session-a'],
+      },
+      {
+        id: 'second-internal-row',
+        profile: 'codex',
+        sessionKey: 'same_key',
+        invocationCwd: currentCwd,
+        startedAt: 100,
+        argv: ['start', 'codex', '--', 'resume', 'session-b'],
+      },
+    ]);
+    (Enquirer.prompt as jest.Mock).mockResolvedValueOnce({
+      historyEntry: 'codex (same_key) #2',
+    });
+
+    await resumeCommand();
+
+    const prompt = (Enquirer.prompt as jest.Mock).mock.calls[0][0];
+    expect(prompt.choices.map((choice: { name: string }) => choice.name)).toEqual([
+      'codex (same_key)',
+      'codex (same_key) #2',
+    ]);
+    expect(runCommand).toHaveBeenCalledWith(
+      'codex',
+      ['resume', 'session-b'],
+      expect.objectContaining({ sessionKey: 'same_key', usePty: true })
+    );
   });
 
   it('offers only same-harness profiles and preserves the selected session launch', async () => {
@@ -413,7 +454,7 @@ describe('resumeCommand', () => {
       },
     ]);
     (Enquirer.prompt as jest.Mock)
-      .mockResolvedValueOnce({ historyEntry: 'codex-row' })
+      .mockResolvedValueOnce({ historyEntry: 'codex (airelay_master)' })
       .mockResolvedValueOnce({ resumeAction: 'switchProfile' })
       .mockResolvedValueOnce({ profile: 'codex2' });
 

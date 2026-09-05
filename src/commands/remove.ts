@@ -4,6 +4,7 @@ import { loadConfig, getConfigPath } from '../config/load';
 import { DEFAULT_PROMPT_MAX_LENGTH } from '../config/schema';
 import { profileToYaml } from '../utils/yaml';
 import Enquirer from 'enquirer';
+import { withAirelayPromptSymbols } from '../utils/enquirer';
 
 export async function removeCommand(profileName?: string): Promise<void> {
   const config = loadConfig();
@@ -123,7 +124,9 @@ export async function removeCommand(profileName?: string): Promise<void> {
     initial: false,
   };
 
-  const confirmResult = (await Enquirer.prompt(confirmPrompt)) as { confirm: boolean };
+  const confirmResult = (await Enquirer.prompt(withAirelayPromptSymbols(confirmPrompt))) as {
+    confirm: boolean;
+  };
 
   if (!confirmResult.confirm) {
     console.log('Cancelled.');
