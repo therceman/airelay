@@ -248,10 +248,15 @@ export class SessionController {
     }, TRANSCRIPT_STABILITY_DELAY);
   }
 
+  /**
+   * Read the complete bounded xterm buffer for transcript capture. This must
+   * not use terminal.rows: a small attached window is a display constraint,
+   * not a reason to discard recently rendered output.
+   */
   private getTranscriptViewportLines(): string[] {
     const buffer = this.terminal.buffer.active;
     const rows: string[] = [];
-    for (let y = buffer.baseY; y < buffer.baseY + this.terminal.rows; y++) {
+    for (let y = 0; y < buffer.length; y++) {
       const line = buffer.getLine(y);
       rows.push(line ? line.translateToString(true).trimEnd() : '');
     }

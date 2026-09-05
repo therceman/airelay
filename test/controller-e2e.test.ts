@@ -159,6 +159,24 @@ describe('controller E2E: real IPC socket flow', () => {
     await controller.stop();
   });
 
+  it('captures transcript candidates beyond a small attached viewport', async () => {
+    const controller = new SessionController('e2e_transcript_small_viewport');
+    controller.onRequest(async () => ({ handled: false }));
+    await controller.start();
+    controller.resize(120, 3);
+    controller.feedOutput(
+      Array.from({ length: 50 }, (_, index) => `transcript-line-${index}\r\n`).join('')
+    );
+    await controller.flushViewport();
+
+    const transcriptLines = (
+      controller as unknown as { getTranscriptViewportLines: () => string[] }
+    ).getTranscriptViewportLines();
+    expect(transcriptLines).toContain('transcript-line-0');
+    expect(transcriptLines).toContain('transcript-line-49');
+    await controller.stop();
+  });
+
   it('prompt delivers input to controller handler via real socket', async () => {
     const sessionKey = 'e2e_test_key';
     const controller = new SessionController(sessionKey);

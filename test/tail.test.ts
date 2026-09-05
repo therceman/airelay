@@ -68,4 +68,30 @@ describe('tailCommand', () => {
     expect(logs).toEqual(['alpha', 'bravo', 'charlie', 'delta']);
     expect(logs.some((l) => l.trim() === '')).toBe(false);
   });
+
+  it('falls back to bounded output history when the viewport is too small', async () => {
+    const sessionKey = 'tail_small_viewport';
+    const controller = new SessionController(sessionKey);
+    controller.resize(120, 3);
+    let out = '';
+    for (let i = 0; i < 50; i++) out += `line ${i}\r\n`;
+    controller.feedOutput(out);
+    await controller.flushViewport();
+    controller.onRequest(async () => ({ handled: false }));
+    await controller.start();
+    addSession('e2e-profile', `ses_${sessionKey}`, undefined, sessionKey, controller.endpointPath);
+
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = (msg: string) => logs.push(msg);
+    try {
+      expect(await tailCommand(sessionKey, { lines: 5 })).toBe(0);
+    } finally {
+      console.log = originalLog;
+    }
+
+    expect(logs).toEqual(['line 45', 'line 46', 'line 47', 'line 48', 'line 49']);
+    await controller.stop();
+    removeSessionByKey(sessionKey);
+  });
 });
