@@ -1,34 +1,4 @@
 #!/usr/bin/env node
-import { runCommand } from './commands/run';
-import { listCommand, listCommandJson } from './commands/list';
-import { whichCommand } from './commands/which';
-import { doctorCommand } from './commands/doctor';
-import { initCommand } from './commands/init';
-import { createCommand } from './commands/create';
-import { selectCommand } from './commands/select';
-import { resumeCommand } from './commands/resume';
-import { startCommand } from './commands/start';
-import { newCommand } from './commands/new';
-import { cleanupCommand, psCommand } from './commands/cleanup';
-import { isolateCommand } from './commands/isolate';
-import { removeCommand } from './commands/remove';
-import { promptCommand } from './commands/prompt';
-import { sessionsListCommand } from './commands/sessions-list';
-import { sessionStatusCommand } from './commands/session-status';
-import { sessionFindCommand } from './commands/session-find';
-import { tailCommand } from './commands/tail';
-import { heartbeatCommand } from './commands/heartbeat';
-import { historyCommand, historyHelpCommand, removeHistoryCommand } from './commands/history';
-import { transcriptCommand } from './commands/transcript';
-import { interruptCommand } from './commands/interrupt';
-import { attachCommand } from './commands/attach';
-import { guideCommand } from './commands/guide';
-import { configHelpCommand, configListCommand, configSetCommand } from './commands/config';
-import {
-  detachedRuntimeMain,
-  detachedListCommand,
-  detachedPruneCommand,
-} from './commands/detached';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -346,11 +316,14 @@ async function runCli(): Promise<void> {
 
   try {
     switch (command) {
-      case 'init':
+      case 'init': {
+        const { initCommand } = await import('./commands/init');
         initCommand(flags.force === true);
         break;
+      }
 
-      case 'create':
+      case 'create': {
+        const { createCommand } = await import('./commands/create');
         await createCommand(
           profile,
           flags.executable as string | undefined,
@@ -359,14 +332,19 @@ async function runCli(): Promise<void> {
           flags.force as boolean | undefined
         );
         break;
+      }
 
-      case 'new':
+      case 'new': {
+        const { newCommand } = await import('./commands/new');
         await newCommand();
         break;
+      }
 
-      case 'resume':
+      case 'resume': {
+        const { resumeCommand } = await import('./commands/resume');
         await resumeCommand(profile);
         break;
+      }
 
       case 'start':
         if (!profile) {
@@ -381,6 +359,7 @@ async function runCli(): Promise<void> {
           process.exit(1);
         }
         {
+          const { startCommand } = await import('./commands/start');
           const sessionKey = flags.key as string | boolean | undefined;
           if (sessionKey !== undefined) {
             if (typeof sessionKey !== 'string' || sessionKey.trim().length === 0) {
@@ -411,6 +390,7 @@ async function runCli(): Promise<void> {
           process.exit(1);
         }
         {
+          const { detachedRuntimeMain } = await import('./commands/detached');
           // Hidden internal entrypoint for the supervised detached runtime process.
           const sessionKey = flags.key as string | boolean | undefined;
           const exitCode = await detachedRuntimeMain(profile, extraArgs, {
@@ -429,12 +409,14 @@ async function runCli(): Promise<void> {
           process.exit(1);
         }
         {
+          const { attachCommand } = await import('./commands/attach');
           const exitCode = await attachCommand(profile);
           process.exit(exitCode);
         }
         break;
 
-      case 'detached':
+      case 'detached': {
+        const { detachedListCommand, detachedPruneCommand } = await import('./commands/detached');
         if (flags.prune === true) {
           await detachedPruneCommand();
           break;
@@ -445,8 +427,10 @@ async function runCli(): Promise<void> {
         }
         await detachedListCommand();
         break;
+      }
 
-      case 'list':
+      case 'list': {
+        const { listCommand, listCommandJson } = await import('./commands/list');
         if (flags.json === true) {
           const profiles = listCommandJson();
           console.log(JSON.stringify(profiles, null, 2));
@@ -454,6 +438,7 @@ async function runCli(): Promise<void> {
           listCommand();
         }
         break;
+      }
 
       case 'which':
         if (!profile) {
@@ -461,11 +446,17 @@ async function runCli(): Promise<void> {
           console.error('Usage: airelay which <profile>');
           process.exit(1);
         }
-        whichCommand(profile);
+        {
+          const { whichCommand } = await import('./commands/which');
+          whichCommand(profile);
+        }
         break;
 
       case 'doctor':
-        doctorCommand(profile);
+        {
+          const { doctorCommand } = await import('./commands/doctor');
+          doctorCommand(profile);
+        }
         break;
 
       case 'run':
@@ -475,6 +466,7 @@ async function runCli(): Promise<void> {
           process.exit(1);
         }
         {
+          const { runCommand } = await import('./commands/run');
           const exitCode = await runCommand(profile, extraArgs);
           process.exit(exitCode);
         }
@@ -484,10 +476,15 @@ async function runCli(): Promise<void> {
         break;
 
       case 'guide':
-        guideCommand();
+        {
+          const { guideCommand } = await import('./commands/guide');
+          guideCommand();
+        }
         break;
 
-      case 'config':
+      case 'config': {
+        const { configHelpCommand, configListCommand, configSetCommand } =
+          await import('./commands/config');
         if (profile === 'help' || (!profile && args.length === 0)) {
           configHelpCommand();
           break;
@@ -504,6 +501,7 @@ async function runCli(): Promise<void> {
         console.error('       airelay config set <key> <value>');
         process.exit(1);
         break;
+      }
 
       case 'error':
         console.error(`Error: Unknown command or profile: "${profile}".`);
@@ -512,19 +510,31 @@ async function runCli(): Promise<void> {
         process.exit(1);
 
       case 'cleanup':
-        cleanupCommand();
+        {
+          const { cleanupCommand } = await import('./commands/cleanup');
+          cleanupCommand();
+        }
         break;
 
       case 'ps':
-        psCommand();
+        {
+          const { psCommand } = await import('./commands/cleanup');
+          psCommand();
+        }
         break;
 
       case 'isolate':
-        isolateCommand(profile);
+        {
+          const { isolateCommand } = await import('./commands/isolate');
+          isolateCommand(profile);
+        }
         break;
 
       case 'remove':
-        await removeCommand(profile);
+        {
+          const { removeCommand } = await import('./commands/remove');
+          await removeCommand(profile);
+        }
         break;
 
       case 'prompt':
@@ -534,6 +544,7 @@ async function runCli(): Promise<void> {
           process.exit(1);
         }
         {
+          const { promptCommand } = await import('./commands/prompt');
           const text = args[0] || (flags.text as string | undefined);
           const onlyEnter = flags['only-enter'] === true;
           const onlySequence =
@@ -592,15 +603,19 @@ async function runCli(): Promise<void> {
           process.exit(exitCode);
         }
 
-      case 'sessions':
+      case 'sessions': {
+        const { sessionsListCommand } = await import('./commands/sessions-list');
         await sessionsListCommand({
           json: flags.json === true,
           active: flags.active === true,
           cwd: flags.cwd === true,
         });
         break;
+      }
 
-      case 'history':
+      case 'history': {
+        const { historyCommand, historyHelpCommand, removeHistoryCommand } =
+          await import('./commands/history');
         if (profile === 'help') {
           if (args.length > 0) {
             console.error('Usage: airelay history help');
@@ -623,6 +638,7 @@ async function runCli(): Promise<void> {
         }
         historyCommand({ all: flags.all === true, json: flags.json === true });
         break;
+      }
 
       case 'session-status':
         if (!profile) {
@@ -631,6 +647,7 @@ async function runCli(): Promise<void> {
           process.exit(1);
         }
         {
+          const { sessionStatusCommand } = await import('./commands/session-status');
           const field = flags.field as string | undefined;
           const noWarn = flags['no-warn'] === true;
           const exitCode = await sessionStatusCommand(profile, {
@@ -648,6 +665,7 @@ async function runCli(): Promise<void> {
           process.exit(1);
         }
         {
+          const { interruptCommand } = await import('./commands/interrupt');
           const exitCode = await interruptCommand(profile, {
             json: flags.json === true,
             noWarn: flags['no-warn'] === true,
@@ -665,6 +683,7 @@ async function runCli(): Promise<void> {
           process.exit(1);
         }
         {
+          const { heartbeatCommand } = await import('./commands/heartbeat');
           const intervalFlag = flags.interval as string | undefined;
           const intervalSeconds = intervalFlag ? parseInt(intervalFlag, 10) : undefined;
           if (intervalFlag && (isNaN(intervalSeconds!) || intervalSeconds! <= 0)) {
@@ -699,6 +718,7 @@ async function runCli(): Promise<void> {
           process.exit(1);
         }
         {
+          const { sessionFindCommand } = await import('./commands/session-find');
           const pattern = args[0];
           const noWarn = flags['no-warn'] === true;
           const exitCode = await sessionFindCommand(profile, pattern, {
@@ -717,6 +737,7 @@ async function runCli(): Promise<void> {
           process.exit(1);
         }
         {
+          const { tailCommand } = await import('./commands/tail');
           const linesFlag = flags.lines as string | undefined;
           const lines = linesFlag === undefined ? undefined : parseInt(linesFlag, 10);
           if (lines !== undefined && (!Number.isInteger(lines) || lines <= 0)) {
@@ -747,6 +768,7 @@ async function runCli(): Promise<void> {
           process.exit(1);
         }
         {
+          const { transcriptCommand } = await import('./commands/transcript');
           const linesFlag = flags.lines as string | undefined;
           const lines = linesFlag === undefined ? undefined : parseInt(linesFlag, 10);
           const skipFlag = flags.skip as string | undefined;
@@ -777,7 +799,10 @@ async function runCli(): Promise<void> {
 
       case 'select':
       default:
-        await selectCommand();
+        {
+          const { selectCommand } = await import('./commands/select');
+          await selectCommand();
+        }
         break;
     }
   } catch (e) {
