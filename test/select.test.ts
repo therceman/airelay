@@ -69,15 +69,15 @@ describe('last-used tracking', () => {
 describe('main selector choices', () => {
   it('shows project resume, current project resume, and start choices', () => {
     expect(buildMainChoices(true, true)).toEqual([
-      { name: 'Resume', message: 'Resume session' },
       { name: 'ResumeCurrent', message: 'Resume current project session' },
+      { name: 'Resume', message: 'Resume project session' },
       { name: 'Start', message: 'Start new session' },
     ]);
   });
 
   it('only shows current project resume when it has resumable history', () => {
     expect(buildMainChoices(true, false)).toEqual([
-      { name: 'Resume', message: 'Resume session' },
+      { name: 'Resume', message: 'Resume project session' },
       { name: 'Start', message: 'Start new session' },
     ]);
   });
@@ -88,9 +88,9 @@ describe('main selector choices', () => {
 
   it('adds last-session profile switching when an alternative is available', () => {
     expect(buildMainChoices(true, true, true)).toEqual([
-      { name: 'Resume', message: 'Resume session' },
       { name: 'ResumeCurrent', message: 'Resume current project session' },
       { name: 'SwitchLast', message: 'Switch last session profile (same harness)' },
+      { name: 'Resume', message: 'Resume project session' },
       { name: 'Start', message: 'Start new session' },
     ]);
   });

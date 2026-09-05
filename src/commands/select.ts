@@ -79,13 +79,13 @@ export function buildMainChoices(
   hasSwitchableSession = false
 ): Array<{ name: string; message: string }> {
   return [
-    ...(hasAnyResumableProjects ? [{ name: 'Resume', message: 'Resume session' }] : []),
     ...(hasCurrentProjectSession
       ? [{ name: 'ResumeCurrent', message: 'Resume current project session' }]
       : []),
     ...(hasSwitchableSession
       ? [{ name: 'SwitchLast', message: 'Switch last session profile (same harness)' }]
       : []),
+    ...(hasAnyResumableProjects ? [{ name: 'Resume', message: 'Resume project session' }] : []),
     { name: 'Start', message: 'Start new session' },
   ];
 }
