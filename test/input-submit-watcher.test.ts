@@ -185,6 +185,13 @@ describe('input submit watcher', () => {
     expect(isInputTextVisible(text, ['previous output only'])).toBe(false);
   });
 
+  it('matches the minimum 16-character prompt anchor', () => {
+    expect(isInputTextVisible('[SP-GTW-120E] go with more text', ['› [SP-GTW-120E] go'])).toBe(
+      true
+    );
+    expect(isInputTextVisible('[SP-GTW-120E] go more', ['› [SP-GTW-120E]'])).toBe(false);
+  });
+
   it('matches a short prompt represented by a harness-owned paste placeholder', () => {
     expect(isInputTextVisible('olo', ['› [Pasted Content 3 chars]'], ['[Pasted Content '])).toBe(
       true

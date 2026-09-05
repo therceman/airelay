@@ -172,7 +172,7 @@ export function isInputTextVisible(
     return true;
   }
 
-  const anchorLength = 64;
+  const anchorLength = 16;
   const anchors = [normalizedText.slice(0, anchorLength), normalizedText.slice(-anchorLength)];
-  return anchors.some((anchor) => anchor.length >= 24 && viewport.includes(anchor));
+  return anchors.some((anchor) => anchor.length >= 16 && viewport.includes(anchor));
 }
