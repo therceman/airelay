@@ -141,6 +141,17 @@ function parseArgs(argv: string[]): ParseResult {
       i++;
       continue;
     }
+    if ((command === 'start' || command === '__detach-run') && arg === '--harness-self-update') {
+      const value = args[i + 1];
+      if (value === 'true' || value === 'false') {
+        flags.harnessSelfUpdate = value === 'true';
+        i += 2;
+      } else {
+        flags._error = '--harness-self-update requires true or false.';
+        break;
+      }
+      continue;
+    }
     if ((command === 'start' || command === '__detach-run') && arg === '--key') {
       if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
         flags.key = args[i + 1];
@@ -206,6 +217,24 @@ function parseArgs(argv: string[]): ParseResult {
   };
 }
 
+function removeHarnessSelfUpdateFlag(argv: string[]): string[] {
+  const sanitized: string[] = [];
+  let harnessArgs = false;
+  for (let index = 0; index < argv.length; index++) {
+    if (argv[index] === '--') {
+      harnessArgs = true;
+      sanitized.push(argv[index]);
+      continue;
+    }
+    if (!harnessArgs && argv[index] === '--harness-self-update') {
+      index += 1;
+      continue;
+    }
+    sanitized.push(argv[index]);
+  }
+  return sanitized;
+}
+
 function showHelp(): void {
   console.log(`
 airelay - Cross-platform CLI for shared-base profile overlays
@@ -218,7 +247,7 @@ Commands:
   create <name>         Create a new profile
   new                   Create a new profile (interactive)
   resume [key]          Resume a session by selecting launch history or by key
-  start <profile>       Start a new session (--key <key>, --detached, -- <harness_args>)
+  start <profile>       Start a new session (--key <key>, --detached, --harness-self-update <bool>, -- <harness_args>)
   list                  List all profiles
   which <profile>       Show resolved runtime details
   doctor [profile]      Run diagnostics
@@ -343,7 +372,7 @@ async function runCli(): Promise<void> {
         if (!profile) {
           console.error('Error: Profile name required');
           console.error(
-            'Usage: airelay start <profile> [--key <key>] [--detached] [-- <harness_args...>]'
+            'Usage: airelay start <profile> [--key <key>] [--detached] [--harness-self-update <bool>] [-- <harness_args...>]'
           );
           process.exit(1);
         }
@@ -368,8 +397,10 @@ async function runCli(): Promise<void> {
           await startCommand(profile, extraArgs, {
             key: sessionKey,
             detached: flags.detached === true,
+            harnessSelfUpdate:
+              typeof flags.harnessSelfUpdate === 'boolean' ? flags.harnessSelfUpdate : undefined,
             invocationCwd: process.cwd(),
-            launchArgv: process.argv.slice(2),
+            launchArgv: removeHarnessSelfUpdateFlag(process.argv.slice(2)),
           });
         }
         break;
@@ -384,6 +415,8 @@ async function runCli(): Promise<void> {
           const sessionKey = flags.key as string | boolean | undefined;
           const exitCode = await detachedRuntimeMain(profile, extraArgs, {
             key: typeof sessionKey === 'string' && sessionKey.trim() ? sessionKey : undefined,
+            harnessSelfUpdate:
+              typeof flags.harnessSelfUpdate === 'boolean' ? flags.harnessSelfUpdate : undefined,
           });
           process.exit(exitCode);
         }

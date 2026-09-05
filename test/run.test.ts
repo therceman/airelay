@@ -1,4 +1,4 @@
-import { runCommand, detectResumeSessionId } from '../src/commands/run';
+import { buildProfileEnv, runCommand, detectResumeSessionId } from '../src/commands/run';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -104,6 +104,42 @@ profiles:
 
     const exitCode = await runCommand('test', []);
     expect(exitCode).toBe(0);
+  });
+
+  it('explicit false overrides config true without entering harness args', () => {
+    fs.writeFileSync(
+      testConfigPath,
+      `version: 1
+settings:
+  harnessSelfUpdate: true
+profiles:
+  codex-profile:
+    executable: codex
+  opencode-profile:
+    executable: opencode`
+    );
+    process.env.AIRELAY_CONFIG = testConfigPath;
+
+    const codex = buildProfileEnv('codex-profile', ['resume', 'native-session'], undefined, false);
+    expect(codex.args).toEqual([
+      '-c',
+      'check_for_update_on_startup=false',
+      'resume',
+      'native-session',
+    ]);
+    expect(codex.profile.args).toBeUndefined();
+
+    const opencode = buildProfileEnv(
+      'opencode-profile',
+      ['-s', 'native-session'],
+      undefined,
+      false
+    );
+    expect(opencode.args).toEqual(['-s', 'native-session']);
+    expect(opencode.env.OPENCODE_DISABLE_AUTOUPDATE).toBe('true');
+
+    const allowed = buildProfileEnv('codex-profile', [], undefined, true);
+    expect(allowed.args).toEqual([]);
   });
 
   it('merges profile args with extra args', async () => {

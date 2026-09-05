@@ -5,6 +5,9 @@ import { runCli, parseArgs } from '../src/cli';
 jest.mock('../src/commands/run', () => ({
   runCommand: jest.fn().mockResolvedValue(0),
 }));
+jest.mock('../src/commands/start', () => ({
+  startCommand: jest.fn().mockResolvedValue(undefined),
+}));
 
 jest.mock('../src/commands/list', () => ({
   listCommand: jest.fn(),
@@ -166,6 +169,42 @@ describe('runCli', () => {
 
     const { initCommand } = require('../src/commands/init');
     expect(initCommand).toHaveBeenCalledWith(true);
+  });
+
+  it('passes harness self-update override without saving it in launch argv', async () => {
+    process.argv = [
+      'node',
+      'cli.js',
+      'start',
+      'codex2',
+      '--key',
+      'airelay_master',
+      '--harness-self-update',
+      'false',
+      '--',
+      'resume',
+      'native-session',
+    ];
+    await runCli();
+
+    const { startCommand } = require('../src/commands/start');
+    expect(startCommand).toHaveBeenCalledWith(
+      'codex2',
+      ['resume', 'native-session'],
+      expect.objectContaining({
+        key: 'airelay_master',
+        harnessSelfUpdate: false,
+        launchArgv: [
+          'start',
+          'codex2',
+          '--key',
+          'airelay_master',
+          '--',
+          'resume',
+          'native-session',
+        ],
+      })
+    );
   });
 
   it('executes which command with profile', async () => {
@@ -412,6 +451,27 @@ describe('parseArgs', () => {
     expect(result.profile).toBe('opencode2');
     expect(result.flags.key).toBe('worker_1');
     expect(result.extraArgs).toEqual(['-s', 'ses_xxx']);
+  });
+
+  it('start --harness-self-update before harness args stays an Airelay flag', () => {
+    const result = parseArgs([
+      'node',
+      'airelay',
+      'start',
+      'codex2',
+      '--harness-self-update',
+      'false',
+      '--',
+      'resume',
+      'session-id',
+    ]);
+    expect(result.flags.harnessSelfUpdate).toBe(false);
+    expect(result.extraArgs).toEqual(['resume', 'session-id']);
+  });
+
+  it('rejects an invalid harness self-update value', () => {
+    const result = parseArgs(['node', 'airelay', 'start', 'codex2', '--harness-self-update', 'no']);
+    expect(result.flags._error).toBe('--harness-self-update requires true or false.');
   });
 
   it('start --key before profile parses correctly', () => {

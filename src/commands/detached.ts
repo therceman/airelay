@@ -132,7 +132,7 @@ function printReceipt(info: DetachedReadyInfo): void {
 export async function startDetachedCommand(
   profile: string,
   extraArgs: string[],
-  options?: { key?: string; invocationCwd?: string }
+  options?: { key?: string; harnessSelfUpdate?: boolean; invocationCwd?: string }
 ): Promise<number> {
   const key = options?.key;
   const launchArgv = [
@@ -160,6 +160,9 @@ export async function startDetachedCommand(
       ...prefix,
       '__detach-run',
       profile,
+      ...(options?.harnessSelfUpdate !== undefined
+        ? ['--harness-self-update', String(options.harnessSelfUpdate)]
+        : []),
       ...(key ? ['--key', key] : []),
       ...(extraArgs.length > 0 ? ['--', ...extraArgs] : []),
     ],
@@ -206,7 +209,7 @@ export async function startDetachedCommand(
 export async function detachedRuntimeMain(
   profile: string,
   extraArgs: string[],
-  options?: { key?: string }
+  options?: { key?: string; harnessSelfUpdate?: boolean }
 ): Promise<number> {
   const receiptPath = process.env.AIRELAY_DETACHED_RECEIPT;
   const launchArgv = readLaunchArgv(process.env.AIRELAY_DETACHED_LAUNCH_ARGV);
@@ -215,6 +218,7 @@ export async function detachedRuntimeMain(
     const code = await runCommand(profile, extraArgs, {
       usePty: true,
       sessionKey: options?.key,
+      harnessSelfUpdate: options?.harnessSelfUpdate,
       detached: true,
       recordLaunch: launchArgv !== undefined,
       launchArgv,

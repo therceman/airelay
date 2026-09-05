@@ -85,7 +85,7 @@ profiles:
 ## Commands
 
 ```bash
-airelay start <profile> [args...]  # Launch profile (PTY-backed, always promptable)
+airelay start <profile> [--harness-self-update true|false] [args...]  # Launch profile (PTY-backed, always promptable)
 airelay run <profile> [-- ...args] # Run profile with inherited terminal
 airelay list                       # List all profiles
 airelay which <profile>            # Show resolved runtime details
@@ -170,6 +170,10 @@ airelay config set settings.harnessSelfUpdate true
 
 For manual updates, use the harness directly: `codex update` for Codex or
 `opencode upgrade` for OpenCode.
+
+For a one-session override, pass `--harness-self-update false` before the `--`
+separator. The override is used by the current runtime and wake cycle but is
+not stored as a harness argument or launch-history parameter.
 When hibernated, the Airelay controller stays alive and the harness process is
 started again from its saved native session when a key is pressed or a prompt is
 sent. New sessions without a known native session ID remain running until their

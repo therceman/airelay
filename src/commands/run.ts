@@ -59,10 +59,11 @@ export interface RunStartInfo {
   controllerEndpoint: string;
 }
 
-function buildProfileEnv(
+export function buildProfileEnv(
   profileName: string,
   extraArgs: string[],
-  cwdOverride?: string
+  cwdOverride?: string,
+  harnessSelfUpdateOverride?: boolean
 ): {
   profile: Profile;
   cwd: string;
@@ -95,7 +96,7 @@ function buildProfileEnv(
 
   const selfUpdateOverrides = getHarnessSelfUpdateOverrides(
     harness,
-    config.settings.harnessSelfUpdate
+    harnessSelfUpdateOverride ?? config.settings.harnessSelfUpdate
   );
   Object.assign(env, selfUpdateOverrides.env);
 
@@ -239,13 +240,15 @@ export async function runCommand(
     invocationCwd?: string;
     launchArgv?: string[];
     detached?: boolean;
+    harnessSelfUpdate?: boolean;
     onDetachedReady?: (info: DetachedReadyInfo) => void;
   }
 ): Promise<number> {
   const { profile, cwd, env, args, hibernateAfterMs } = buildProfileEnv(
     profileName,
     extraArgs,
-    options?.cwd
+    options?.cwd,
+    options?.harnessSelfUpdate
   );
 
   const sessionKey = options?.sessionKey || generateSessionKey(profileName);
