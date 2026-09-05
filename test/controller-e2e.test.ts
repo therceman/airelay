@@ -95,6 +95,10 @@ describe('controller E2E: real IPC socket flow', () => {
     controller.setRuntimeInfoProvider(() => testRuntime);
     controller.onRequest(async () => ({ handled: false }));
     await controller.start();
+    controller.feedOutput(
+      Array.from({ length: 150 }, (_, index) => `diagnostic-line-${index}\r\n`).join('')
+    );
+    controller.takeSnapshot();
 
     const info = await fetchControllerInfo(controller.endpointPath);
 
@@ -103,6 +107,24 @@ describe('controller E2E: real IPC socket flow', () => {
       state: 'submitted_working',
     });
     expect(info.runtime).toEqual(testRuntime);
+    expect(info.memory).toEqual(
+      expect.objectContaining({
+        rss: expect.any(Number),
+        heapUsed: expect.any(Number),
+        heapTotal: expect.any(Number),
+        external: expect.any(Number),
+        arrayBuffers: expect.any(Number),
+      })
+    );
+    expect(info.buffers).toEqual({
+      attachedClients: 0,
+      rawRingBytes: expect.any(Number),
+      rawRingChunks: 1,
+      outputBufferLines: 100,
+      snapshotBufferLines: expect.any(Number),
+    });
+    expect(info.buffers!.rawRingBytes).toBeLessThanOrEqual(256 * 1024);
+    expect(info.buffers!.snapshotBufferLines).toBeLessThanOrEqual(120);
 
     await controller.stop();
   });
@@ -116,6 +138,24 @@ describe('controller E2E: real IPC socket flow', () => {
     const info = await fetchControllerInfo(controller.endpointPath);
 
     expect(info.state).toBe('idle');
+    await controller.stop();
+  });
+
+  it('bounds terminal scrollback while retaining the latest viewport', async () => {
+    const controller = new SessionController('e2e_scrollback_bound');
+    controller.onRequest(async () => ({ handled: false }));
+    await controller.start();
+
+    controller.feedOutput(
+      Array.from({ length: 1000 }, (_, index) => `scrollback-line-${index}\r\n`).join('')
+    );
+    await controller.flushViewport();
+
+    const terminal = controller as unknown as {
+      terminal: { buffer: { active: { length: number } } };
+    };
+    expect(terminal.terminal.buffer.active.length).toBeLessThanOrEqual(331);
+    expect(controller.getLiveViewportLines().join(' ')).toContain('scrollback-line-999');
     await controller.stop();
   });
 

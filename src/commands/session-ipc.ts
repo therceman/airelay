@@ -1,7 +1,7 @@
 import net from 'net';
 import { getAirelayVersion } from '../utils/version';
 import type { DeliveryStatus } from '../runtime/delivery';
-import type { RuntimeIdentity } from '../runtime/identity';
+import type { RuntimeBuffers, RuntimeIdentity, RuntimeMemory } from '../runtime/identity';
 
 const IPC_TIMEOUT = 5000;
 const PREFLIGHT_TIMEOUT = 2000;
@@ -13,6 +13,8 @@ export interface ControllerInfo {
   state?: 'busy' | 'idle';
   delivery?: DeliveryStatus;
   runtime?: RuntimeIdentity;
+  memory?: RuntimeMemory;
+  buffers?: RuntimeBuffers;
   /** Number of currently attached viewport clients, when reported by the controller. */
   attached?: number;
 }
@@ -127,6 +129,8 @@ export function fetchControllerInfo(
               state: parsed.data.state as 'busy' | 'idle' | undefined,
               delivery: parsed.data.delivery as DeliveryStatus | undefined,
               runtime: parsed.data.runtime as RuntimeIdentity | undefined,
+              memory: parsed.data.memory as RuntimeMemory | undefined,
+              buffers: parsed.data.buffers as RuntimeBuffers | undefined,
               attached: parsed.data.attached as number | undefined,
             });
           } else if (parsed.type === 'error') {

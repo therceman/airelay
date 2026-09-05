@@ -1,4 +1,5 @@
 import type { DeliveryStatus } from '../runtime/delivery';
+import type { RuntimeBuffers, RuntimeMemory } from '../runtime/identity';
 
 export type IpcMethod =
   | 'ping'
@@ -137,6 +138,8 @@ export interface SessionInfoData {
   delivery?: DeliveryStatus;
   /** Number of currently attached viewport clients (raw input sockets). */
   attached?: number;
+  memory?: RuntimeMemory;
+  buffers?: RuntimeBuffers;
 }
 
 export interface SessionAttachData {

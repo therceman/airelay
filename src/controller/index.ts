@@ -22,7 +22,7 @@ import { getAirelayVersion, CONTROLLER_PROTOCOL_VERSION } from '../utils/version
 import { appendTranscriptSnapshot } from '../utils/transcript';
 import { serializeStreamFrame } from './protocol';
 import type { DeliveryStatus } from '../runtime/delivery';
-import type { RuntimeIdentity } from '../runtime/identity';
+import type { RuntimeBuffers, RuntimeIdentity, RuntimeMemory } from '../runtime/identity';
 import {
   getSocketIdentity,
   probeUnixSocket,
@@ -32,6 +32,7 @@ import {
 
 const VIEWPORT_ROWS = 30;
 const VIEWPORT_COLS = 120;
+const TERMINAL_SCROLLBACK = 300;
 const SNAPSHOT_INTERVAL = 5000;
 const TRANSCRIPT_STABILITY_DELAY = 10000;
 const MAX_SNAPSHOT_LINES = 120;
@@ -128,6 +129,7 @@ export class SessionController {
       cols: VIEWPORT_COLS,
       rows: VIEWPORT_ROWS,
       allowProposedApi: true,
+      scrollback: TERMINAL_SCROLLBACK,
     });
   }
 
@@ -308,6 +310,16 @@ export class SessionController {
     this.runtimeInfoProvider = provider;
   }
 
+  getBufferDiagnostics(): RuntimeBuffers {
+    return {
+      attachedClients: this.attachedClients.size,
+      rawRingBytes: this.rawRingBytes,
+      rawRingChunks: this.rawRing.length,
+      outputBufferLines: this.outputBuf.length,
+      snapshotBufferLines: this.snapshotWindow.length,
+    };
+  }
+
   async start(): Promise<void> {
     const dir = path.dirname(this.socketPath);
     if (!fs.existsSync(dir)) {
@@ -439,6 +451,7 @@ export class SessionController {
         }
         return;
       } else if (request.method === 'session.info') {
+        const memory: RuntimeMemory = process.memoryUsage();
         response = createSuccessResponse(request.id, {
           sessionKey: this.sessionKey,
           active: !!this.handler,
@@ -450,6 +463,8 @@ export class SessionController {
           delivery: this.deliveryStatusProvider?.(),
           attached: this.attachedClients.size,
           runtime: this.runtimeInfoProvider?.(),
+          memory,
+          buffers: this.getBufferDiagnostics(),
         });
       } else if (request.method === 'session.output') {
         response = createSuccessResponse(request.id, { lines: this.outputBuf });

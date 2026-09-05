@@ -4,7 +4,12 @@ import { getIpcEndpointPath } from '../utils/ipc-path';
 import { fetchSessionOutput } from './session-output';
 import { preflightVersionCheck } from './session-ipc';
 import type { DeliveryStatus } from '../runtime/delivery';
-import type { RuntimeIdentity } from '../runtime/identity';
+import type {
+  RuntimeBuffers,
+  RuntimeHealth,
+  RuntimeIdentity,
+  RuntimeMemory,
+} from '../runtime/identity';
 
 const IPC_TIMEOUT = 3000;
 const ACTIVITY_WINDOW_MS = 10000;
@@ -24,6 +29,9 @@ interface StatusResult {
   compatError?: string;
   delivery?: DeliveryStatus;
   runtime?: RuntimeIdentity;
+  health?: RuntimeHealth;
+  memory?: RuntimeMemory;
+  buffers?: RuntimeBuffers;
 }
 
 function pingController(endpoint: string): Promise<{ reachable: boolean; latencyMs?: number }> {
@@ -66,6 +74,22 @@ function pingController(endpoint: string): Promise<{ reachable: boolean; latency
   });
 }
 
+function classifyRuntimeHealth(
+  controllerReachable: boolean,
+  runtime: RuntimeIdentity | undefined
+): RuntimeHealth {
+  if (!controllerReachable) {
+    return runtime ? 'stale-socket' : 'dead';
+  }
+  if (!runtime) {
+    return 'legacy-unknown';
+  }
+  if (runtime.runtimeState === 'running' && runtime.harnessPid === null) {
+    return 'inconsistent';
+  }
+  return 'healthy';
+}
+
 function fetchSessionInfo(endpoint: string): Promise<{
   airelayVersion?: string;
   controllerProtocolVersion?: number;
@@ -75,6 +99,8 @@ function fetchSessionInfo(endpoint: string): Promise<{
   compatError?: string;
   delivery?: DeliveryStatus;
   runtime?: RuntimeIdentity;
+  memory?: RuntimeMemory;
+  buffers?: RuntimeBuffers;
 }> {
   return new Promise((resolve) => {
     const socket = new net.Socket();
@@ -113,6 +139,8 @@ function fetchSessionInfo(endpoint: string): Promise<{
               state: parsed.data.state as 'busy' | 'idle' | undefined,
               delivery: parsed.data.delivery as DeliveryStatus | undefined,
               runtime: parsed.data.runtime as RuntimeIdentity | undefined,
+              memory: parsed.data.memory as RuntimeMemory | undefined,
+              buffers: parsed.data.buffers as RuntimeBuffers | undefined,
             });
           } else if (parsed.type === 'error') {
             resolve({
@@ -188,6 +216,8 @@ export async function sessionStatusCommand(
     'startedAt',
     'state',
     'deliveryState',
+    'health',
+    'runtimeState',
   ] as const;
 
   const result: StatusResult = {
@@ -205,6 +235,9 @@ export async function sessionStatusCommand(
     compatError: info.compatError,
     delivery: info.delivery,
     runtime: info.runtime,
+    health: classifyRuntimeHealth(ping.reachable, info.runtime),
+    memory: info.memory,
+    buffers: info.buffers,
   };
 
   if (options?.json) {
@@ -220,7 +253,9 @@ export async function sessionStatusCommand(
     const value =
       field === 'deliveryState'
         ? result.delivery?.state
-        : (result as unknown as Record<string, unknown>)[field];
+        : field === 'runtimeState'
+          ? result.runtime?.runtimeState
+          : (result as unknown as Record<string, unknown>)[field];
     if (value === undefined || value === null) {
       console.error(`Error: Field "${field}" has no value.`);
       return 1;
@@ -242,6 +277,9 @@ export async function sessionStatusCommand(
     }
     if (result.state) {
       console.log(`  State: ${result.state}`);
+    }
+    if (result.health) {
+      console.log(`  Health: ${result.health}`);
     }
     if (result.delivery) {
       console.log(`  Delivery: ${result.delivery.state} (${result.delivery.deliveryId})`);
