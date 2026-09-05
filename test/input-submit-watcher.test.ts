@@ -21,9 +21,9 @@ describe('input submit watcher', () => {
 
   it('declares the bounded retry timing for codex', () => {
     expect(getHarnessCapabilities('codex').inputSubmitRetry).toMatchObject({
-      retryDelayMs: 5000,
+      retryDelayMs: 2500,
       maxRetries: 3,
-      maxWindowMs: 20000,
+      maxWindowMs: 10000,
     });
   });
 
