@@ -53,6 +53,7 @@ beforeEach(() => {
   console.error = jest.fn();
   console.warn = jest.fn();
   jest.clearAllMocks();
+  (findSessionByKey as jest.Mock).mockReturnValue(undefined);
   (getSessions as jest.Mock).mockReturnValue([]);
   (loadConfig as jest.Mock).mockReturnValue({
     profiles: {
@@ -170,6 +171,38 @@ describe('resumeCommand', () => {
       'testprofile',
       ['-s', 'ses_xyz', '--verbose'],
       expect.objectContaining({ usePty: true })
+    );
+  });
+
+  it('shows the native profile session ID in the profile session selector', async () => {
+    const profileSessionId = '019faea5-f0b2-73a3-b286-ef54956ddd0f';
+    (getSessions as jest.Mock).mockReturnValue([
+      {
+        id: 'runtime-id',
+        profile: 'testprofile',
+        sessionKey: 'test_key',
+        profileSessionId,
+        profileArgs: ['-s', profileSessionId],
+        lastUsed: Date.now(),
+      },
+    ]);
+    (Enquirer.prompt as jest.Mock).mockResolvedValueOnce({
+      session: `testprofile (key: test_key, session: ${profileSessionId})`,
+    });
+
+    await resumeCommand('testprofile');
+
+    const prompt = (Enquirer.prompt as jest.Mock).mock.calls[0][0];
+    expect(prompt.choices).toEqual([
+      {
+        name: `testprofile (key: test_key, session: ${profileSessionId})`,
+        message: expect.stringContaining('runtime-id [test_key]'),
+      },
+    ]);
+    expect(runCommand).toHaveBeenCalledWith(
+      'testprofile',
+      ['-s', profileSessionId],
+      expect.objectContaining({ profileSessionId, usePty: true })
     );
   });
 
@@ -293,7 +326,8 @@ describe('resumeCommand', () => {
       ].reverse()
     );
     (Enquirer.prompt as jest.Mock).mockResolvedValueOnce({
-      historyEntry: 'codex (gpt-tunnel-gateway_master)',
+      historyEntry:
+        'codex (key: gpt-tunnel-gateway_master, session: 019faea5-f0b2-73a3-b286-ef54956ddd0f)',
     });
 
     await resumeCommand();
@@ -301,11 +335,11 @@ describe('resumeCommand', () => {
     const prompt = (Enquirer.prompt as jest.Mock).mock.calls[0][0];
     expect(prompt.choices).toEqual([
       {
-        name: 'codex (gpt-tunnel-gateway_master)',
+        name: 'codex (key: gpt-tunnel-gateway_master, session: 019faea5-f0b2-73a3-b286-ef54956ddd0f)',
         message: expect.stringContaining('[30m ago] codex ('),
       },
       {
-        name: 'codex2 (gpt-tunnel-gateway_master)',
+        name: 'codex2 (key: gpt-tunnel-gateway_master, session: 023fae12-f3b2-75a3-b255-ef54556xxxav)',
         message: expect.stringContaining('[12h ago] codex2 ('),
       },
     ]);
@@ -361,7 +395,9 @@ describe('resumeCommand', () => {
       },
     ]);
     (Enquirer.prompt as jest.Mock)
-      .mockResolvedValueOnce({ historyEntry: 'codex2 (airelay_master)' })
+      .mockResolvedValueOnce({
+        historyEntry: 'codex2 (key: airelay_master, session: 01a0638b-bafd-7c82-ae0e-a2cdfeb4f63e)',
+      })
       .mockResolvedValueOnce({ resumeAction: 'launch' });
 
     await resumeCommand();
@@ -400,23 +436,23 @@ describe('resumeCommand', () => {
         sessionKey: 'same_key',
         invocationCwd: currentCwd,
         startedAt: 100,
-        argv: ['start', 'codex', '--', 'resume', 'session-b'],
+        argv: ['start', 'codex', '--', 'resume', 'session-a'],
       },
     ]);
     (Enquirer.prompt as jest.Mock).mockResolvedValueOnce({
-      historyEntry: 'codex (same_key) #2',
+      historyEntry: 'codex (key: same_key, session: session-a) #2',
     });
 
     await resumeCommand();
 
     const prompt = (Enquirer.prompt as jest.Mock).mock.calls[0][0];
     expect(prompt.choices.map((choice: { name: string }) => choice.name)).toEqual([
-      'codex (same_key)',
-      'codex (same_key) #2',
+      'codex (key: same_key, session: session-a)',
+      'codex (key: same_key, session: session-a) #2',
     ]);
     expect(runCommand).toHaveBeenCalledWith(
       'codex',
-      ['resume', 'session-b'],
+      ['resume', 'session-a'],
       expect.objectContaining({ sessionKey: 'same_key', usePty: true })
     );
   });
@@ -454,7 +490,9 @@ describe('resumeCommand', () => {
       },
     ]);
     (Enquirer.prompt as jest.Mock)
-      .mockResolvedValueOnce({ historyEntry: 'codex (airelay_master)' })
+      .mockResolvedValueOnce({
+        historyEntry: 'codex (key: airelay_master, session: 01a0638b-bafd-7c82-ae0e-a2cdfeb4f63e)',
+      })
       .mockResolvedValueOnce({ resumeAction: 'switchProfile' })
       .mockResolvedValueOnce({ profile: 'codex2' });
 

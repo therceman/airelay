@@ -217,19 +217,23 @@ function formatHistoryChoice(entry: LaunchHistoryEntry, now = Date.now()): strin
 function formatResumeChoiceName(
   profile: string,
   sessionKey: string | undefined,
+  profileSessionId: string | undefined,
   duplicateNumber: number
 ): string {
-  const identity = sessionKey ? `${profile} (${sessionKey})` : `${profile} (unkeyed)`;
+  const keyInfo = sessionKey ? `key: ${sessionKey}` : 'unkeyed';
+  const sessionInfo = profileSessionId ? `, session: ${profileSessionId}` : '';
+  const identity = `${profile} (${keyInfo}${sessionInfo})`;
   return duplicateNumber > 1 ? `${identity} #${duplicateNumber}` : identity;
 }
 
 function getResumeChoiceNames(entries: LaunchHistoryEntry[]): string[] {
   const counts = new Map<string, number>();
   return entries.map((entry) => {
-    const base = formatResumeChoiceName(entry.profile, entry.sessionKey, 1);
+    const profileSessionId = getResumeSessionId(getHarnessArgs(entry));
+    const base = formatResumeChoiceName(entry.profile, entry.sessionKey, profileSessionId, 1);
     const nextCount = (counts.get(base) || 0) + 1;
     counts.set(base, nextCount);
-    return formatResumeChoiceName(entry.profile, entry.sessionKey, nextCount);
+    return formatResumeChoiceName(entry.profile, entry.sessionKey, profileSessionId, nextCount);
   });
 }
 
@@ -481,11 +485,21 @@ export async function resumeCommand(
     const cwdInfo = s.cwd ? ` ${s.cwd}` : '';
     const keyInfo = s.sessionKey ? ` [${s.sessionKey}]` : '';
     const pidInfo = s.profileSessionId ? ` (profile: ${s.profileSessionId})` : '';
-    const baseName = formatResumeChoiceName(profileOrSessionKey, s.sessionKey, 1);
+    const baseName = formatResumeChoiceName(
+      profileOrSessionKey,
+      s.sessionKey,
+      s.profileSessionId,
+      1
+    );
     const nextCount = (sessionCounts.get(baseName) || 0) + 1;
     sessionCounts.set(baseName, nextCount);
     return {
-      name: formatResumeChoiceName(profileOrSessionKey, s.sessionKey, nextCount),
+      name: formatResumeChoiceName(
+        profileOrSessionKey,
+        s.sessionKey,
+        s.profileSessionId,
+        nextCount
+      ),
       message: `[${formatAge(s.lastUsed)}] ${s.id}${keyInfo}${cwdInfo}${pidInfo}`,
     };
   });
