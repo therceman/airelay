@@ -23,6 +23,12 @@ import { appendTranscriptSnapshot } from '../utils/transcript';
 import { serializeStreamFrame } from './protocol';
 import type { DeliveryStatus } from '../runtime/delivery';
 import type { RuntimeIdentity } from '../runtime/identity';
+import {
+  getSocketIdentity,
+  probeUnixSocket,
+  sameSocketIdentity,
+  SocketIdentity,
+} from '../utils/unix-socket';
 
 const VIEWPORT_ROWS = 30;
 const VIEWPORT_COLS = 120;
@@ -50,6 +56,7 @@ export type IpcHandler = (request: IpcRequest) => Promise<unknown> | unknown;
 export class SessionController {
   private server: net.Server | null = null;
   private socketPath: string;
+  private socketIdentity: SocketIdentity | null = null;
   private handler: IpcHandler | null = null;
   /** Historical ring buffer (100 lines) — exposed via session.output */
   private outputBuf: string[] = [];
@@ -306,8 +313,22 @@ export class SessionController {
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    if (fs.existsSync(this.socketPath)) {
-      fs.unlinkSync(this.socketPath);
+    const existingIdentity = getSocketIdentity(this.socketPath);
+    if (existingIdentity) {
+      const probe = await probeUnixSocket(this.socketPath);
+      if (probe === 'live') {
+        throw new Error(`Controller socket is already owned: ${this.socketPath}`);
+      }
+      if (probe === 'unknown') {
+        throw new Error(`Unable to verify controller socket ownership: ${this.socketPath}`);
+      }
+      const currentIdentity = getSocketIdentity(this.socketPath);
+      if (!sameSocketIdentity(existingIdentity, currentIdentity)) {
+        throw new Error(`Controller socket changed while probing: ${this.socketPath}`);
+      }
+      if (currentIdentity) {
+        fs.unlinkSync(this.socketPath);
+      }
     }
 
     this.transcriptPersistenceEnabled = true;
@@ -363,6 +384,7 @@ export class SessionController {
       });
 
       this.server.listen(this.socketPath, () => {
+        this.socketIdentity = getSocketIdentity(this.socketPath);
         resolve();
       });
     });
@@ -533,9 +555,11 @@ export class SessionController {
 
   private cleanupSocket(): void {
     try {
-      if (fs.existsSync(this.socketPath)) {
+      const currentIdentity = getSocketIdentity(this.socketPath);
+      if (sameSocketIdentity(this.socketIdentity, currentIdentity)) {
         fs.unlinkSync(this.socketPath);
       }
+      this.socketIdentity = null;
     } catch {
       // Ignore cleanup errors
     }
