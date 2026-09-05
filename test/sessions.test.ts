@@ -5,7 +5,9 @@ import {
   removeSessionByKey,
   pruneStaleSessions,
   findSessionByKey,
+  updateSessionRuntime,
 } from '../src/commands/sessions';
+import type { RuntimeIdentity } from '../src/runtime/identity';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -91,6 +93,26 @@ describe('sessions', () => {
     const entry = sessions.find((s) => s.id === 'ses_ctrl_1');
     expect(entry).toBeDefined();
     expect(entry!.controllerEndpoint).toBe('/tmp/sockets/ctrl_key.sock');
+  });
+
+  it('persists explicit runtime identity without relying on legacy pid', () => {
+    addSession('test-profile', 'runtime-identity-1', undefined, 'identity_key');
+    const runtime: RuntimeIdentity = {
+      runtimeId: 'runtime-uuid-1',
+      controllerPid: process.pid,
+      harnessPid: null,
+      runtimeState: 'hibernated',
+    };
+
+    expect(updateSessionRuntime('test-profile', 'runtime-identity-1', runtime)).toBe(true);
+    expect(getSessions('test-profile')[0]).toMatchObject({
+      id: 'runtime-identity-1',
+      runtimeId: 'runtime-uuid-1',
+      controllerPid: process.pid,
+      harnessPid: null,
+      runtimeState: 'hibernated',
+    });
+    expect(getSessions('test-profile')[0].pid).toBeUndefined();
   });
 
   it('removeSessionByKey removes session by key', () => {

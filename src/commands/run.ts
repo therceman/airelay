@@ -5,7 +5,7 @@ import { buildEnv } from '../runtime/env';
 import { spawnAndWait, SpawnOptions } from '../runtime/spawn';
 import { SessionController } from '../controller';
 import { IpcError, IpcErrorCodes, IpcErrorReasons } from '../types/controller';
-import { addSession, deleteSession, updateSessionPid } from './sessions';
+import { addSession, deleteSession, updateSessionRuntime } from './sessions';
 import { recordLaunchHistory } from './history';
 import { getAirelayVersion, CONTROLLER_PROTOCOL_VERSION } from '../utils/version';
 import {
@@ -26,6 +26,7 @@ import fs from 'fs';
 import { ensureCodexProfileStandalone } from '../utils/codex-standalone';
 import { isInputTextVisible } from '../runtime/input-submit-watcher';
 import { parseDurationMs } from '../utils/duration';
+import { createRuntimeIdentity, RuntimeIdentity } from '../runtime/identity';
 
 function generateSessionKey(profileName: string): string {
   const suffix = Math.random().toString(36).slice(2, 6);
@@ -252,8 +253,11 @@ export async function runCommand(
   );
 
   const sessionKey = options?.sessionKey || generateSessionKey(profileName);
-  // Generate a distinct internal runtime id (opaque, not the sessionKey)
-  const runtimeId = `runtime_${sessionKey.slice(-12)}_${Date.now().toString(36)}`;
+  const runtime: RuntimeIdentity = createRuntimeIdentity();
+  const runtimeId = runtime.runtimeId;
+  const persistRuntimeState = (): void => {
+    updateSessionRuntime(profileName, runtimeId, runtime);
+  };
   const ptyWriteRef: { current: ((data: string) => void) | null } = { current: null };
   const ptyResizeRef: { current: ((cols: number, rows: number) => void) | null } = {
     current: null,
@@ -407,6 +411,7 @@ export async function runCommand(
     () => resetHibernateTimer()
   );
   controllerRef = controller;
+  controller.setRuntimeInfoProvider(() => ({ ...runtime }));
 
   if (options?.detached === true) {
     controller.setOnAttachedChange((count) => {
@@ -481,6 +486,8 @@ export async function runCommand(
     if (!canHibernate()) return;
     hibernateRequested = true;
     hibernated = true;
+    runtime.runtimeState = 'hibernating';
+    persistRuntimeState();
     prepareWake();
     const killPty = ptyKillRef.current;
     ptyWriteRef.current = null;
@@ -592,6 +599,7 @@ export async function runCommand(
     detectedProfileSessionId,
     extraArgs.length > 0 ? extraArgs : undefined
   );
+  persistRuntimeState();
 
   // Inject session metadata into child process environment
   env.AIRELAY_SESSION_KEY = sessionKey;
@@ -617,6 +625,9 @@ export async function runCommand(
       ptyWriteRef.current = pty.write;
       ptyResizeRef.current = (cols, rows) => pty.resize(cols, rows);
       ptyKillRef.current = pty.kill;
+      runtime.harnessPid = pty.pid;
+      runtime.runtimeState = 'running';
+      persistRuntimeState();
       const cols = process.stdout.isTTY ? process.stdout.columns : 80;
       const rows = process.stdout.isTTY ? process.stdout.rows : 24;
       controller.resize(cols, rows);
@@ -625,8 +636,6 @@ export async function runCommand(
       // so liveness must track that PID — not the harness agent PID — to keep
       // the session consistent with the detached registry and avoid pruning a
       // session for a still-registered, still-alive runtime.
-      updateSessionPid(sessionKey, options?.detached === true ? process.pid : pty.pid);
-
       if (options?.detached === true) {
         const startedAt = Date.now();
         const info: DetachedReadyInfo = {
@@ -678,18 +687,25 @@ export async function runCommand(
     let exitCode = 0;
     while (keepRunning) {
       exitCode = await spawnAndWait(spawnOpts);
+      runtime.harnessPid = null;
       ptyWriteRef.current = null;
       ptyResizeRef.current = null;
       ptyKillRef.current = null;
 
       if (!hibernateRequested) {
+        runtime.runtimeState = 'stopping';
+        persistRuntimeState();
         keepRunning = false;
         continue;
       }
 
       hibernateRequested = false;
+      runtime.runtimeState = 'hibernated';
+      persistRuntimeState();
       showHibernatedScreen();
       await waitForWake();
+      runtime.runtimeState = 'starting';
+      persistRuntimeState();
       // Reuse the original resumable launch arguments. The harness restores
       // its persisted conversation from the same native session ID.
     }
@@ -705,6 +721,9 @@ export async function runCommand(
     }
     throw e;
   } finally {
+    runtime.runtimeState = 'stopping';
+    runtime.harnessPid = null;
+    persistRuntimeState();
     if (hibernateTimer) clearTimeout(hibernateTimer);
     const cleanupWake = foregroundWakeCleanup as (() => void) | null;
     foregroundWakeCleanup = null;

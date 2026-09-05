@@ -4,6 +4,7 @@ import { getIpcEndpointPath } from '../utils/ipc-path';
 import { fetchSessionOutput } from './session-output';
 import { preflightVersionCheck } from './session-ipc';
 import type { DeliveryStatus } from '../runtime/delivery';
+import type { RuntimeIdentity } from '../runtime/identity';
 
 const IPC_TIMEOUT = 3000;
 const ACTIVITY_WINDOW_MS = 10000;
@@ -22,6 +23,7 @@ interface StatusResult {
   startedAt?: number;
   compatError?: string;
   delivery?: DeliveryStatus;
+  runtime?: RuntimeIdentity;
 }
 
 function pingController(endpoint: string): Promise<{ reachable: boolean; latencyMs?: number }> {
@@ -72,6 +74,7 @@ function fetchSessionInfo(endpoint: string): Promise<{
   state?: 'busy' | 'idle';
   compatError?: string;
   delivery?: DeliveryStatus;
+  runtime?: RuntimeIdentity;
 }> {
   return new Promise((resolve) => {
     const socket = new net.Socket();
@@ -109,6 +112,7 @@ function fetchSessionInfo(endpoint: string): Promise<{
               lastOutputChangeAt: parsed.data.lastOutputChangeAt as number | undefined,
               state: parsed.data.state as 'busy' | 'idle' | undefined,
               delivery: parsed.data.delivery as DeliveryStatus | undefined,
+              runtime: parsed.data.runtime as RuntimeIdentity | undefined,
             });
           } else if (parsed.type === 'error') {
             resolve({
@@ -200,6 +204,7 @@ export async function sessionStatusCommand(
     startedAt: info.startedAt,
     compatError: info.compatError,
     delivery: info.delivery,
+    runtime: info.runtime,
   };
 
   if (options?.json) {

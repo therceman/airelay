@@ -22,6 +22,7 @@ import { getAirelayVersion, CONTROLLER_PROTOCOL_VERSION } from '../utils/version
 import { appendTranscriptSnapshot } from '../utils/transcript';
 import { serializeStreamFrame } from './protocol';
 import type { DeliveryStatus } from '../runtime/delivery';
+import type { RuntimeIdentity } from '../runtime/identity';
 
 const VIEWPORT_ROWS = 30;
 const VIEWPORT_COLS = 120;
@@ -74,6 +75,7 @@ export class SessionController {
   private transcriptPersistenceEnabled = false;
   private deliveryStatusProvider: (() => DeliveryStatus | undefined) | null = null;
   private activityStateProvider: (() => 'busy' | 'idle') | null = null;
+  private runtimeInfoProvider: (() => RuntimeIdentity) | null = null;
   /** Open sockets that are attached viewport clients (tracked for session.info / registry). */
   private attachedClients: Set<net.Socket> = new Set();
   private onAttachedChangeCb: ((count: number) => void) | null = null;
@@ -294,6 +296,10 @@ export class SessionController {
     this.activityStateProvider = provider;
   }
 
+  setRuntimeInfoProvider(provider: () => RuntimeIdentity): void {
+    this.runtimeInfoProvider = provider;
+  }
+
   async start(): Promise<void> {
     const dir = path.dirname(this.socketPath);
     if (!fs.existsSync(dir)) {
@@ -420,6 +426,7 @@ export class SessionController {
           lastOutputChangeAt: this.lastOutputChangeAt,
           delivery: this.deliveryStatusProvider?.(),
           attached: this.attachedClients.size,
+          runtime: this.runtimeInfoProvider?.(),
         });
       } else if (request.method === 'session.output') {
         response = createSuccessResponse(request.id, { lines: this.outputBuf });

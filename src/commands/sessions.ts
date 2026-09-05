@@ -2,6 +2,7 @@ import net from 'net';
 import os from 'os';
 import path from 'path';
 import { createJsonStore } from '../utils/json-store';
+import type { RuntimeIdentity } from '../runtime/identity';
 
 export interface SessionEntry {
   id: string;
@@ -11,7 +12,12 @@ export interface SessionEntry {
   cwd?: string;
   sessionKey?: string;
   controllerEndpoint?: string;
+  /** @deprecated Use controllerPid/harnessPid/runtimeId instead. */
   pid?: number;
+  runtimeId?: string;
+  controllerPid?: number;
+  harnessPid?: number | null;
+  runtimeState?: RuntimeIdentity['runtimeState'];
   airelayVersion?: string;
   controllerProtocolVersion?: number;
   startedAt?: number;
@@ -192,6 +198,26 @@ export function updateSessionPid(keyOrId: string, pid: number): boolean {
   return false;
 }
 
+export function updateSessionRuntime(
+  profile: string,
+  sessionId: string,
+  runtime: RuntimeIdentity
+): boolean {
+  const sessions = loadSessions();
+  const entry = sessions[profile]?.find((candidate) => candidate.id === sessionId);
+  if (!entry) {
+    return false;
+  }
+
+  entry.runtimeId = runtime.runtimeId;
+  entry.controllerPid = runtime.controllerPid;
+  entry.harnessPid = runtime.harnessPid;
+  entry.runtimeState = runtime.runtimeState;
+  entry.lastUsed = Date.now();
+  saveSessions(sessions);
+  return true;
+}
+
 /**
  * Probe a controller endpoint with a real socket connect + IPC ping.
  * Returns true if the controller responds, false otherwise.
@@ -265,7 +291,7 @@ export async function pruneStaleSessions(): Promise<number> {
   for (const [profile, entries] of Object.entries(sessions)) {
     const alive: SessionEntry[] = [];
     for (const entry of entries) {
-      const entryPid = entry.pid;
+      const entryPid = entry.controllerPid ?? entry.pid;
       const hasPid = entryPid !== undefined && entryPid !== null;
       let pidAlive = !hasPid;
       if (hasPid) {

@@ -9,11 +9,19 @@ import { addSession, removeSessionByKey, findSessionByKey } from '../src/command
 import { fetchSessionViewport } from '../src/commands/session-viewport';
 import { fetchControllerInfo } from '../src/commands/session-ipc';
 import { DeliveryTracker } from '../src/runtime/delivery';
+import type { RuntimeIdentity } from '../src/runtime/identity';
 
 const testDir = path.join(os.tmpdir(), 'airelay-e2e-test-' + process.pid + '-' + Date.now());
 const testSessionsPath = path.join(testDir, 'sessions.json');
 const testSocketsDir = path.join(testDir, 'sockets');
 const testTranscriptsDir = path.join(testDir, 'transcripts');
+
+const testRuntime: RuntimeIdentity = {
+  runtimeId: 'runtime-e2e-identity',
+  controllerPid: process.pid,
+  harnessPid: null,
+  runtimeState: 'hibernated',
+};
 
 beforeAll(() => {
   fs.mkdirSync(testSocketsDir, { recursive: true });
@@ -84,6 +92,7 @@ describe('controller E2E: real IPC socket flow', () => {
     tracker.markSubmitAcknowledged('delivery-1');
     tracker.markWorking('delivery-1', ['working']);
     controller.setDeliveryStatusProvider(() => tracker.get());
+    controller.setRuntimeInfoProvider(() => testRuntime);
     controller.onRequest(async () => ({ handled: false }));
     await controller.start();
 
@@ -93,6 +102,7 @@ describe('controller E2E: real IPC socket flow', () => {
       deliveryId: 'delivery-1',
       state: 'submitted_working',
     });
+    expect(info.runtime).toEqual(testRuntime);
 
     await controller.stop();
   });

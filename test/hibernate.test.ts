@@ -71,6 +71,13 @@ async function waitForHibernatedScreen(endpoint: string): Promise<void> {
   throw new Error('Timed out waiting for hibernated screen');
 }
 
+function readStoredRuntime(): Record<string, unknown> {
+  const sessions = JSON.parse(fs.readFileSync(testEnv.sessionsPath, 'utf8')) as {
+    sleeper?: Array<Record<string, unknown>>;
+  };
+  return sessions.sleeper?.[0] || {};
+}
+
 describe('automatic hibernation', () => {
   const originalLog = console.log;
   const harnessPath = path.join(testEnv.testDir, 'codex-wake-test');
@@ -130,6 +137,12 @@ setInterval(() => process.stdout.write('heartbeat\\n'), 50);
     expect(endpoint).toBeTruthy();
 
     await waitForHibernatedScreen(endpoint);
+    const hibernated = readStoredRuntime();
+    expect(hibernated.runtimeState).toBe('hibernated');
+    expect(hibernated.controllerPid).toBe(process.pid);
+    expect(hibernated.harnessPid).toBeNull();
+    const runtimeId = hibernated.runtimeId;
+    expect(typeof runtimeId).toBe('string');
     await sendRaw(endpoint, 'wake');
     const argsDeadline = Date.now() + 2000;
     while (Date.now() < argsDeadline) {
@@ -151,6 +164,11 @@ setInterval(() => process.stdout.write('heartbeat\\n'), 50);
       ['-c', 'check_for_update_on_startup=false', 'resume', 'native-session'],
       ['-c', 'check_for_update_on_startup=false', 'resume', 'native-session'],
     ]);
+    const running = readStoredRuntime();
+    expect(running.runtimeState).toBe('running');
+    expect(running.controllerPid).toBe(process.pid);
+    expect(running.harnessPid).toEqual(expect.any(Number));
+    expect(running.runtimeId).toBe(runtimeId);
     await sendRaw(endpoint, '\u0003');
 
     await expect(runPromise).resolves.toBeDefined();
