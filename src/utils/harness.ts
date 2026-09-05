@@ -110,9 +110,9 @@ const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
       retryDelaysMs: [10000, 20000, 40000],
     },
     inputSubmitRetry: {
-      retryDelayMs: 100,
+      retryDelayMs: 5000,
       maxRetries: 3,
-      maxWindowMs: 500,
+      maxWindowMs: 20000,
     },
   },
   unknown: {

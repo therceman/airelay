@@ -1,4 +1,4 @@
-import { InputSubmitWatcher } from '../src/runtime/input-submit-watcher';
+import { InputSubmitWatcher, isInputTextVisible } from '../src/runtime/input-submit-watcher';
 import { getHarnessCapabilities } from '../src/utils/harness';
 
 describe('input submit watcher', () => {
@@ -19,11 +19,11 @@ describe('input submit watcher', () => {
     });
   }
 
-  it('declares the audited half retry timeout for codex', () => {
+  it('declares the bounded retry timing for codex', () => {
     expect(getHarnessCapabilities('codex').inputSubmitRetry).toMatchObject({
-      retryDelayMs: 100,
+      retryDelayMs: 5000,
       maxRetries: 3,
-      maxWindowMs: 500,
+      maxWindowMs: 20000,
     });
   });
 
@@ -77,17 +77,14 @@ describe('input submit watcher', () => {
     expect(writes).toEqual([]);
   });
 
-  it('resets the idle window when output activity occurs', () => {
+  it('does not extend the retry deadline for unrelated output activity', () => {
     const writes: string[] = [];
     const watcher = createWatcher(() => true, writes);
 
     watcher.track('hello', '\r');
     jest.advanceTimersByTime(2000);
     watcher.observeOutput('agent progress');
-    jest.advanceTimersByTime(1000);
-    expect(writes).toEqual([]);
-
-    jest.advanceTimersByTime(1500);
+    jest.advanceTimersByTime(500);
     expect(writes).toEqual(['\r']);
   });
 
@@ -126,21 +123,51 @@ describe('input submit watcher', () => {
   });
 
   it('reports acknowledgement when the input disappears', () => {
-    let visible = true;
+    let acknowledged = false;
     const onAcknowledged = jest.fn();
     const watcher = new InputSubmitWatcher({
       retryDelayMs: 2500,
       maxRetries: 3,
       write: () => () => undefined,
-      isInputVisible: () => visible,
+      isInputVisible: () => false,
+      isSubmissionAcknowledged: () => acknowledged,
       onAcknowledged,
     });
 
     watcher.track('hello', '\r', 'delivery-1');
-    visible = false;
+    acknowledged = true;
     jest.advanceTimersByTime(2500);
 
     expect(onAcknowledged).toHaveBeenCalledWith('delivery-1');
+  });
+
+  it('does not treat missing input text as a successful submission', () => {
+    const onAcknowledged = jest.fn();
+    const onExhausted = jest.fn();
+    const watcher = new InputSubmitWatcher({
+      retryDelayMs: 100,
+      maxRetries: 1,
+      maxWindowMs: 200,
+      write: () => () => undefined,
+      isInputVisible: () => false,
+      isSubmissionAcknowledged: () => false,
+      onAcknowledged,
+      onExhausted,
+    });
+
+    watcher.track('hello', '\r', 'delivery-1');
+    jest.advanceTimersByTime(200);
+
+    expect(onAcknowledged).not.toHaveBeenCalled();
+    expect(onExhausted).toHaveBeenCalledWith('delivery-1');
+  });
+
+  it('matches a long prompt through a visible terminal anchor', () => {
+    const text = 'x'.repeat(160) + ' final prompt text';
+    expect(isInputTextVisible(text, [`› [Pasted Content 176 chars] ${text.slice(-64)}`])).toBe(
+      true
+    );
+    expect(isInputTextVisible(text, ['previous output only'])).toBe(false);
   });
 
   it('cleans pending retry on disposal', () => {

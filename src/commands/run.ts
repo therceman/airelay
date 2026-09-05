@@ -20,6 +20,7 @@ import {
 } from '../runtime/detached-registry';
 import fs from 'fs';
 import { ensureCodexProfileStandalone } from '../utils/codex-standalone';
+import { isInputTextVisible } from '../runtime/input-submit-watcher';
 import { parseDurationMs } from '../utils/duration';
 
 function generateSessionKey(profileName: string): string {
@@ -347,6 +348,7 @@ export async function runCommand(
       ? new InputSubmitWatcher({
           ...inputRetry,
           write: () => ptyWriteRef.current,
+          isSubmissionAcknowledged: () => workingSeen,
           onAcknowledged: (deliveryId) => {
             if (deliveryId) deliveryTracker.markSubmitAcknowledged(deliveryId);
           },
@@ -359,13 +361,7 @@ export async function runCommand(
             }
           },
           isInputVisible: (text) => {
-            const normalizedText = text.replace(/\s+/g, ' ').trim();
-            const viewport = controllerRef
-              ?.getLiveViewportLines()
-              .join(' ')
-              .replace(/\s+/g, ' ')
-              .trim();
-            return !!normalizedText && !!viewport?.includes(normalizedText);
+            return isInputTextVisible(text, controllerRef?.getLiveViewportLines() || []);
           },
         })
       : null;

@@ -4,6 +4,7 @@ export interface InputSubmitWatcherOptions {
   maxWindowMs?: number;
   write: () => ((data: string) => void) | null;
   isInputVisible: (text: string) => boolean;
+  isSubmissionAcknowledged?: () => boolean;
   onAcknowledged?: (deliveryId?: string) => void;
   onRetry?: (deliveryId?: string) => void;
   onExhausted?: (deliveryId?: string) => void;
@@ -48,8 +49,7 @@ export class InputSubmitWatcher {
 
   observeOutput(chunk: string): void {
     if (this.disposed || !chunk.trim() || !this.pending) return;
-    this.lastActivityAt = Date.now();
-    if (!this.options.isInputVisible(this.pending.text)) {
+    if (this.options.isSubmissionAcknowledged?.()) {
       const deliveryId = this.pending.deliveryId;
       this.pending = null;
       this.clearTimer();
@@ -95,9 +95,20 @@ export class InputSubmitWatcher {
       return;
     }
 
-    if (!this.options.isInputVisible(pending.text)) {
+    if (this.options.isSubmissionAcknowledged?.()) {
       this.pending = null;
       this.options.onAcknowledged?.(pending.deliveryId);
+      return;
+    }
+
+    if (!this.options.isInputVisible(pending.text)) {
+      if (pending.retryDeadlineAt === undefined) {
+        this.pending = null;
+        this.options.onExhausted?.(pending.deliveryId);
+        return;
+      }
+
+      this.schedule(this.getNextDelay(this.options.retryDelayMs, pending));
       return;
     }
 
@@ -134,4 +145,15 @@ export class InputSubmitWatcher {
       this.timer = null;
     }
   }
+}
+
+/** Match terminal-wrapped input without requiring the whole prompt in one viewport. */
+export function isInputTextVisible(text: string, viewportLines: string[]): boolean {
+  const normalizedText = text.replace(/\s+/g, ' ').trim();
+  const viewport = viewportLines.join(' ').replace(/\s+/g, ' ').trim();
+  if (!normalizedText || !viewport || viewport.includes(normalizedText)) return !!normalizedText;
+
+  const anchorLength = 64;
+  const anchors = [normalizedText.slice(0, anchorLength), normalizedText.slice(-anchorLength)];
+  return anchors.some((anchor) => anchor.length >= 24 && viewport.includes(anchor));
 }
