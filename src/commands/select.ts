@@ -7,6 +7,8 @@ import { loadConfig } from '../config/load';
 import { migrateLegacyHomeDirIfNeeded } from '../config/migrate';
 import { runCommand } from './run';
 import { addSession } from './sessions';
+import { finalizeLaunchHistoryEntry } from './history';
+import { detectHarness, getResumeSessionArgs } from '../utils/harness';
 import {
   formatAge,
   getResumableProjects,
@@ -204,6 +206,8 @@ export async function selectCommand(): Promise<void> {
   try {
     exitCode = await runCommand(profileName, [], {
       usePty: true,
+      recordLaunch: true,
+      invocationCwd: currentCwd,
       onSessionStart: (info) => {
         sessionStartInfo.sessionKey = info.sessionKey;
         sessionStartInfo.controllerEndpoint = info.controllerEndpoint;
@@ -237,15 +241,31 @@ export async function selectCommand(): Promise<void> {
       initial: defaultKey,
     });
     const keyResult = (await Enquirer.prompt(keyPrompt)) as { sessionKey: string };
+    const sessionKey = keyResult.sessionKey.trim() || defaultKey;
+    const harness = detectHarness(config.profiles[profileName].executable);
+    const profileArgs = getResumeSessionArgs(harness, sessionId);
 
     addSession(
       profileName,
       sessionId,
       currentCwd,
-      keyResult.sessionKey.trim(),
-      sessionStartInfo.controllerEndpoint || undefined
+      sessionKey,
+      sessionStartInfo.controllerEndpoint || undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      sessionId,
+      profileArgs
     );
-    console.log(`Session saved: ${keyResult.sessionKey.trim()}`);
+    finalizeLaunchHistoryEntry({
+      profile: profileName,
+      provisionalSessionKey: sessionStartInfo.sessionKey,
+      sessionKey,
+      invocationCwd: currentCwd,
+      profileArgs,
+    });
+    console.log(`Session saved: ${sessionKey}`);
   }
 
   process.exit(exitCode);

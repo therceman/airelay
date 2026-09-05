@@ -148,10 +148,29 @@ export class InputSubmitWatcher {
 }
 
 /** Match terminal-wrapped input without requiring the whole prompt in one viewport. */
-export function isInputTextVisible(text: string, viewportLines: string[]): boolean {
+export function isInputTextVisible(
+  text: string,
+  viewportLines: string[],
+  pendingInputMarkers: string[] = []
+): boolean {
   const normalizedText = text.replace(/\s+/g, ' ').trim();
   const viewport = viewportLines.join(' ').replace(/\s+/g, ' ').trim();
   if (!normalizedText || !viewport || viewport.includes(normalizedText)) return !!normalizedText;
+
+  // Some TUIs replace pasted input with a bounded placeholder instead of rendering its text.
+  // Only harness-declared markers can keep the retry eligible; arbitrary output is ignored.
+  if (
+    viewportLines.some((line) =>
+      pendingInputMarkers.some((marker) => {
+        const markerIndex = line.indexOf(marker);
+        if (markerIndex < 0) return false;
+        const suffix = line.slice(markerIndex + marker.length);
+        return suffix.length <= 96 && suffix.includes(']');
+      })
+    )
+  ) {
+    return true;
+  }
 
   const anchorLength = 64;
   const anchors = [normalizedText.slice(0, anchorLength), normalizedText.slice(-anchorLength)];

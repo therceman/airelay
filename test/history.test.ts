@@ -8,6 +8,7 @@ import {
   recordLaunchHistory,
   renderLaunchCommand,
   markLaunchHistoryUsed,
+  finalizeLaunchHistoryEntry,
 } from '../src/commands/history';
 import { runCommand } from '../src/commands/run';
 import { createTestConfig, useTestEnv } from './test-utils';
@@ -150,6 +151,37 @@ describe('launch history', () => {
       invocationCwd: '/tmp/caller-project',
       argv: ['start', 'worker', '--key', 'persisted_key', '--', '--flag'],
     });
+  });
+
+  it('finalizes a TUI launch with its native session id and resume args', () => {
+    recordLaunchHistory({
+      profile: 'worker',
+      sessionKey: 'worker_abcd',
+      invocationCwd: process.cwd(),
+      argv: ['start', 'worker', '--key', 'worker_abcd'],
+      startedAt: 100,
+    });
+
+    expect(
+      finalizeLaunchHistoryEntry({
+        profile: 'worker',
+        provisionalSessionKey: 'worker_abcd',
+        sessionKey: 'bb_cyber',
+        invocationCwd: process.cwd(),
+        profileArgs: ['resume', 'native-session-id'],
+        finishedAt: 200,
+      })
+    ).toBe(true);
+
+    expect(getLaunchHistory()).toEqual([
+      expect.objectContaining({
+        profile: 'worker',
+        sessionKey: 'bb_cyber',
+        argv: ['start', 'worker', '--key', 'bb_cyber', '--', 'resume', 'native-session-id'],
+        command: 'airelay start worker --key bb_cyber -- resume native-session-id',
+        lastUsed: 200,
+      }),
+    ]);
   });
 
   it('keeps every launch as a separate history row', () => {

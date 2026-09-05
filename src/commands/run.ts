@@ -375,7 +375,11 @@ export async function runCommand(
             }
           },
           isInputVisible: (text) => {
-            return isInputTextVisible(text, controllerRef?.getLiveViewportLines() || []);
+            return isInputTextVisible(
+              text,
+              controllerRef?.getLiveViewportLines() || [],
+              inputRetry.pendingInputMarkers
+            );
           },
         })
       : null;

@@ -24,6 +24,7 @@ describe('input submit watcher', () => {
       retryDelayMs: 2500,
       maxRetries: 3,
       maxWindowMs: 10000,
+      pendingInputMarkers: ['[Pasted Content ', '[Paste '],
     });
   });
 
@@ -182,6 +183,13 @@ describe('input submit watcher', () => {
       true
     );
     expect(isInputTextVisible(text, ['previous output only'])).toBe(false);
+  });
+
+  it('matches a short prompt represented by a harness-owned paste placeholder', () => {
+    expect(isInputTextVisible('olo', ['› [Pasted Content 3 chars]'], ['[Pasted Content '])).toBe(
+      true
+    );
+    expect(isInputTextVisible('olo', ['agent output [Pasted Content 3 chars]'])).toBe(false);
   });
 
   it('cleans pending retry on disposal', () => {

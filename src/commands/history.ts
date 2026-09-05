@@ -93,6 +93,47 @@ export function recordLaunchHistory(input: {
   return entry;
 }
 
+/** Replace a provisional TUI launch row once the harness native session is known. */
+export function finalizeLaunchHistoryEntry(input: {
+  profile: string;
+  provisionalSessionKey: string;
+  sessionKey: string;
+  invocationCwd: string;
+  profileArgs: string[];
+  finishedAt?: number;
+}): boolean {
+  const currentCwd = path.resolve(input.invocationCwd);
+  const history = loadHistory();
+  const index = history.findIndex(
+    (entry) =>
+      entry.profile === input.profile &&
+      entry.sessionKey === input.provisionalSessionKey &&
+      path.resolve(entry.invocationCwd) === currentCwd
+  );
+  if (index === -1) {
+    return false;
+  }
+
+  const previous = history[index];
+  const argv = ['start', input.profile, '--key', input.sessionKey, '--', ...input.profileArgs];
+  const finalized: LaunchHistoryEntry = {
+    ...previous,
+    sessionKey: input.sessionKey,
+    argv,
+    command: renderLaunchCommand(argv),
+    lastUsed: input.finishedAt ?? Date.now(),
+  };
+  const remaining = history.filter(
+    (entry, entryIndex) =>
+      entryIndex !== index &&
+      (entry.profile !== input.profile ||
+        entry.sessionKey !== input.sessionKey ||
+        path.resolve(entry.invocationCwd) !== currentCwd)
+  );
+  store.save(deduplicateHistory([finalized, ...remaining]).slice(0, 1000));
+  return true;
+}
+
 export function getLaunchHistory(): LaunchHistoryEntry[] {
   return loadHistory().sort((a, b) => (b.lastUsed ?? b.startedAt) - (a.lastUsed ?? a.startedAt));
 }
