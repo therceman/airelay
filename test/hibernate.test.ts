@@ -1,5 +1,6 @@
 import net from 'net';
 import fs from 'fs';
+import path from 'path';
 import { runCommand } from '../src/commands/run';
 import { readLines } from '../src/controller/protocol';
 import { useTestEnv } from './test-utils';
@@ -72,17 +73,32 @@ async function waitForHibernatedScreen(endpoint: string): Promise<void> {
 
 describe('automatic hibernation', () => {
   const originalLog = console.log;
+  const harnessPath = path.join(testEnv.testDir, 'codex-wake-test');
+  const argsLogPath = path.join(testEnv.testDir, 'codex-args.log');
 
   beforeEach(() => {
+    fs.writeFileSync(
+      harnessPath,
+      `#!/usr/bin/env node
+const fs = require('fs');
+fs.appendFileSync(process.env.AIRELAY_TEST_ARGS_LOG, JSON.stringify(process.argv.slice(2)) + '\\n');
+setInterval(() => process.stdout.write('heartbeat\\n'), 50);
+`
+    );
+    fs.chmodSync(harnessPath, 0o755);
     fs.writeFileSync(
       testEnv.configPath,
       JSON.stringify({
         version: 1,
-        settings: { promptMaxLength: -1, hibernateAfter: '1s' },
+        settings: {
+          promptMaxLength: -1,
+          hibernateAfter: '1s',
+          harnessSelfUpdate: true,
+        },
         profiles: {
           sleeper: {
-            executable: 'node',
-            args: ['-e', "setInterval(() => process.stdout.write('heartbeat\\n'), 50)"],
+            executable: harnessPath,
+            env: { AIRELAY_TEST_ARGS_LOG: argsLogPath },
           },
         },
       })
@@ -100,6 +116,8 @@ describe('automatic hibernation', () => {
       usePty: true,
       detached: true,
       sessionKey: 'sleeper_test',
+      harnessSelfUpdate: false,
+      profileSessionId: 'native-session',
       onSessionStart: (info) => {
         endpoint = info.controllerEndpoint;
       },
@@ -113,7 +131,26 @@ describe('automatic hibernation', () => {
 
     await waitForHibernatedScreen(endpoint);
     await sendRaw(endpoint, 'wake');
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    const argsDeadline = Date.now() + 2000;
+    while (Date.now() < argsDeadline) {
+      if (
+        fs.existsSync(argsLogPath) &&
+        fs.readFileSync(argsLogPath, 'utf-8').trim().split('\n').length >= 2
+      ) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const launches = fs
+      .readFileSync(argsLogPath, 'utf-8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as string[]);
+    expect(launches.length).toBeGreaterThanOrEqual(2);
+    expect(launches.slice(0, 2)).toEqual([
+      ['-c', 'check_for_update_on_startup=false', 'resume', 'native-session'],
+      ['-c', 'check_for_update_on_startup=false', 'resume', 'native-session'],
+    ]);
     await sendRaw(endpoint, '\u0003');
 
     await expect(runPromise).resolves.toBeDefined();
