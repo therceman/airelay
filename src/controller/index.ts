@@ -9,6 +9,7 @@ import {
   IpcError,
   IpcErrorCodes,
   IpcErrorReasons,
+  SessionScrollbackParams,
 } from '../types/controller';
 import {
   parseRequest,
@@ -220,32 +221,69 @@ export class SessionController {
       return;
     }
 
-    const changedLines: string[] = [];
-    for (let i = 0; i < rendered.length; i++) {
-      if (
-        rendered[i] !== this.lastTranscriptLines[i] &&
-        rendered[i].length > 0 &&
-        !isTranscriptStatusFooter(rendered[i])
-      ) {
-        changedLines.push(rendered[i]);
-      }
-    }
+    const changedLines = this.getTranscriptChanges(this.lastTranscriptLines, rendered).filter(
+      (line) => !isTranscriptStatusFooter(line)
+    );
     if (changedLines.length > 0) {
       this.queueTranscriptLines(changedLines);
     }
     this.lastTranscriptLines = rendered;
   }
 
+  /** Find a rotated scrollback suffix/prefix overlap without diffing by index. */
+  private findRenderedOverlap(previous: string[], current: string[]): number {
+    const minimumOverlap = Math.max(10, Math.floor(Math.min(previous.length, current.length) / 2));
+    let best = 0;
+
+    for (let offset = 1; offset < previous.length; offset++) {
+      const overlap = Math.min(previous.length - offset, current.length);
+      if (overlap < minimumOverlap || overlap <= best) continue;
+
+      let matches = true;
+      for (let index = 0; index < overlap; index++) {
+        if (previous[offset + index] !== current[index]) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) best = overlap;
+    }
+
+    return best;
+  }
+
+  private getTranscriptChanges(previous: string[], current: string[]): string[] {
+    const overlap = this.findRenderedOverlap(previous, current);
+    if (overlap > 0) {
+      return current.slice(overlap).filter((line) => line.length > 0);
+    }
+
+    const changed: string[] = [];
+    for (let index = 0; index < current.length; index++) {
+      if (current[index] !== previous[index] && current[index].length > 0) {
+        changed.push(current[index]);
+      }
+    }
+    return changed;
+  }
+
   private queueTranscriptLines(lines: string[]): void {
     this.pendingTranscriptLines = lines;
     if (this.pendingTranscriptTimer) clearTimeout(this.pendingTranscriptTimer);
     this.pendingTranscriptTimer = setTimeout(() => {
-      this.pendingTranscriptTimer = null;
-      if (this.pendingTranscriptLines) {
-        appendTranscriptSnapshot(this.sessionKey, this.pendingTranscriptLines);
-        this.pendingTranscriptLines = null;
-      }
+      this.flushPendingTranscript();
     }, TRANSCRIPT_STABILITY_DELAY);
+  }
+
+  private flushPendingTranscript(): void {
+    if (this.pendingTranscriptTimer) {
+      clearTimeout(this.pendingTranscriptTimer);
+      this.pendingTranscriptTimer = null;
+    }
+    if (this.pendingTranscriptLines) {
+      appendTranscriptSnapshot(this.sessionKey, this.pendingTranscriptLines);
+      this.pendingTranscriptLines = null;
+    }
   }
 
   /**
@@ -261,6 +299,11 @@ export class SessionController {
       rows.push(line ? line.translateToString(true).trimEnd() : '');
     }
     return rows;
+  }
+
+  /** Return rendered, non-empty lines from the bounded xterm scrollback. */
+  getRenderedScrollbackLines(): string[] {
+    return this.getTranscriptViewportLines().filter((line) => line.trim().length > 0);
   }
 
   /**
@@ -476,6 +519,20 @@ export class SessionController {
       } else if (request.method === 'session.viewport') {
         await this.flushViewport();
         response = createSuccessResponse(request.id, { lines: this.getLiveViewportLines() });
+      } else if (request.method === 'session.scrollback') {
+        await this.flushViewport();
+        const params = request.params as SessionScrollbackParams;
+        const allLines = this.getRenderedScrollbackLines();
+        const count =
+          typeof params?.lines === 'number' && params.lines > 0
+            ? Math.floor(params.lines)
+            : allLines.length;
+        const skip =
+          typeof params?.skip === 'number' && params.skip > 0 ? Math.floor(params.skip) : 0;
+        const end = skip === 0 ? undefined : -skip;
+        response = createSuccessResponse(request.id, {
+          lines: allLines.slice(-(count + skip), end),
+        });
       } else if (request.method === 'session.interrupt') {
         if (!this.handler) {
           response = createErrorResponse(
@@ -528,14 +585,11 @@ export class SessionController {
   }
 
   private async stopInternal(): Promise<void> {
+    this.flushPendingTranscript();
     this.transcriptPersistenceEnabled = false;
     if (this.snapshotTimer) {
       clearInterval(this.snapshotTimer);
       this.snapshotTimer = null;
-    }
-    if (this.pendingTranscriptTimer) {
-      clearTimeout(this.pendingTranscriptTimer);
-      this.pendingTranscriptTimer = null;
     }
     return new Promise((resolve) => {
       const server = this.server;

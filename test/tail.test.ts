@@ -8,12 +8,16 @@ const testEnv = useTestEnv();
 
 async function runTail(
   sessionKey: string,
-  feed: string,
-  options?: { lines?: number; skip?: number; json?: boolean }
+  feed: string | string[],
+  options?: { lines?: number; skip?: number; json?: boolean },
+  rows = 30
 ): Promise<{ exitCode: number; logs: string[] }> {
   const controller = new SessionController(sessionKey);
   expect(path.dirname(controller.endpointPath)).toBe(testEnv.socketsDir);
-  controller.feedOutput(feed);
+  controller.resize(120, rows);
+  for (const chunk of Array.isArray(feed) ? feed : [feed]) {
+    controller.feedOutput(chunk);
+  }
   await controller.flushViewport();
   controller.onRequest(async () => ({ handled: false }));
   await controller.start();
@@ -69,7 +73,7 @@ describe('tailCommand', () => {
     expect(logs.some((l) => l.trim() === '')).toBe(false);
   });
 
-  it('falls back to bounded output history when the viewport is too small', async () => {
+  it('falls back to rendered scrollback when the viewport is too small', async () => {
     const sessionKey = 'tail_small_viewport';
     const controller = new SessionController(sessionKey);
     controller.resize(120, 3);
@@ -93,5 +97,17 @@ describe('tailCommand', () => {
     expect(logs).toEqual(['line 45', 'line 46', 'line 47', 'line 48', 'line 49']);
     await controller.stop();
     removeSessionByKey(sessionKey);
+  });
+
+  it('uses rendered scrollback when a logical line is split across PTY chunks', async () => {
+    const { exitCode, logs } = await runTail(
+      'tail_split_line',
+      ['hel', 'lo\r\nworld\r\nnext\r\n'],
+      { lines: 3 },
+      2
+    );
+
+    expect(exitCode).toBe(0);
+    expect(logs).toEqual(['hello', 'world', 'next']);
   });
 });

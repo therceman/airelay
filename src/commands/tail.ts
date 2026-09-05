@@ -1,7 +1,7 @@
 import { findSessionByKey, pruneStaleSessions } from './sessions';
 import { getIpcEndpointPath } from '../utils/ipc-path';
 import { fetchSessionViewport } from './session-viewport';
-import { fetchSessionOutput } from './session-output';
+import { fetchSessionScrollback } from './session-scrollback';
 import { preflightVersionCheck } from './session-ipc';
 
 export async function tailCommand(
@@ -34,15 +34,13 @@ export async function tailCommand(
     return 1;
   }
 
-  // A tiny terminal can expose fewer rows than requested even though the
-  // controller still has its bounded output history. Keep the normal tail
-  // semantics for a usable live viewport, and fall back only when it cannot
-  // satisfy the requested range.
+  // A tiny terminal can expose fewer rows than requested. Fall back to the
+  // controller's rendered scrollback, never to raw PTY chunk history.
   let sourceLines = viewportResult.lines;
   if (sourceLines.length < count + skip) {
-    const outputResult = await fetchSessionOutput(endpointPath);
-    if (!outputResult.error && outputResult.lines.length > sourceLines.length) {
-      sourceLines = outputResult.lines;
+    const scrollbackResult = await fetchSessionScrollback(endpointPath, count, skip);
+    if (!scrollbackResult.error) {
+      sourceLines = scrollbackResult.lines;
     }
   }
 

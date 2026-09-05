@@ -10,6 +10,7 @@ import { fetchSessionViewport } from '../src/commands/session-viewport';
 import { fetchControllerInfo } from '../src/commands/session-ipc';
 import { DeliveryTracker } from '../src/runtime/delivery';
 import type { RuntimeIdentity } from '../src/runtime/identity';
+import { readTranscript } from '../src/utils/transcript';
 
 const testDir = path.join(os.tmpdir(), 'airelay-e2e-test-' + process.pid + '-' + Date.now());
 const testSessionsPath = path.join(testDir, 'sessions.json');
@@ -175,6 +176,33 @@ describe('controller E2E: real IPC socket flow', () => {
     expect(transcriptLines).toContain('transcript-line-0');
     expect(transcriptLines).toContain('transcript-line-49');
     await controller.stop();
+  });
+
+  it('persists only the new rendered line after scrollback rotation', async () => {
+    const controller = new SessionController('e2e_transcript_rotation');
+    controller.onRequest(async () => ({ handled: false }));
+    await controller.start();
+    controller.feedOutput(
+      Array.from({ length: 400 }, (_, index) => `rotation-line-${index}\r\n`).join('')
+    );
+    await controller.flushViewport();
+    controller.takeSnapshot();
+
+    controller.feedOutput('rotation-line-400\r\n');
+    await controller.flushViewport();
+    controller.takeSnapshot();
+
+    const persisted = readTranscript('e2e_transcript_rotation').flatMap(
+      (snapshot) => snapshot.lines
+    );
+    await controller.stop();
+
+    const stoppedPersisted = readTranscript('e2e_transcript_rotation').flatMap(
+      (snapshot) => snapshot.lines
+    );
+    expect(persisted).toEqual([]);
+    expect(stoppedPersisted).toContain('rotation-line-400');
+    expect(stoppedPersisted).not.toContain('rotation-line-0');
   });
 
   it('prompt delivers input to controller handler via real socket', async () => {

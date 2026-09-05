@@ -6,6 +6,7 @@ export type IpcMethod =
   | 'session.info'
   | 'session.input'
   | 'session.output'
+  | 'session.scrollback'
   | 'session.viewport'
   | 'session.interrupt'
   | 'session.attach'
@@ -21,6 +22,11 @@ export interface IpcRequest {
 
 export interface SessionInfoParams {
   sessionKey?: string;
+}
+
+export interface SessionScrollbackParams {
+  lines?: number;
+  skip?: number;
 }
 
 export interface SessionInputParams {

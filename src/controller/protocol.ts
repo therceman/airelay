@@ -78,6 +78,7 @@ const VALID_METHODS: IpcMethod[] = [
   'session.input',
   'session.output',
   'session.viewport',
+  'session.scrollback',
   'session.interrupt',
   'session.attach',
   'session.detach',
