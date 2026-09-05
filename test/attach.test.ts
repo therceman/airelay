@@ -490,7 +490,7 @@ describe('attachCommand structured compatibility error', () => {
               JSON.stringify({
                 id: req.id,
                 type: 'success',
-                data: { airelayVersion: '0.1.68', controllerProtocolVersion: 1 },
+                data: { airelayVersion: '0.1.68', controllerProtocolVersion: 2 },
               }) + '\n'
             );
           } else if (req.method === 'session.attach') {

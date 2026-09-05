@@ -1,5 +1,5 @@
 import net from 'net';
-import { getAirelayVersion } from '../utils/version';
+import { CONTROLLER_PROTOCOL_VERSION, getAirelayVersion } from '../utils/version';
 import type { DeliveryStatus } from '../runtime/delivery';
 import type { RuntimeBuffers, RuntimeIdentity, RuntimeMemory } from '../runtime/identity';
 
@@ -187,6 +187,23 @@ export function checkVersionParity(controllerVersion: string): ParityResult {
   return { ok: true, warnings };
 }
 
+export function checkProtocolParity(controllerProtocolVersion?: number): ParityResult {
+  if (
+    controllerProtocolVersion === undefined ||
+    controllerProtocolVersion === CONTROLLER_PROTOCOL_VERSION
+  ) {
+    return { ok: true, warnings: [] };
+  }
+
+  return {
+    ok: false,
+    warnings: [],
+    error:
+      `Controller protocol version (${controllerProtocolVersion}) is incompatible with ` +
+      `this CLI (${CONTROLLER_PROTOCOL_VERSION}). Restart the session with current airelay.`,
+  };
+}
+
 /**
  * Preflight version parity check for a controller endpoint.
  * Connects, fetches session.info, compares versions.
@@ -197,8 +214,10 @@ export async function preflightVersionCheck(endpoint: string): Promise<ParityRes
   try {
     const info = await fetchControllerInfo(endpoint, PREFLIGHT_TIMEOUT);
     if (!info.airelayVersion) {
-      return { ok: true, warnings: [] };
+      return checkProtocolParity(info.controllerProtocolVersion);
     }
+    const protocolParity = checkProtocolParity(info.controllerProtocolVersion);
+    if (protocolParity.error) return protocolParity;
     return checkVersionParity(info.airelayVersion);
   } catch (err: unknown) {
     const nodeErr = err as Error & { code?: string };

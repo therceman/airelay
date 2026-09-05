@@ -36,16 +36,21 @@ export async function tailCommand(
 
   // A tiny terminal can expose fewer rows than requested. Fall back to the
   // controller's rendered scrollback, never to raw PTY chunk history.
-  let sourceLines = viewportResult.lines;
+  let lines: string[];
+  const sourceLines = viewportResult.lines;
   if (sourceLines.length < count + skip) {
     const scrollbackResult = await fetchSessionScrollback(endpointPath, count, skip);
-    if (!scrollbackResult.error) {
-      sourceLines = scrollbackResult.lines;
+    if (scrollbackResult.error) {
+      console.error(`Error: ${scrollbackResult.error}`);
+      return 1;
     }
+    // session.scrollback already applied lines + skip on the controller.
+    lines = scrollbackResult.lines;
+  } else {
+    const end = skip === 0 ? undefined : -skip;
+    lines = sourceLines.slice(-(count + skip), end);
   }
 
-  const end = skip === 0 ? undefined : -skip;
-  const lines = sourceLines.slice(-(count + skip), end);
   if (options?.json) {
     console.log(JSON.stringify({ session: sessionKeyOrId, lines }, null, 2));
   } else {

@@ -89,12 +89,12 @@ describe('tailCommand', () => {
     const originalLog = console.log;
     console.log = (msg: string) => logs.push(msg);
     try {
-      expect(await tailCommand(sessionKey, { lines: 5 })).toBe(0);
+      expect(await tailCommand(sessionKey, { lines: 5, skip: 3 })).toBe(0);
     } finally {
       console.log = originalLog;
     }
 
-    expect(logs).toEqual(['line 45', 'line 46', 'line 47', 'line 48', 'line 49']);
+    expect(logs).toEqual(['line 42', 'line 43', 'line 44', 'line 45', 'line 46']);
     await controller.stop();
     removeSessionByKey(sessionKey);
   });

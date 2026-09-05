@@ -16,4 +16,4 @@ export function getAirelayVersion(): string {
   return _cachedVersion as string;
 }
 
-export const CONTROLLER_PROTOCOL_VERSION = 1;
+export const CONTROLLER_PROTOCOL_VERSION = 2;

@@ -1,4 +1,8 @@
-import { checkVersionParity, preflightVersionCheck } from '../src/commands/session-ipc';
+import {
+  checkProtocolParity,
+  checkVersionParity,
+  preflightVersionCheck,
+} from '../src/commands/session-ipc';
 import { getAirelayVersion } from '../src/utils/version';
 
 describe('checkVersionParity', () => {
@@ -72,6 +76,20 @@ describe('preflightVersionCheck error policy', () => {
     const result = await preflightVersionCheck('/nonexistent/timeout_sock.sock');
     expect(result.ok).toBe(true);
     expect(result.error).toBeUndefined();
+  });
+});
+
+describe('controller protocol parity', () => {
+  it('blocks a controller using an older protocol', () => {
+    const result = checkProtocolParity(1);
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('protocol version');
+    expect(result.error).toContain('Restart the session');
+  });
+
+  it('accepts the current protocol', () => {
+    const result = checkProtocolParity(2);
+    expect(result).toEqual({ ok: true, warnings: [] });
   });
 });
 
