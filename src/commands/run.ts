@@ -15,6 +15,12 @@ import {
 } from '../utils/harness';
 import { CapacityContinuationWatcher } from '../runtime/capacity-watcher';
 import { InputSubmitWatcher } from '../runtime/input-submit-watcher';
+
+const ESC = String.fromCharCode(0x1b);
+const SGR_MOUSE_PATTERN = new RegExp(`${ESC}\\[<\\d+(?:;\\d+){2}[Mm]`, 'g');
+const X10_MOUSE_PATTERN = new RegExp(`${ESC}\\[M[\\s\\S]{3}`, 'g');
+const URXVT_MOUSE_PATTERN = new RegExp(`${ESC}\\[\\d+(?:;\\d+){2}M`, 'g');
+const FOCUS_PATTERN = new RegExp(`${ESC}\\[[IO]`, 'g');
 import { DeliveryTracker } from '../runtime/delivery';
 import { InterruptController, InterruptResult } from '../runtime/interrupt';
 import {
@@ -125,7 +131,11 @@ function setupController(
 
   controller.onRequest(async (request) => {
     if (request.method === 'session.input.raw') {
+      const data = (request.params as { data?: string })?.data ?? '';
       if (!ptyWrite.current) {
+        if (!isWakeKeyInput(data)) {
+          return { delivered: false, waking: false, ignored: 'non-key-input' };
+        }
         if (onWakeRequested) {
           await onWakeRequested();
           return { delivered: false, waking: true, raw: true };
@@ -136,7 +146,6 @@ function setupController(
           IpcErrorReasons.CONTROLLER_UNAVAILABLE
         );
       }
-      const data = (request.params as { data?: string })?.data ?? '';
       onActivity?.();
       ptyWrite.current(data);
       return { delivered: true, raw: true };
@@ -225,6 +234,26 @@ function setupController(
   });
 
   return controller;
+}
+
+/**
+ * Hibernation wake is intentionally key-only. Mouse reporting and focus
+ * notifications are terminal escape sequences, not user key input.
+ */
+function isWakeKeyInput(data: string): boolean {
+  if (data.length === 0) return false;
+
+  const withoutMouse = data
+    // SGR mouse: ESC [ < button ; x ; y M/m
+    .replace(SGR_MOUSE_PATTERN, '')
+    // X10 mouse: ESC [ M followed by three encoded bytes
+    .replace(X10_MOUSE_PATTERN, '')
+    // urxvt mouse: ESC [ button ; x ; y M
+    .replace(URXVT_MOUSE_PATTERN, '')
+    // xterm focus in/out notifications
+    .replace(FOCUS_PATTERN, '');
+
+  return withoutMouse.length > 0;
 }
 
 export async function runCommand(

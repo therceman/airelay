@@ -143,6 +143,10 @@ setInterval(() => process.stdout.write('heartbeat\\n'), 50);
     expect(hibernated.harnessPid).toBeNull();
     const runtimeId = hibernated.runtimeId;
     expect(typeof runtimeId).toBe('string');
+    await sendRaw(endpoint, '\x1b[<0;10;20M');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(readStoredRuntime().runtimeState).toBe('hibernated');
+
     await sendRaw(endpoint, 'wake');
     const argsDeadline = Date.now() + 2000;
     while (Date.now() < argsDeadline) {
