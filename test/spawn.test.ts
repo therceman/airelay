@@ -1,5 +1,14 @@
+import { EventEmitter } from 'events';
 import { spawnAndWait } from '../src/runtime/spawn';
 import { createPty } from '../src/runtime/pty';
+
+class FakeResizeSource extends EventEmitter {
+  isTTY = true;
+  columns = 143;
+  rows = 42;
+}
+
+const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe('spawnAndWait', () => {
   it('returns exit code from child process', async () => {
@@ -141,5 +150,120 @@ describe('interactive PTY handoff', () => {
         delete (stdin as unknown as { isTTY?: boolean }).isTTY;
       }
     }
+  });
+});
+
+describe('foreground PTY resize stabilization', () => {
+  it('starts the PTY at the current terminal size', async () => {
+    const source = new FakeResizeSource();
+    let output = '';
+    const pty = createPty({
+      file: 'node',
+      args: [
+        '-e',
+        'process.stdout.write(JSON.stringify([process.stdout.columns, process.stdout.rows]))',
+      ],
+      resizeSource: source,
+      onOutput: (chunk) => {
+        output += chunk;
+      },
+    });
+
+    await pty.exitCode;
+    expect(output).toContain('[143,42]');
+  });
+
+  it('coalesces a transient resize burst and forwards only a stable final size', async () => {
+    const source = new FakeResizeSource();
+    const traces: string[] = [];
+    const pty = createPty({
+      file: 'node',
+      args: ['-e', 'setTimeout(() => process.exit(0), 400)'],
+      resizeSource: source,
+      onResizeTrace: (trace) => traces.push(`${trace.kind}:${trace.cols}x${trace.rows}`),
+    });
+
+    source.rows = 42;
+    source.emit('resize');
+    await wait(15);
+    source.rows = 41;
+    source.emit('resize');
+    await wait(15);
+    source.rows = 42;
+    source.emit('resize');
+    await wait(15);
+    source.rows = 41;
+    source.emit('resize');
+    await wait(15);
+    source.rows = 42;
+    source.emit('resize');
+    await wait(120);
+
+    expect(traces.filter((trace) => trace.startsWith('forwarded:'))).toEqual([]);
+    await pty.exitCode;
+  });
+
+  it('forwards one genuine stable resize', async () => {
+    const source = new FakeResizeSource();
+    const forwarded: string[] = [];
+    const pty = createPty({
+      file: 'node',
+      args: ['-e', 'setTimeout(() => process.exit(0), 250)'],
+      resizeSource: source,
+      onResizeTrace: (trace) => {
+        if (trace.kind === 'forwarded') forwarded.push(`${trace.cols}x${trace.rows}`);
+      },
+    });
+
+    source.columns = 160;
+    source.rows = 50;
+    source.emit('resize');
+    await wait(120);
+
+    expect(forwarded).toEqual(['160x50']);
+    await pty.exitCode;
+  });
+
+  it('does not install parent resize handling for detached PTYs', async () => {
+    const source = new FakeResizeSource();
+    const traces: string[] = [];
+    const pty = createPty({
+      file: 'node',
+      args: ['-e', 'setTimeout(() => process.exit(0), 150)'],
+      resizeSource: source,
+      detached: true,
+      onResizeTrace: (trace) => traces.push(trace.kind),
+    });
+
+    source.columns = 160;
+    source.rows = 50;
+    source.emit('resize');
+    await wait(120);
+    await pty.exitCode;
+
+    expect(traces).toEqual(['initial']);
+    expect(source.listenerCount('resize')).toBe(0);
+  });
+
+  it('clears a pending resize timer and listener when the PTY exits', async () => {
+    const source = new FakeResizeSource();
+    const forwarded: string[] = [];
+    const pty = createPty({
+      file: 'node',
+      args: ['-e', 'process.exit(0)'],
+      resizeSource: source,
+      onResizeTrace: (trace) => {
+        if (trace.kind === 'forwarded') forwarded.push(`${trace.cols}x${trace.rows}`);
+      },
+    });
+
+    source.columns = 160;
+    source.rows = 50;
+    source.emit('resize');
+    await pty.exitCode;
+    await wait(100);
+
+    expect(forwarded).toEqual([]);
+    expect(source.listenerCount('resize')).toBe(0);
   });
 });

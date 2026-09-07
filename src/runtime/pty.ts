@@ -9,12 +9,33 @@ export interface PtyOptions {
   env?: Record<string, string>;
   onOutput?: (chunk: string) => void;
   onInput?: () => void;
+  /** Optional parent terminal source, primarily for deterministic tests. */
+  resizeSource?: PtyResizeSource;
+  /** Quiet period for coalescing parent terminal resize bursts. */
+  resizeDebounceMs?: number;
+  /** Bounded resize diagnostics; no PTY output is included. */
+  onResizeTrace?: (trace: PtyResizeTrace) => void;
   /**
    * Detached mode: the PTY is owned by a supervised runtime process that has
    * no inherited terminal. Output is only forwarded to onOutput (never to
    * the parent stdout), and no stdin/resize listeners are attached.
    */
   detached?: boolean;
+}
+
+export interface PtyResizeSource {
+  isTTY?: boolean;
+  columns?: number;
+  rows?: number;
+  on(event: 'resize', listener: () => void): void;
+  removeListener(event: 'resize', listener: () => void): void;
+}
+
+export interface PtyResizeTrace {
+  kind: 'initial' | 'outer' | 'forwarded';
+  cols: number;
+  rows: number;
+  timestamp: number;
 }
 
 export interface PtyInstance {
@@ -26,8 +47,9 @@ export interface PtyInstance {
 }
 
 export function createPty(options: PtyOptions): PtyInstance {
-  const cols = options.cols ?? (process.stdout.isTTY ? process.stdout.columns : 80);
-  const rows = options.rows ?? (process.stdout.isTTY ? process.stdout.rows : 24);
+  const resizeSource = options.resizeSource ?? process.stdout;
+  const cols = options.cols ?? (resizeSource.isTTY ? (resizeSource.columns ?? 80) : 80);
+  const rows = options.rows ?? (resizeSource.isTTY ? (resizeSource.rows ?? 24) : 24);
 
   const term = pty.spawn(options.file, options.args, {
     name: 'xterm-256color',
@@ -38,12 +60,54 @@ export function createPty(options: PtyOptions): PtyInstance {
   });
   let currentCols = cols;
   let currentRows = rows;
+  let pendingResize: { cols: number; rows: number } | null = null;
+  let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+  let traceCount = 0;
+  const traceLimit = 128;
+  const traceResize = (kind: PtyResizeTrace['kind'], nextCols: number, nextRows: number): void => {
+    if (traceCount >= traceLimit) return;
+    traceCount += 1;
+    const trace: PtyResizeTrace = {
+      kind,
+      cols: nextCols,
+      rows: nextRows,
+      timestamp: Date.now(),
+    };
+    options.onResizeTrace?.(trace);
+    if (process.env.AIRELAY_DEBUG_PTY_RESIZE === '1') {
+      console.error(
+        `[airelay:pty-resize] ${trace.kind} ${trace.cols}x${trace.rows} ${trace.timestamp}`
+      );
+    }
+  };
+  traceResize('initial', cols, rows);
+  const cancelPendingResize = (): void => {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = null;
+    pendingResize = null;
+  };
   const resizeIfChanged = (nextCols: number, nextRows: number): void => {
     if (nextCols <= 0 || nextRows <= 0) return;
+    cancelPendingResize();
     if (currentCols === nextCols && currentRows === nextRows) return;
     term.resize(nextCols, nextRows);
     currentCols = nextCols;
     currentRows = nextRows;
+    traceResize('forwarded', nextCols, nextRows);
+  };
+  const scheduleOuterResize = (nextCols: number, nextRows: number): void => {
+    traceResize('outer', nextCols, nextRows);
+    pendingResize = { cols: nextCols, rows: nextRows };
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(
+      () => {
+        resizeTimer = null;
+        const next = pendingResize;
+        pendingResize = null;
+        if (next) resizeIfChanged(next.cols, next.rows);
+      },
+      Math.max(0, options.resizeDebounceMs ?? 75)
+    );
   };
 
   // Forward PTY output to parent's stdout and optional onOutput callback.
@@ -88,18 +152,19 @@ export function createPty(options: PtyOptions): PtyInstance {
 
   // Forward terminal resize events to PTY.
   // Detached runtimes have no parent terminal to watch.
-  if (!options.detached && process.stdout.isTTY) {
+  if (!options.detached && resizeSource.isTTY) {
     const onResize = (): void => {
-      const c = process.stdout.columns;
-      const r = process.stdout.rows;
+      const c = resizeSource.columns;
+      const r = resizeSource.rows;
       if (c && r) {
-        resizeIfChanged(c, r);
+        scheduleOuterResize(c, r);
       }
     };
-    process.stdout.on('resize', onResize);
+    resizeSource.on('resize', onResize);
     cleanups.push(() => {
       try {
-        process.stdout.removeListener('resize', onResize);
+        resizeSource.removeListener('resize', onResize);
+        cancelPendingResize();
       } catch {
         // Ignore cleanup errors
       }
