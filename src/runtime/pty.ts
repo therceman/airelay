@@ -36,6 +36,15 @@ export function createPty(options: PtyOptions): PtyInstance {
     cwd: options.cwd,
     env: { ...process.env, ...options.env } as { [key: string]: string },
   });
+  let currentCols = cols;
+  let currentRows = rows;
+  const resizeIfChanged = (nextCols: number, nextRows: number): void => {
+    if (nextCols <= 0 || nextRows <= 0) return;
+    if (currentCols === nextCols && currentRows === nextRows) return;
+    term.resize(nextCols, nextRows);
+    currentCols = nextCols;
+    currentRows = nextRows;
+  };
 
   // Forward PTY output to parent's stdout and optional onOutput callback.
   // In detached mode, output is only fed to onOutput (the controller's ring
@@ -84,7 +93,7 @@ export function createPty(options: PtyOptions): PtyInstance {
       const c = process.stdout.columns;
       const r = process.stdout.rows;
       if (c && r) {
-        term.resize(c, r);
+        resizeIfChanged(c, r);
       }
     };
     process.stdout.on('resize', onResize);
@@ -115,6 +124,6 @@ export function createPty(options: PtyOptions): PtyInstance {
     pid: term.pid,
     exitCode: exitPromise,
     kill: (signal?: string) => term.kill(signal),
-    resize: (cols: number, rows: number) => term.resize(cols, rows),
+    resize: resizeIfChanged,
   };
 }
