@@ -120,8 +120,7 @@ function setupController(
   onInterrupt?: () => Promise<InterruptResult>,
   onWakeRequested?: () => Promise<void>,
   onActivity?: () => void,
-  waitForInputReady?: () => Promise<void>,
-  onInputPrepared?: (deliveryId: string, text: string, submitValue: string) => void
+  waitForInputReady?: () => Promise<void>
 ) {
   const controller = new SessionController(sessionKey);
   controller.setDeliveryStatusProvider(() => deliveryTracker.get());
@@ -198,7 +197,6 @@ function setupController(
       const submit = params.enter;
       if (submit !== false && submit !== undefined) {
         const byte = typeof submit === 'string' ? submit : '\r';
-        onInputPrepared?.(deliveryId, text, byte);
         // Small delay before submit to let the app process text input first.
         // Without this, the submit byte can land in the wrong buffer position
         // and produce a newline instead of submit (especially under tmux).
@@ -407,10 +405,7 @@ export async function runCommand(
             if (deliveryId) deliveryTracker.markSubmitAcknowledged(deliveryId);
           },
           onRetry: (deliveryId) => {
-            if (deliveryId) {
-              deliveryTracker.markSubmitRetry(deliveryId);
-              if (activeTurnGeneration === undefined) beginTurn(deliveryId);
-            }
+            if (deliveryId) deliveryTracker.markSubmitRetry(deliveryId);
           },
           onExhausted: (deliveryId) => {
             if (deliveryId) {
@@ -431,14 +426,16 @@ export async function runCommand(
     ptyWriteRef,
     ptyResizeRef,
     deliveryTracker,
-    (deliveryId) => beginTurn(deliveryId),
+    (deliveryId, text, submitValue) => {
+      beginTurn(deliveryId);
+      inputWatcher?.track(text, submitValue, deliveryId);
+    },
     () =>
       interruptController?.request() ||
       Promise.resolve({ outcome: 'unsupported', requested: false } as InterruptResult),
     requestWake,
     () => resetHibernateTimer(),
-    waitForInputReady,
-    (deliveryId, text, submitValue) => inputWatcher?.track(text, submitValue, deliveryId)
+    waitForInputReady
   );
   controllerRef = controller;
   controller.setRuntimeInfoProvider(() => ({ ...runtime }));
