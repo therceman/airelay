@@ -172,8 +172,14 @@ setInterval(() => process.stdout.write('heartbeat\\n'), 50);
     await sendRaw(endpoint, '\x1b[<0;10;20M');
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(readStoredRuntime().runtimeState).toBe('hibernated');
+    await sendRaw(endpoint, '\x1b[I');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(readStoredRuntime().runtimeState).toBe('hibernated');
+    await sendRaw(endpoint, 'x');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(readStoredRuntime().runtimeState).toBe('hibernated');
 
-    await sendRaw(endpoint, 'wake');
+    await sendRaw(endpoint, ' ');
     const argsDeadline = Date.now() + 2000;
     while (Date.now() < argsDeadline) {
       if (

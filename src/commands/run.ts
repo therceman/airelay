@@ -16,11 +16,6 @@ import {
 import { CapacityContinuationWatcher } from '../runtime/capacity-watcher';
 import { InputSubmitWatcher } from '../runtime/input-submit-watcher';
 
-const ESC = String.fromCharCode(0x1b);
-const SGR_MOUSE_PATTERN = new RegExp(`${ESC}\\[<\\d+(?:;\\d+){2}[Mm]`, 'g');
-const X10_MOUSE_PATTERN = new RegExp(`${ESC}\\[M[\\s\\S]{3}`, 'g');
-const URXVT_MOUSE_PATTERN = new RegExp(`${ESC}\\[\\d+(?:;\\d+){2}M`, 'g');
-const FOCUS_PATTERN = new RegExp(`${ESC}\\[[IO]`, 'g');
 import { DeliveryTracker } from '../runtime/delivery';
 import { InterruptController, InterruptResult } from '../runtime/interrupt';
 import {
@@ -236,24 +231,9 @@ function setupController(
   return controller;
 }
 
-/**
- * Hibernation wake is intentionally key-only. Mouse reporting and focus
- * notifications are terminal escape sequences, not user key input.
- */
+/** Hibernation wake is explicit: only Space wakes raw/attached input. */
 function isWakeKeyInput(data: string): boolean {
-  if (data.length === 0) return false;
-
-  const withoutMouse = data
-    // SGR mouse: ESC [ < button ; x ; y M/m
-    .replace(SGR_MOUSE_PATTERN, '')
-    // X10 mouse: ESC [ M followed by three encoded bytes
-    .replace(X10_MOUSE_PATTERN, '')
-    // urxvt mouse: ESC [ button ; x ; y M
-    .replace(URXVT_MOUSE_PATTERN, '')
-    // xterm focus in/out notifications
-    .replace(FOCUS_PATTERN, '');
-
-  return withoutMouse.length > 0;
+  return data === ' ';
 }
 
 export async function runCommand(
@@ -336,7 +316,7 @@ export async function runCommand(
     if (!wakeRequested && wakeSignal) {
       if (!options?.detached && process.stdin.isTTY) {
         const onWakeKey = (chunk: Buffer): void => {
-          if (chunk.length > 0) void requestWake();
+          if (isWakeKeyInput(chunk.toString())) void requestWake();
         };
         const stdinWasFlowing = process.stdin.readableFlowing;
         process.stdin.setRawMode?.(true);
@@ -501,7 +481,7 @@ export async function runCommand(
       `\x1b[2J\x1b[HAgent hibernated [${label}]\r\n` +
       `Session: ${detectedProfileSessionId}\r\n` +
       `Project: ${cwd}\r\n\r\n` +
-      'Press any key to wake\r\n';
+      'Press Space to wake\r\n';
     // Keep the controller's viewport/attach stream truthful while the child
     // process is gone. This also gives detached clients a useful idle screen.
     controller.feedOutput(screen);
