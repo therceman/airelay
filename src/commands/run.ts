@@ -481,7 +481,7 @@ export async function runCommand(
       `\x1b[2J\x1b[HAgent hibernated [${label}]\r\n` +
       `Session: ${detectedProfileSessionId}\r\n` +
       `Project: ${cwd}\r\n\r\n` +
-      'Press Space to wake\r\n';
+      'Press [space] to wake up\r\n';
     // Keep the controller's viewport/attach stream truthful while the child
     // process is gone. This also gives detached clients a useful idle screen.
     controller.feedOutput(screen);
