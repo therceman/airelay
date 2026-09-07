@@ -190,6 +190,16 @@ setInterval(() => process.stdout.write('heartbeat\\n'), 50);
       }
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
+    const sizeDeadline = Date.now() + 2000;
+    while (Date.now() < sizeDeadline) {
+      if (
+        fs.existsSync(sizeLogPath) &&
+        fs.readFileSync(sizeLogPath, 'utf-8').trim().split('\n').length >= 2
+      ) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
     const launches = fs
       .readFileSync(argsLogPath, 'utf-8')
       .trim()
