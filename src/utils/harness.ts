@@ -94,6 +94,9 @@ export interface HarnessCapabilities {
     pendingInputMarkers?: string[];
   };
 
+  /** Terminal markers that mean the harness is still restoring its prompt. */
+  inputBlockedMarkers?: string[];
+
   /** Native terminal control used to interrupt an active turn without killing the PTY. */
   interrupt?: {
     value?: string;
@@ -137,6 +140,7 @@ const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
       maxWindowMs: 10000,
       pendingInputMarkers: ['[Pasted Content ', '[Paste '],
     },
+    inputBlockedMarkers: ['Resuming session…', 'Resuming session...'],
     selfUpdateDisabled: {
       args: ['-c', 'check_for_update_on_startup=false'],
     },

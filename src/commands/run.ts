@@ -119,7 +119,9 @@ function setupController(
   onInputInjected?: (deliveryId: string, text: string, submitValue: string) => void,
   onInterrupt?: () => Promise<InterruptResult>,
   onWakeRequested?: () => Promise<void>,
-  onActivity?: () => void
+  onActivity?: () => void,
+  waitForInputReady?: () => Promise<void>,
+  onInputPrepared?: (deliveryId: string, text: string, submitValue: string) => void
 ) {
   const controller = new SessionController(sessionKey);
   controller.setDeliveryStatusProvider(() => deliveryTracker.get());
@@ -168,6 +170,7 @@ function setupController(
           IpcErrorReasons.NOT_PROMPTABLE
         );
       }
+      await waitForInputReady?.();
 
       const params = request.params as {
         text?: string;
@@ -194,6 +197,8 @@ function setupController(
       }
       const submit = params.enter;
       if (submit !== false && submit !== undefined) {
+        const byte = typeof submit === 'string' ? submit : '\r';
+        onInputPrepared?.(deliveryId, text, byte);
         // Small delay before submit to let the app process text input first.
         // Without this, the submit byte can land in the wrong buffer position
         // and produce a newline instead of submit (especially under tmux).
@@ -204,7 +209,6 @@ function setupController(
         if (delayMs > 0) {
           await new Promise((resolve) => setTimeout(resolve, delayMs));
         }
-        const byte = typeof submit === 'string' ? submit : '\r';
         try {
           ptyWrite.current(byte);
         } catch (error) {
@@ -371,6 +375,28 @@ export async function runCommand(
       })
     : null;
   const inputRetry = harnessCapabilities.inputSubmitRetry;
+  const waitForInputReady = async (): Promise<void> => {
+    const markers = harnessCapabilities.inputBlockedMarkers || [];
+    if (markers.length === 0) return;
+
+    const deadline = Date.now() + 20000;
+    while (Date.now() < deadline) {
+      const viewport = controller.getLiveViewportLines();
+      if (!markers.some((marker) => viewport.some((line) => line.includes(marker)))) return;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  };
+  const beginTurn = (deliveryId: string): void => {
+    turnGeneration += 1;
+    activeTurnGeneration = turnGeneration;
+    currentDeliveryId = deliveryId;
+    workingSeen = false;
+    if (completionTimer) {
+      clearTimeout(completionTimer);
+      completionTimer = null;
+    }
+    resetHibernateTimer();
+  };
   const inputWatcher =
     usePty && inputRetry
       ? new InputSubmitWatcher({
@@ -381,7 +407,10 @@ export async function runCommand(
             if (deliveryId) deliveryTracker.markSubmitAcknowledged(deliveryId);
           },
           onRetry: (deliveryId) => {
-            if (deliveryId) deliveryTracker.markSubmitRetry(deliveryId);
+            if (deliveryId) {
+              deliveryTracker.markSubmitRetry(deliveryId);
+              if (activeTurnGeneration === undefined) beginTurn(deliveryId);
+            }
           },
           onExhausted: (deliveryId) => {
             if (deliveryId) {
@@ -402,23 +431,14 @@ export async function runCommand(
     ptyWriteRef,
     ptyResizeRef,
     deliveryTracker,
-    (deliveryId, text, submitValue) => {
-      turnGeneration += 1;
-      activeTurnGeneration = turnGeneration;
-      currentDeliveryId = deliveryId;
-      workingSeen = false;
-      if (completionTimer) {
-        clearTimeout(completionTimer);
-        completionTimer = null;
-      }
-      inputWatcher?.track(text, submitValue, deliveryId);
-      resetHibernateTimer();
-    },
+    (deliveryId) => beginTurn(deliveryId),
     () =>
       interruptController?.request() ||
       Promise.resolve({ outcome: 'unsupported', requested: false } as InterruptResult),
     requestWake,
-    () => resetHibernateTimer()
+    () => resetHibernateTimer(),
+    waitForInputReady,
+    (deliveryId, text, submitValue) => inputWatcher?.track(text, submitValue, deliveryId)
   );
   controllerRef = controller;
   controller.setRuntimeInfoProvider(() => ({ ...runtime }));

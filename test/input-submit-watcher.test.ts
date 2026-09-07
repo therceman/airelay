@@ -26,6 +26,10 @@ describe('input submit watcher', () => {
       maxWindowMs: 10000,
       pendingInputMarkers: ['[Pasted Content ', '[Paste '],
     });
+    expect(getHarnessCapabilities('codex').inputBlockedMarkers).toEqual([
+      'Resuming session…',
+      'Resuming session...',
+    ]);
   });
 
   it('declares provider-specific self-update suppression', () => {
