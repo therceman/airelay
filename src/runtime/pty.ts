@@ -3,6 +3,8 @@ import * as pty from 'node-pty';
 export interface PtyOptions {
   file: string;
   args: string[];
+  cols?: number;
+  rows?: number;
   cwd?: string;
   env?: Record<string, string>;
   onOutput?: (chunk: string) => void;
@@ -24,8 +26,8 @@ export interface PtyInstance {
 }
 
 export function createPty(options: PtyOptions): PtyInstance {
-  const cols = process.stdout.isTTY ? process.stdout.columns : 80;
-  const rows = process.stdout.isTTY ? process.stdout.rows : 24;
+  const cols = options.cols ?? (process.stdout.isTTY ? process.stdout.columns : 80);
+  const rows = options.rows ?? (process.stdout.isTTY ? process.stdout.rows : 24);
 
   const term = pty.spawn(options.file, options.args, {
     name: 'xterm-256color',

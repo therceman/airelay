@@ -12,6 +12,7 @@ export interface SpawnOptions {
   trackPID?: boolean;
   usePty?: boolean;
   detached?: boolean;
+  getPtySize?: () => { cols: number; rows: number };
   onPtyReady?: (pty: {
     pid: number;
     write: (data: string) => void;
@@ -101,10 +102,13 @@ export function spawnAndWait(options: SpawnOptions): Promise<number> {
 
 async function spawnAndWaitPty(options: SpawnOptions): Promise<number> {
   const execPath = findExecutablePath(options.executable);
+  const ptySize = options.getPtySize?.();
 
   const pty = createPty({
     file: execPath,
     args: options.args || [],
+    cols: ptySize?.cols,
+    rows: ptySize?.rows,
     cwd: options.cwd,
     env: options.env,
     onOutput: options.onOutput,

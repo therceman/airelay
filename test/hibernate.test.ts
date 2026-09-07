@@ -61,6 +61,29 @@ function sendRaw(endpoint: string, data: string): Promise<void> {
   });
 }
 
+function sendResize(endpoint: string, cols: number, rows: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(endpoint);
+    const timer = setTimeout(() => {
+      socket.destroy();
+      resolve();
+    }, 100);
+    socket.on('connect', () => {
+      socket.write(
+        JSON.stringify({
+          id: `resize-${Date.now()}`,
+          method: 'session.resize',
+          params: { cols, rows },
+        }) + '\n'
+      );
+    });
+    socket.on('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
+}
+
 async function waitForHibernatedScreen(endpoint: string): Promise<void> {
   const deadline = Date.now() + 2000;
   while (Date.now() < deadline) {
@@ -82,6 +105,7 @@ describe('automatic hibernation', () => {
   const originalLog = console.log;
   const harnessPath = path.join(testEnv.testDir, 'codex-wake-test');
   const argsLogPath = path.join(testEnv.testDir, 'codex-args.log');
+  const sizeLogPath = path.join(testEnv.testDir, 'codex-size.log');
 
   beforeEach(() => {
     fs.writeFileSync(
@@ -89,6 +113,7 @@ describe('automatic hibernation', () => {
       `#!/usr/bin/env node
 const fs = require('fs');
 fs.appendFileSync(process.env.AIRELAY_TEST_ARGS_LOG, JSON.stringify(process.argv.slice(2)) + '\\n');
+fs.appendFileSync(process.env.AIRELAY_TEST_SIZE_LOG, JSON.stringify([process.stdout.columns, process.stdout.rows]) + '\\n');
 setInterval(() => process.stdout.write('heartbeat\\n'), 50);
 `
     );
@@ -105,7 +130,7 @@ setInterval(() => process.stdout.write('heartbeat\\n'), 50);
         profiles: {
           sleeper: {
             executable: harnessPath,
-            env: { AIRELAY_TEST_ARGS_LOG: argsLogPath },
+            env: { AIRELAY_TEST_ARGS_LOG: argsLogPath, AIRELAY_TEST_SIZE_LOG: sizeLogPath },
           },
         },
       })
@@ -136,6 +161,7 @@ setInterval(() => process.stdout.write('heartbeat\\n'), 50);
     }
     expect(endpoint).toBeTruthy();
 
+    await sendResize(endpoint, 100, 40);
     await waitForHibernatedScreen(endpoint);
     const hibernated = readStoredRuntime();
     expect(hibernated.runtimeState).toBe('hibernated');
@@ -167,6 +193,15 @@ setInterval(() => process.stdout.write('heartbeat\\n'), 50);
     expect(launches.slice(0, 2)).toEqual([
       ['-c', 'check_for_update_on_startup=false', 'resume', 'native-session'],
       ['-c', 'check_for_update_on_startup=false', 'resume', 'native-session'],
+    ]);
+    const sizes = fs
+      .readFileSync(sizeLogPath, 'utf-8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as number[]);
+    expect(sizes.slice(0, 2)).toEqual([
+      [100, 40],
+      [100, 40],
     ]);
     const running = readStoredRuntime();
     expect(running.runtimeState).toBe('running');

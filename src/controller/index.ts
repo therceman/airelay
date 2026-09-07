@@ -138,8 +138,15 @@ export class SessionController {
     return this.socketPath;
   }
 
-  resize(cols: number, rows: number): void {
-    if (cols > 0 && rows > 0) this.terminal.resize(cols, rows);
+  resize(cols: number, rows: number): boolean {
+    if (cols <= 0 || rows <= 0) return false;
+    if (this.terminal.cols === cols && this.terminal.rows === rows) return false;
+    this.terminal.resize(cols, rows);
+    return true;
+  }
+
+  getTerminalSize(): { cols: number; rows: number } {
+    return { cols: this.terminal.cols, rows: this.terminal.rows };
   }
 
   /** Flush pending xterm writes, returning when all data is processed. */

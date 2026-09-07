@@ -291,6 +291,7 @@ export async function runCommand(
   const ptyResizeRef: { current: ((cols: number, rows: number) => void) | null } = {
     current: null,
   };
+  const ptySizeRef: { current: { cols: number; rows: number } | null } = { current: null };
   const ptyKillRef: { current: ((signal?: string) => void) | null } = { current: null };
   const usePty = options?.usePty === true;
   const detectedProfileSessionId = options?.profileSessionId || detectResumeSessionId(args);
@@ -647,19 +648,28 @@ export async function runCommand(
     trackPID: true,
     usePty,
     detached: options?.detached === true,
+    getPtySize: () =>
+      process.stdout.isTTY
+        ? { cols: process.stdout.columns, rows: process.stdout.rows }
+        : controller.getTerminalSize(),
   };
 
   if (usePty) {
     spawnOpts.onPtyReady = (pty) => {
       ptyWriteRef.current = pty.write;
-      ptyResizeRef.current = (cols, rows) => pty.resize(cols, rows);
+      ptyResizeRef.current = (cols, rows) => {
+        if (ptySizeRef.current?.cols === cols && ptySizeRef.current.rows === rows) return;
+        pty.resize(cols, rows);
+        ptySizeRef.current = { cols, rows };
+      };
       ptyKillRef.current = pty.kill;
       runtime.harnessPid = pty.pid;
       runtime.runtimeState = 'running';
       persistRuntimeState();
       const cols = process.stdout.isTTY ? process.stdout.columns : 80;
       const rows = process.stdout.isTTY ? process.stdout.rows : 24;
-      controller.resize(cols, rows);
+      if (process.stdout.isTTY) controller.resize(cols, rows);
+      ptySizeRef.current = controller.getTerminalSize();
       // Record the PID used for liveness pruning. For a detached runtime the
       // session is serviced by the runtime/controller process (this process),
       // so liveness must track that PID — not the harness agent PID — to keep
@@ -720,6 +730,7 @@ export async function runCommand(
       ptyWriteRef.current = null;
       ptyResizeRef.current = null;
       ptyKillRef.current = null;
+      ptySizeRef.current = null;
 
       if (!hibernateRequested) {
         runtime.runtimeState = 'stopping';
