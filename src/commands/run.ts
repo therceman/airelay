@@ -120,7 +120,8 @@ function setupController(
   onInterrupt?: () => Promise<InterruptResult>,
   onWakeRequested?: () => Promise<void>,
   onActivity?: () => void,
-  waitForInputReady?: () => Promise<void>
+  waitForInputReady?: () => Promise<void>,
+  onInputPrepared?: (deliveryId: string, text: string, submitValue: string) => void
 ) {
   const controller = new SessionController(sessionKey);
   controller.setDeliveryStatusProvider(() => deliveryTracker.get());
@@ -197,6 +198,9 @@ function setupController(
       const submit = params.enter;
       if (submit !== false && submit !== undefined) {
         const byte = typeof submit === 'string' ? submit : '\r';
+        // This is only for command-driven session.input. Raw terminal typing
+        // never enters the watcher, so unfinished manual input is untouched.
+        onInputPrepared?.(deliveryId, text, byte);
         // Small delay before submit to let the app process text input first.
         // Without this, the submit byte can land in the wrong buffer position
         // and produce a newline instead of submit (especially under tmux).
@@ -405,7 +409,10 @@ export async function runCommand(
             if (deliveryId) deliveryTracker.markSubmitAcknowledged(deliveryId);
           },
           onRetry: (deliveryId) => {
-            if (deliveryId) deliveryTracker.markSubmitRetry(deliveryId);
+            if (deliveryId) {
+              deliveryTracker.markSubmitRetry(deliveryId);
+              if (activeTurnGeneration === undefined) beginTurn(deliveryId);
+            }
           },
           onExhausted: (deliveryId) => {
             if (deliveryId) {
@@ -435,7 +442,8 @@ export async function runCommand(
       Promise.resolve({ outcome: 'unsupported', requested: false } as InterruptResult),
     requestWake,
     () => resetHibernateTimer(),
-    waitForInputReady
+    waitForInputReady,
+    (deliveryId, text, submitValue) => inputWatcher?.track(text, submitValue, deliveryId)
   );
   controllerRef = controller;
   controller.setRuntimeInfoProvider(() => ({ ...runtime }));
