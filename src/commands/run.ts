@@ -25,9 +25,15 @@ import {
 } from '../runtime/detached-registry';
 import fs from 'fs';
 import { ensureCodexProfileStandalone } from '../utils/codex-standalone';
-import { isInputReady, isInputTextVisible } from '../runtime/input-submit-watcher';
+import { isInputTextVisible } from '../runtime/input-submit-watcher';
 import { parseDurationMs } from '../utils/duration';
 import { createRuntimeIdentity, RuntimeIdentity } from '../runtime/identity';
+import {
+  waitForInputProbe,
+  WAKE_INPUT_PROBE_ERASE_TIMEOUT_MS,
+  WAKE_INPUT_PROBE_POLL_MS,
+  WAKE_INPUT_PROBE_TIMEOUT_MS,
+} from '../runtime/input-probe';
 
 function generateSessionKey(profileName: string): string {
   const suffix = Math.random().toString(36).slice(2, 6);
@@ -121,7 +127,8 @@ function setupController(
   onWakeRequested?: () => Promise<void>,
   onActivity?: () => void,
   waitForInputReady?: () => Promise<void>,
-  onInputPrepared?: (deliveryId: string, text: string, submitValue: string) => void
+  onInputPrepared?: (deliveryId: string, text: string, submitValue: string) => void,
+  waitForInputVisible?: (text: string) => Promise<void>
 ) {
   const controller = new SessionController(sessionKey);
   controller.setDeliveryStatusProvider(() => deliveryTracker.get());
@@ -191,6 +198,7 @@ function setupController(
       try {
         onActivity?.();
         ptyWrite.current(text);
+        await waitForInputVisible?.(text);
       } catch (error) {
         deliveryTracker.markFailure(deliveryId, controller.getLiveViewportLines());
         throw error;
@@ -380,30 +388,36 @@ export async function runCommand(
     : null;
   const inputRetry = harnessCapabilities.inputSubmitRetry;
   const waitForInputReady = async (): Promise<void> => {
-    const markers = harnessCapabilities.inputBlockedMarkers || [];
-    const readyMarkers = wakeNeedsInputReady ? harnessCapabilities.inputReadyMarkers || [] : [];
-    if (markers.length === 0 && readyMarkers.length === 0) return;
+    if (!wakeNeedsInputReady) return;
 
-    const deadline = Date.now() + 20000;
-    let readySince = 0;
-    while (Date.now() < deadline) {
-      const viewport = controller.getLiveViewportLines();
-      if (isInputReady(viewport, markers, readyMarkers)) {
-        if (readyMarkers.length === 0) {
-          wakeNeedsInputReady = false;
-          return;
-        }
-        if (readySince === 0) readySince = Date.now();
-        if (Date.now() - readySince >= 100) {
-          wakeNeedsInputReady = false;
-          return;
-        }
-      } else {
-        readySince = 0;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 100));
+    const write = ptyWriteRef.current;
+    if (!write) {
+      wakeNeedsInputReady = false;
+      throw new IpcError(
+        IpcErrorCodes.INTERNAL_ERROR,
+        'Prompt readiness probe unavailable: the session PTY is not ready.',
+        IpcErrorReasons.NOT_PROMPTABLE
+      );
     }
-    wakeNeedsInputReady = false;
+
+    try {
+      await waitForInputProbe({
+        write,
+        readViewport: () => controller.getLiveViewportLines(),
+        timeoutMs: WAKE_INPUT_PROBE_TIMEOUT_MS,
+        eraseTimeoutMs: WAKE_INPUT_PROBE_ERASE_TIMEOUT_MS,
+        pollIntervalMs: WAKE_INPUT_PROBE_POLL_MS,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'unknown probe failure';
+      throw new IpcError(
+        IpcErrorCodes.INTERNAL_ERROR,
+        `${message} No prompt was sent.`,
+        IpcErrorReasons.NOT_PROMPTABLE
+      );
+    } finally {
+      wakeNeedsInputReady = false;
+    }
   };
   const beginTurn = (deliveryId: string): void => {
     turnGeneration += 1;
@@ -459,7 +473,23 @@ export async function runCommand(
     requestWake,
     () => resetHibernateTimer(),
     waitForInputReady,
-    (deliveryId, text, submitValue) => inputWatcher?.track(text, submitValue, deliveryId)
+    (deliveryId, text, submitValue) => inputWatcher?.track(text, submitValue, deliveryId),
+    async (text) => {
+      if (!text.trim()) return;
+      const deadline = Date.now() + (inputRetry?.maxWindowMs ?? 5000);
+      while (Date.now() < deadline) {
+        if (
+          isInputTextVisible(
+            text,
+            controller.getLiveViewportLines(),
+            inputRetry?.pendingInputMarkers
+          )
+        ) {
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
   );
   controllerRef = controller;
   controller.setRuntimeInfoProvider(() => ({ ...runtime }));

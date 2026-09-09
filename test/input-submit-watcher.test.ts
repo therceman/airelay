@@ -1,8 +1,4 @@
-import {
-  InputSubmitWatcher,
-  isInputReady,
-  isInputTextVisible,
-} from '../src/runtime/input-submit-watcher';
+import { InputSubmitWatcher, isInputTextVisible } from '../src/runtime/input-submit-watcher';
 import { getHarnessCapabilities, getHarnessSelfUpdateOverrides } from '../src/utils/harness';
 
 describe('input submit watcher', () => {
@@ -30,17 +26,6 @@ describe('input submit watcher', () => {
       maxWindowMs: 10000,
       pendingInputMarkers: ['[Pasted Content ', '[Paste '],
     });
-    expect(getHarnessCapabilities('codex').inputBlockedMarkers).toEqual([
-      'Resuming session…',
-      'Resuming session...',
-    ]);
-    expect(getHarnessCapabilities('codex').inputReadyMarkers).toEqual(['›']);
-  });
-
-  it('requires a declared prompt after wake and rejects restoring screens', () => {
-    expect(isInputReady(['Resuming session…', '›'], ['Resuming session…'], ['›'])).toBe(false);
-    expect(isInputReady(['restored transcript'], ['Resuming session…'], ['›'])).toBe(false);
-    expect(isInputReady(['›'], ['Resuming session…'], ['›'])).toBe(true);
   });
 
   it('declares provider-specific self-update suppression', () => {

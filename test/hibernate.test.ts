@@ -85,7 +85,7 @@ function sendResize(endpoint: string, cols: number, rows: number): Promise<void>
 }
 
 async function waitForHibernatedScreen(endpoint: string): Promise<void> {
-  const deadline = Date.now() + 2000;
+  const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
     const response = await request(endpoint, 'session.viewport');
     if (response.data?.lines?.some((line) => line.includes('Agent hibernated'))) return;
@@ -227,5 +227,5 @@ setInterval(() => process.stdout.write('heartbeat\\n'), 50);
     await sendRaw(endpoint, '\u0003');
 
     await expect(runPromise).resolves.toBeDefined();
-  }, 10000);
+  }, 15000);
 });
