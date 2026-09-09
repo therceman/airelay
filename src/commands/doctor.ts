@@ -7,10 +7,12 @@ import fs from 'fs';
 export interface DoctorResult {
   ok: boolean;
   errors: string[];
+  warnings: string[];
 }
 
 export function doctorCommand(profileName?: string): DoctorResult {
   const errors: string[] = [];
+  const warnings: string[] = [];
 
   let config;
   try {
@@ -24,13 +26,13 @@ export function doctorCommand(profileName?: string): DoctorResult {
     } else {
       errors.push(`Config error: ${msg}`);
     }
-    return { ok: false, errors };
+    return { ok: false, errors, warnings };
   }
 
   const configPath = getConfigPath();
   if (!fs.existsSync(configPath)) {
     errors.push(`Config file not found: ${configPath}\nRun 'airelay init' to create a config.`);
-    return { ok: false, errors };
+    return { ok: false, errors, warnings };
   }
 
   const profiles = profileName ? { [profileName]: config.profiles[profileName] } : config.profiles;
@@ -40,6 +42,15 @@ export function doctorCommand(profileName?: string): DoctorResult {
     if (!p) {
       errors.push(`Profile not found: ${name}`);
       continue;
+    }
+
+    if (isLegacyInitCodexProfile(name, p)) {
+      warnings.push(
+        `Profile ${name}: uses the legacy init-generated CODEX_HOME at ${expandTilde(p.env!.CODEX_HOME!)}. ` +
+          'The native shared profile should omit CODEX_HOME. Run ' +
+          '`airelay config unset profiles.codex.env.CODEX_HOME` to use ~/.codex. ' +
+          'The old profile directory is not removed automatically.'
+      );
     }
 
     if (!p.executable) {
@@ -91,7 +102,16 @@ export function doctorCommand(profileName?: string): DoctorResult {
     }
   }
 
-  return { ok: errors.length === 0, errors };
+  return { ok: errors.length === 0, errors, warnings };
+}
+
+function isLegacyInitCodexProfile(name: string, profile: Profile): boolean {
+  const configuredHome = profile.env?.CODEX_HOME;
+  if (name !== 'codex' || profile.executable !== 'codex' || !configuredHome) {
+    return false;
+  }
+
+  return expandTilde(configuredHome) === expandTilde('~/.airelay/codex');
 }
 
 function isWritable(dir: string): boolean {

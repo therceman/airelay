@@ -2,6 +2,7 @@ import { initCommand } from '../src/commands/init';
 import fs from 'fs';
 import path from 'path';
 import { useTestEnv } from './test-utils';
+import { loadConfig } from '../src/config/load';
 
 describe('initCommand', () => {
   const testEnv = useTestEnv();
@@ -22,6 +23,14 @@ describe('initCommand', () => {
     const content = fs.readFileSync(testConfigPath, 'utf-8');
     expect(content).toContain('version: 1');
     expect(content).toContain('profiles:');
+  });
+
+  it('creates the detected codex profile without overriding the native Codex home', () => {
+    initCommand(true, (name) => (name === 'codex' ? '/usr/local/bin/codex' : null));
+
+    const config = loadConfig(testConfigPath);
+    expect(config.profiles.codex).toEqual({ executable: 'codex' });
+    expect(fs.existsSync(path.join(testEnv.testDir, 'codex'))).toBe(false);
   });
 
   it('does not overwrite existing config without force', () => {

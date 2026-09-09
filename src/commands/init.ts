@@ -11,6 +11,8 @@ import {
 } from '../config/schema';
 import { profileToYaml } from '../utils/yaml';
 
+type ExecutableFinder = (name: string) => string | null;
+
 function findExecutable(name: string): string | null {
   const paths = [
     path.join(os.homedir(), `.${name}/bin`, name),
@@ -33,30 +35,27 @@ function findExecutable(name: string): string | null {
   }
 }
 
-function detectProfiles(): Record<string, unknown> {
+export function detectProfiles(find: ExecutableFinder = findExecutable): Record<string, unknown> {
   const profiles: Record<string, unknown> = {};
 
-  const ocPath = findExecutable('opencode');
+  const ocPath = find('opencode');
   if (ocPath) {
     profiles['opencode'] = {
       executable: 'opencode',
     };
   }
 
-  const cxPath = findExecutable('codex');
+  const cxPath = find('codex');
   if (cxPath) {
     profiles['codex'] = {
       executable: 'codex',
-      env: {
-        CODEX_HOME: path.join(os.homedir(), '.airelay', 'codex'),
-      },
     };
   }
 
   return profiles;
 }
 
-export function initCommand(force: boolean = false): void {
+export function initCommand(force: boolean = false, find: ExecutableFinder = findExecutable): void {
   const configPath = getConfigPath();
   const configDir = path.dirname(configPath);
 
@@ -71,7 +70,7 @@ export function initCommand(force: boolean = false): void {
     }
   }
 
-  const profiles = detectProfiles();
+  const profiles = detectProfiles(find);
   const typedProfiles: Array<[string, ReturnType<typeof ProfileSchema.parse>]> = Object.entries(
     profiles
   ).map(([name, config]) => {

@@ -36,6 +36,7 @@ jest.mock('../src/commands/config', () => ({
   configHelpCommand: jest.fn(),
   configListCommand: jest.fn(),
   configSetCommand: jest.fn(),
+  configUnsetCommand: jest.fn(),
 }));
 
 jest.mock('../src/commands/select', () => ({

@@ -1,6 +1,11 @@
 import fs from 'fs';
 import YAML from 'yaml';
-import { configHelpCommand, configListCommand, configSetCommand } from '../src/commands/config';
+import {
+  configHelpCommand,
+  configListCommand,
+  configSetCommand,
+  configUnsetCommand,
+} from '../src/commands/config';
 import { createTestConfig, useTestEnv } from './test-utils';
 
 const testEnv = useTestEnv();
@@ -116,6 +121,16 @@ describe('config command', () => {
     expect(fs.readdirSync(testEnv.testDir).some((name) => name.endsWith('.tmp'))).toBe(false);
   });
 
+  it('unsets profile environment values', () => {
+    configSetCommand('profiles.worker.env.CODEX_HOME', '~/.codex-worker');
+    configUnsetCommand('profiles.worker.env.CODEX_HOME');
+
+    const saved = YAML.parse(fs.readFileSync(testEnv.configPath, 'utf8')) as {
+      profiles: { worker: { env: Record<string, string> } };
+    };
+    expect(saved.profiles.worker.env.CODEX_HOME).toBeUndefined();
+  });
+
   it('rejects invalid setting values and keys', () => {
     expect(() => configSetCommand('settings.promptMaxLength', '0')).toThrow('positive integer');
     expect(() => configSetCommand('settings.promptMaxLength', 'not-a-number')).toThrow(
@@ -145,5 +160,6 @@ describe('config command', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('settings.harnessSelfUpdate'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Unicode code points'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('profiles.<profile>.args'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('config unset'));
   });
 });

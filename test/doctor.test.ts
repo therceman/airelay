@@ -56,4 +56,25 @@ profiles:
     delete process.env.AIRELAY_CONFIG;
     expect(result.ok).toBe(false);
   });
+
+  it('warns about the legacy init-generated codex home without failing diagnostics', () => {
+    fs.writeFileSync(
+      testConfigPath,
+      `version: 1
+profiles:
+  codex:
+    executable: codex
+    env:
+      CODEX_HOME: ${path.join(os.homedir(), '.airelay', 'codex')}`
+    );
+    process.env.AIRELAY_CONFIG = testConfigPath;
+
+    const result = doctorCommand('codex');
+
+    delete process.env.AIRELAY_CONFIG;
+
+    expect(result.ok).toBe(true);
+    expect(result.warnings.join('\n')).toContain('legacy init-generated CODEX_HOME');
+    expect(result.warnings.join('\n')).toContain('config unset profiles.codex.env.CODEX_HOME');
+  });
 });

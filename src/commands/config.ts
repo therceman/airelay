@@ -149,6 +149,50 @@ function setProfileValue(
   return updated;
 }
 
+function unsetConfigValue(raw: Record<string, unknown>, key: string): Record<string, unknown> {
+  const keyParts = key.split('.');
+  if (
+    keyParts.length !== 4 ||
+    keyParts[0] !== 'profiles' ||
+    keyParts[2] !== 'env' ||
+    !keyParts[1] ||
+    !keyParts[3]
+  ) {
+    throw new Error('Only profile environment keys can be unset: profiles.<profile>.env.<name>.');
+  }
+
+  const profiles = isRecord(raw.profiles) ? raw.profiles : {};
+  const existingProfile = profiles[keyParts[1]];
+  if (!isRecord(existingProfile)) {
+    throw new Error(
+      `Profile not found: ${keyParts[1]}. Use "airelay config list" to see profiles.`
+    );
+  }
+
+  const env = isRecord(existingProfile.env) ? { ...existingProfile.env } : {};
+  if (!(keyParts[3] in env)) {
+    throw new Error(`Environment variable not set: ${key}`);
+  }
+  delete env[keyParts[3]];
+
+  const profile = { ...existingProfile };
+  if (Object.keys(env).length === 0) {
+    delete profile.env;
+  } else {
+    profile.env = env;
+  }
+
+  const updated = {
+    ...raw,
+    profiles: {
+      ...profiles,
+      [keyParts[1]]: profile,
+    },
+  };
+  ProfileSchema.parse(profile);
+  return updated;
+}
+
 function setConfigValue(
   raw: Record<string, unknown>,
   key: string,
@@ -255,6 +299,17 @@ export function configSetCommand(key: string, value: string): void {
   console.log(`Set ${key} in ${configPath}`);
 }
 
+export function configUnsetCommand(key: string): void {
+  const configPath = getConfigPath();
+  loadConfig(configPath);
+  const raw = readRawConfig(configPath);
+  const updated = unsetConfigValue(raw, key);
+
+  ConfigSchema.parse(updated);
+  writeConfigAtomically(configPath, updated);
+  console.log(`Unset ${key} in ${configPath}`);
+}
+
 export function configHelpCommand(): void {
   console.log(
     [
@@ -268,6 +323,7 @@ export function configHelpCommand(): void {
       '  airelay config set profiles.my-profile.cwd ~/git/project',
       `  airelay config set profiles.my-profile.args '["--verbose"]'`,
       '  airelay config set profiles.my-profile.env.HARNESS_HOME ~/.airelay-profile',
+      '  airelay config unset profiles.my-profile.env.HARNESS_HOME',
       '',
       'Supported config keys:',
       `  ${PROMPT_MAX_LENGTH_KEY}`,

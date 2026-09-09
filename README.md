@@ -46,6 +46,12 @@ airelay init
 
 This creates `~/.airelay/config.yaml` with example profiles.
 
+The detected default `codex` profile uses Codex's native `~/.codex` home and
+does not set `CODEX_HOME`, so existing authentication, configuration, and
+native sessions remain available. Use `airelay create <name> --executable
+codex` when you need an isolated profile overlay with per-profile
+`auth.json`.
+
 ## Config Location
 
 - Default: `~/.airelay/config.yaml`
@@ -98,6 +104,7 @@ airelay prompt <session> <text>    # Send input to an active session
 airelay config list                # Show config and resolved defaults
 airelay config set settings.promptMaxLength 1024
 airelay config set settings.hibernateAfter 10m
+airelay config unset profiles.codex.env.CODEX_HOME
 airelay config set settings.harnessSelfUpdate false
 airelay config set profiles.my-profile.cwd ~/git/project
 airelay help                       # Show this help message

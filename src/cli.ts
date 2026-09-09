@@ -274,6 +274,7 @@ Examples:
   airelay config set settings.promptMaxLength 512
   airelay config set settings.hibernateAfter 10m
   airelay config set settings.harnessSelfUpdate false
+  airelay config unset profiles.codex.env.CODEX_HOME
 
 Create options:
   -e, --executable <name>  Executable name (opencode or codex)
@@ -455,7 +456,15 @@ async function runCli(): Promise<void> {
       case 'doctor':
         {
           const { doctorCommand } = await import('./commands/doctor');
-          doctorCommand(profile);
+          const result = doctorCommand(profile);
+          if (result) {
+            for (const warning of result.warnings || []) {
+              console.warn(`Warning: ${warning}`);
+            }
+            for (const error of result.errors || []) {
+              console.error(error);
+            }
+          }
         }
         break;
 
@@ -483,7 +492,7 @@ async function runCli(): Promise<void> {
         break;
 
       case 'config': {
-        const { configHelpCommand, configListCommand, configSetCommand } =
+        const { configHelpCommand, configListCommand, configSetCommand, configUnsetCommand } =
           await import('./commands/config');
         if (profile === 'help' || (!profile && args.length === 0)) {
           configHelpCommand();
@@ -497,8 +506,13 @@ async function runCli(): Promise<void> {
           configSetCommand(args[0], args[1]);
           break;
         }
+        if (profile === 'unset' && args.length === 1) {
+          configUnsetCommand(args[0]);
+          break;
+        }
         console.error('Usage: airelay config list [--json]');
         console.error('       airelay config set <key> <value>');
+        console.error('       airelay config unset <profile-env-key>');
         process.exit(1);
         break;
       }
