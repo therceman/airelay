@@ -22,6 +22,7 @@ jest.mock('../src/commands/sessions', () => ({
 jest.mock('../src/commands/history', () => ({
   getLaunchHistory: jest.fn(),
   markLaunchHistoryUsed: jest.fn(),
+  removeLaunchHistoryEntry: jest.fn().mockReturnValue(true),
 }));
 
 jest.mock('../src/config/load', () => ({
@@ -38,7 +39,11 @@ jest.mock('enquirer', () => ({
 }));
 
 import { findSessionByKey, getSessions } from '../src/commands/sessions';
-import { getLaunchHistory, markLaunchHistoryUsed } from '../src/commands/history';
+import {
+  getLaunchHistory,
+  markLaunchHistoryUsed,
+  removeLaunchHistoryEntry,
+} from '../src/commands/history';
 import { loadConfig } from '../src/config/load';
 import Enquirer from 'enquirer';
 
@@ -408,6 +413,7 @@ describe('resumeCommand', () => {
     expect((Enquirer.prompt as jest.Mock).mock.calls[1][0].choices).toEqual([
       { name: 'launch', message: 'Launch' },
       { name: 'switchProfile', message: 'Use another profile (same harness)' },
+      { name: 'remove', message: 'Remove history entry' },
     ]);
     expect(console.error).toHaveBeenCalledWith(
       'Failed to resume session in this terminal, because this session is active in another terminal window.'
@@ -457,6 +463,31 @@ describe('resumeCommand', () => {
     );
   });
 
+  it('removes only the selected history entry from the resume menu', async () => {
+    const currentCwd = process.cwd();
+    (getLaunchHistory as jest.Mock).mockReturnValue([
+      {
+        id: 'remove-row',
+        profile: 'codex',
+        sessionKey: 'same_key',
+        invocationCwd: currentCwd,
+        startedAt: 200,
+        argv: ['start', 'codex', '--', 'resume', 'session-a'],
+      },
+    ]);
+    (Enquirer.prompt as jest.Mock)
+      .mockResolvedValueOnce({
+        historyEntry: 'codex (key: same_key, session: session-a)',
+      })
+      .mockResolvedValueOnce({ resumeAction: 'remove' });
+
+    await resumeCommand();
+
+    expect(removeLaunchHistoryEntry).toHaveBeenCalledWith('remove-row', currentCwd);
+    expect(runCommand).not.toHaveBeenCalled();
+    expect(console.log).toHaveBeenCalledWith('Removed history entry for key "same_key".');
+  });
+
   it('offers only same-harness profiles and preserves the selected session launch', async () => {
     const now = 1_000_000_000;
     const currentCwd = process.cwd();
@@ -502,6 +533,7 @@ describe('resumeCommand', () => {
     expect(actionPrompt.choices).toEqual([
       { name: 'launch', message: 'Launch' },
       { name: 'switchProfile', message: 'Use another profile (same harness)' },
+      { name: 'remove', message: 'Remove history entry' },
     ]);
     const profilePrompt = (Enquirer.prompt as jest.Mock).mock.calls[2][0];
     expect(profilePrompt.choices).toEqual([{ name: 'codex2', message: 'codex2' }]);

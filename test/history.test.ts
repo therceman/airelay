@@ -5,6 +5,7 @@ import {
   getLaunchHistory,
   removeHistoryCommand,
   removeLaunchHistory,
+  removeLaunchHistoryEntry,
   recordLaunchHistory,
   renderLaunchCommand,
   markLaunchHistoryUsed,
@@ -351,5 +352,26 @@ describe('launch history', () => {
     expect(console.log).toHaveBeenCalledWith(
       'No history entry found for key "missing_key" in the current directory.'
     );
+  });
+
+  it('removes one selected history entry without removing same-key rows', () => {
+    const first = recordLaunchHistory({
+      profile: 'worker',
+      sessionKey: 'same_key',
+      invocationCwd: process.cwd(),
+      argv: ['start', 'worker', '--key', 'same_key', '--', 'resume', 'first-session'],
+      startedAt: 100,
+    });
+    recordLaunchHistory({
+      profile: 'worker',
+      sessionKey: 'same_key',
+      invocationCwd: process.cwd(),
+      argv: ['start', 'worker', '--key', 'same_key', '--', 'resume', 'second-session'],
+      startedAt: 200,
+    });
+
+    expect(removeLaunchHistoryEntry(first.id)).toBe(true);
+    expect(getLaunchHistory()).toHaveLength(1);
+    expect(getLaunchHistory()[0].argv).toContain('second-session');
   });
 });

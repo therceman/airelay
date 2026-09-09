@@ -7,7 +7,12 @@ import {
   SessionEntry,
   pruneStaleSessions,
 } from './sessions';
-import { getLaunchHistory, LaunchHistoryEntry, markLaunchHistoryUsed } from './history';
+import {
+  getLaunchHistory,
+  LaunchHistoryEntry,
+  markLaunchHistoryUsed,
+  removeLaunchHistoryEntry,
+} from './history';
 import Enquirer from 'enquirer';
 import path from 'path';
 import { detectHarness } from '../utils/harness';
@@ -108,11 +113,11 @@ export function getSameHarnessProfiles(profile: string): string[] {
     .sort((a, b) => a.localeCompare(b));
 }
 
-async function chooseResumeProfile(profile: string): Promise<string> {
+async function chooseResumeProfile(
+  entry: LaunchHistoryEntry | undefined,
+  profile: string
+): Promise<string | undefined> {
   const alternativeProfiles = getSameHarnessProfiles(profile);
-  if (alternativeProfiles.length === 0) {
-    return profile;
-  }
 
   const actionResult = (await Enquirer.prompt(
     withAirelayPromptSymbols({
@@ -121,11 +126,23 @@ async function chooseResumeProfile(profile: string): Promise<string> {
       message: 'Select how to resume this session',
       choices: [
         { name: 'launch', message: 'Launch' },
-        { name: 'switchProfile', message: 'Use another profile (same harness)' },
+        ...(alternativeProfiles.length > 0
+          ? [{ name: 'switchProfile', message: 'Use another profile (same harness)' }]
+          : []),
+        ...(entry ? [{ name: 'remove', message: 'Remove history entry' }] : []),
       ],
       initial: 0,
     })
   )) as { resumeAction: string };
+
+  if (actionResult.resumeAction === 'remove' && entry) {
+    if (removeLaunchHistoryEntry(entry.id, entry.invocationCwd)) {
+      console.log(`Removed history entry for key "${entry.sessionKey}".`);
+    } else {
+      console.log('History entry was already removed.');
+    }
+    return undefined;
+  }
 
   if (actionResult.resumeAction !== 'switchProfile') {
     return profile;
@@ -342,7 +359,10 @@ async function resumeFromFolder(targetCwd = process.cwd()): Promise<void> {
     return;
   }
 
-  const launchProfile = await chooseResumeProfile(selected.profile);
+  const launchProfile = await chooseResumeProfile(selected, selected.profile);
+  if (!launchProfile) {
+    return;
+  }
   if (
     (await rejectActiveSession(selected.profile, profileSessionId)) ||
     (launchProfile !== selected.profile &&
@@ -522,7 +542,10 @@ export async function resumeCommand(
     return;
   }
 
-  const launchProfile = await chooseResumeProfile(profileOrSessionKey);
+  const launchProfile = await chooseResumeProfile(undefined, profileOrSessionKey);
+  if (!launchProfile) {
+    return;
+  }
   if (
     (selectedSession.profileSessionId &&
       (await rejectActiveSession(profileOrSessionKey, selectedSession.profileSessionId))) ||

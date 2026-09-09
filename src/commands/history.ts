@@ -175,6 +175,20 @@ export function removeLaunchHistory(sessionKey: string, invocationCwd = process.
   return removed;
 }
 
+export function removeLaunchHistoryEntry(id: string, invocationCwd = process.cwd()): boolean {
+  const currentCwd = path.resolve(invocationCwd);
+  const history = loadHistory();
+  const remaining = history.filter(
+    (entry) => entry.id !== id || path.resolve(entry.invocationCwd) !== currentCwd
+  );
+  if (remaining.length === history.length) {
+    return false;
+  }
+
+  store.save(remaining);
+  return true;
+}
+
 export function removeHistoryCommand(sessionKey: string): void {
   const removed = removeLaunchHistory(sessionKey);
   if (removed > 0) {
