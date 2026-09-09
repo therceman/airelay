@@ -125,6 +125,12 @@ and lists the recorded profile last with `(current)`.
 airelay init
 airelay start opencode-work
 airelay start opencode-work -- resume ses_abc123  # Resume with harness-native args
+
+# Devin uses its native long-form resume option
+airelay start devin -- --resume ritzy-whitefish
+
+# Optional Devin permission mode for a new session
+airelay config set profiles.devin.args '["--permission-mode", "bypass"]'
 airelay start codex-personal --sandbox workspace-write
 airelay prompt myprofile_abcd "write a unit test"
 airelay sessions --active

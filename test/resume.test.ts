@@ -2,6 +2,7 @@ import {
   hasSwitchableLastSession,
   getResumableProjectPaths,
   getResumableProjects,
+  getResumeSessionId,
   resumeCommand,
   switchLastSessionProfile,
 } from '../src/commands/resume';
@@ -75,6 +76,13 @@ afterEach(() => {
 });
 
 describe('resumeCommand', () => {
+  it.each([
+    ['--resume', 'ritzy-whitefish'],
+    ['-r', 'ritzy-whitefish'],
+  ])('recognizes Devin %s session arguments', (flag, sessionId) => {
+    expect(getResumeSessionId([flag, sessionId])).toBe(sessionId);
+  });
+
   it('returns unique resumable projects in recent-use order', () => {
     (getLaunchHistory as jest.Mock).mockReturnValue([
       {

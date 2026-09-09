@@ -1,4 +1,4 @@
-export type HarnessType = 'opencode' | 'codex' | 'unknown';
+export type HarnessType = 'opencode' | 'codex' | 'devin' | 'unknown';
 
 /** Default single-key interrupt sequence for every PTY-backed harness. */
 export const DEFAULT_INTERRUPT_SEQUENCE = '\x1b';
@@ -6,6 +6,7 @@ export const DEFAULT_INTERRUPT_SEQUENCE = '\x1b';
 const HARNESS_PATTERNS: Record<string, string[]> = {
   opencode: ['opencode'],
   codex: ['codex', 'o1', 'o3'],
+  devin: ['devin'],
 };
 
 export function detectHarness(executable: string): HarnessType {
@@ -24,6 +25,8 @@ export function getSessionArgExample(harness: HarnessType): string {
       return '-s session-id';
     case 'codex':
       return 'resume session-id';
+    case 'devin':
+      return '--resume session-id';
     default:
       return '--session-id';
   }
@@ -35,6 +38,8 @@ export function getResumeSessionArgs(harness: HarnessType, sessionId: string): s
       return ['-s', sessionId];
     case 'codex':
       return ['resume', sessionId];
+    case 'devin':
+      return ['--resume', sessionId];
     default:
       return ['--session-id', sessionId];
   }
@@ -141,6 +146,12 @@ const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
       args: ['-c', 'check_for_update_on_startup=false'],
     },
   },
+  devin: {
+    submitMode: 'byte',
+    submitValue: '\r',
+    submitDelayMs: 0,
+    uiWorkingHint: '',
+  },
   unknown: {
     submitMode: 'byte',
     submitValue: '\r',
@@ -219,6 +230,12 @@ export function getSessionPatterns(harness: HarnessType): SessionPattern[] {
         },
         {
           idPattern: /codex --session ([a-zA-Z0-9]+)/,
+        },
+      ];
+    case 'devin':
+      return [
+        {
+          idPattern: /devin(?:\s+--resume|\s+-r)\s+([a-zA-Z0-9-]+)/,
         },
       ];
     default:

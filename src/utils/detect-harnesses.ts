@@ -20,6 +20,12 @@ const KNOWN_HARNESSES: HarnessInfo[] = [
     description: 'OpenAI Codex',
     available: false,
   },
+  {
+    name: 'devin',
+    executable: 'devin',
+    description: 'Devin CLI',
+    available: false,
+  },
 ];
 
 export function detectAvailableHarnesses(): HarnessInfo[] {

@@ -52,6 +52,13 @@ export function detectProfiles(find: ExecutableFinder = findExecutable): Record<
     };
   }
 
+  const devinPath = find('devin');
+  if (devinPath) {
+    profiles['devin'] = {
+      executable: 'devin',
+    };
+  }
+
   return profiles;
 }
 
@@ -97,7 +104,7 @@ export function initCommand(force: boolean = false, find: ExecutableFinder = fin
   console.log(`Created config: ${configPath}`);
 
   if (Object.keys(profiles).length === 0) {
-    console.log('No opencode/codex found. Edit config manually.');
+    console.log('No supported harness found. Edit config manually.');
   } else {
     console.log(`Found: ${Object.keys(profiles).join(', ')}`);
   }

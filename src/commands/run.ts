@@ -49,10 +49,13 @@ export interface DetachedReadyInfo {
   startedAt: number;
 }
 
-/** Extract a harness resume session id from extra args (e.g. resume <id> or -s <id>). */
+/** Extract a harness resume session id from extra args. */
 export function detectResumeSessionId(args: string[]): string | undefined {
   for (let i = 0; i < args.length; i++) {
-    if ((args[i] === 'resume' || args[i] === '-s') && i + 1 < args.length) {
+    if (
+      (args[i] === 'resume' || args[i] === '-s' || args[i] === '--resume' || args[i] === '-r') &&
+      i + 1 < args.length
+    ) {
       return args[i + 1];
     }
   }

@@ -392,6 +392,13 @@ profiles:
       expect(detectResumeSessionId(['-s', 'ses_xxx'])).toBe('ses_xxx');
     });
 
+    it.each([
+      ['--resume', 'ritzy-whitefish'],
+      ['-r', 'ritzy-whitefish'],
+    ])('returns Devin session id for %s args', (flag, sessionId) => {
+      expect(detectResumeSessionId([flag, sessionId])).toBe(sessionId);
+    });
+
     it('returns undefined for empty args', () => {
       expect(detectResumeSessionId([])).toBeUndefined();
     });

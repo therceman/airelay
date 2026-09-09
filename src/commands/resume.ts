@@ -191,9 +191,14 @@ function getHarnessArgs(entry: LaunchHistoryEntry): string[] {
   return [];
 }
 
-function getResumeSessionId(args: string[]): string | undefined {
+export function getResumeSessionId(args: string[]): string | undefined {
   for (let index = 0; index < args.length - 1; index++) {
-    if (args[index] === 'resume' || args[index] === '-s') {
+    if (
+      args[index] === 'resume' ||
+      args[index] === '-s' ||
+      args[index] === '--resume' ||
+      args[index] === '-r'
+    ) {
       return args[index + 1];
     }
   }

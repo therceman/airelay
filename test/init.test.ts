@@ -33,6 +33,13 @@ describe('initCommand', () => {
     expect(fs.existsSync(path.join(testEnv.testDir, 'codex'))).toBe(false);
   });
 
+  it('creates the detected Devin profile without adding a Devin home override', () => {
+    initCommand(true, (name) => (name === 'devin' ? '/home/test/.local/bin/devin' : null));
+
+    const config = loadConfig(testConfigPath);
+    expect(config.profiles.devin).toEqual({ executable: 'devin' });
+  });
+
   it('does not overwrite existing config without force', () => {
     fs.writeFileSync(testConfigPath, 'version: 1\nprofiles:\n  existing:\n    executable: test\n');
 

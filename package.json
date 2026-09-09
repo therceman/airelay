@@ -1,7 +1,7 @@
 {
   "name": "airelay",
-  "version": "0.1.127",
-  "description": "Cross-platform CLI for launching profile-isolated opencode/codex instances",
+  "version": "0.1.128",
+  "description": "Cross-platform CLI for launching profile-isolated AI harness instances",
   "main": "./dist/index.js",
   "bin": {
     "airelay": "./dist/airelay.cjs"
