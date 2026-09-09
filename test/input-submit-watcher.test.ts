@@ -233,6 +233,20 @@ describe('input submit watcher', () => {
     expect(isInputTextVisible('[SP-GTW-120E] go more', ['› [SP-GTW-120E]'])).toBe(false);
   });
 
+  it('limits prompt visibility checks to the rendered input area near the cursor', () => {
+    const prompt = 'unique prompt text';
+    const lines = [
+      'previous response with unique prompt text',
+      ...Array.from({ length: 18 }, () => ''),
+      '▏unique prompt text',
+    ];
+
+    expect(isInputTextVisible(prompt, lines, [], { row: 19, column: prompt.length })).toBe(true);
+    expect(
+      isInputTextVisible(prompt, [...lines.slice(0, 19), ''], [], { row: 19, column: 0 })
+    ).toBe(false);
+  });
+
   it('matches a short prompt represented by a harness-owned paste placeholder', () => {
     expect(isInputTextVisible('olo', ['› [Pasted Content 3 chars]'], ['[Pasted Content '])).toBe(
       true

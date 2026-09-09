@@ -160,6 +160,21 @@ describe('controller E2E: real IPC socket flow', () => {
     await controller.stop();
   });
 
+  it('exposes rendered cursor coordinates without depending on cursor glyphs', async () => {
+    const controller = new SessionController('e2e_cursor_state');
+    controller.onRequest(async () => ({ handled: false }));
+    await controller.start();
+
+    controller.feedOutput('input text');
+    await controller.flushViewport();
+
+    const state = controller.getLiveViewportState();
+    expect(state.lines.join(' ')).toContain('input text');
+    expect(state.cursorRow).toBeGreaterThanOrEqual(0);
+    expect(state.cursorColumn).toBeGreaterThan(0);
+    await controller.stop();
+  });
+
   it('captures transcript candidates beyond a small attached viewport', async () => {
     const controller = new SessionController('e2e_transcript_small_viewport');
     controller.onRequest(async () => ({ handled: false }));

@@ -412,10 +412,12 @@ export async function runCommand(
   };
   const isCurrentInputVisible = (): boolean => {
     if (!currentInputText) return false;
+    const viewport = controllerRef?.getLiveViewportState();
     return isInputTextVisible(
       currentInputText,
-      controllerRef?.getLiveViewportLines() || [],
-      inputRetry?.pendingInputMarkers
+      viewport?.lines || [],
+      inputRetry?.pendingInputMarkers || [],
+      viewport ? { row: viewport.cursorRow, column: viewport.cursorColumn } : undefined
     );
   };
   const inputWatcher =
@@ -473,12 +475,12 @@ export async function runCommand(
       const deadline =
         Date.now() + (getWakeRetryOverrides()?.maxWindowMs ?? inputRetry?.maxWindowMs ?? 5000);
       while (Date.now() < deadline) {
+        const viewport = controller.getLiveViewportState();
         if (
-          isInputTextVisible(
-            text,
-            controller.getLiveViewportLines(),
-            inputRetry?.pendingInputMarkers
-          )
+          isInputTextVisible(text, viewport.lines, inputRetry?.pendingInputMarkers || [], {
+            row: viewport.cursorRow,
+            column: viewport.cursorColumn,
+          })
         ) {
           return;
         }

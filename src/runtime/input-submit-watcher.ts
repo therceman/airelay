@@ -10,6 +10,11 @@ export interface InputSubmitWatcherOptions {
   onExhausted?: (deliveryId?: string) => void;
 }
 
+export interface InputCursorPosition {
+  row: number;
+  column: number;
+}
+
 interface PendingInput {
   text: string;
   submitValue: string;
@@ -164,16 +169,24 @@ export class InputSubmitWatcher {
 export function isInputTextVisible(
   text: string,
   viewportLines: string[],
-  pendingInputMarkers: string[] = []
+  pendingInputMarkers: string[] = [],
+  cursor?: InputCursorPosition
 ): boolean {
   const normalizedText = text.replace(/\s+/g, ' ').trim();
-  const viewport = viewportLines.join(' ').replace(/\s+/g, ' ').trim();
-  if (!normalizedText || !viewport || viewport.includes(normalizedText)) return !!normalizedText;
+  const visibleLines = cursor
+    ? viewportLines.slice(
+        Math.max(0, cursor.row - 16),
+        Math.min(viewportLines.length, cursor.row + 1)
+      )
+    : viewportLines;
+  const viewport = visibleLines.join(' ').replace(/\s+/g, ' ').trim();
+  if (!normalizedText || !viewport) return false;
+  if (viewport.includes(normalizedText)) return true;
 
   // Some TUIs replace pasted input with a bounded placeholder instead of rendering its text.
   // Only harness-declared markers can keep the retry eligible; arbitrary output is ignored.
   if (
-    viewportLines.some((line) =>
+    visibleLines.some((line) =>
       pendingInputMarkers.some((marker) => {
         const markerIndex = line.indexOf(marker);
         if (markerIndex < 0) return false;

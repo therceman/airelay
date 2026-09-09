@@ -45,6 +45,12 @@ const STREAM_MAX_BUFFERED_BYTES = 256 * 1024;
 /** Bound on server.close() during shutdown so stop() can never hang. */
 const STOP_TIMEOUT_MS = 2000;
 
+export interface LiveViewportState {
+  lines: string[];
+  cursorRow: number;
+  cursorColumn: number;
+}
+
 function isTranscriptStatusFooter(line: string): boolean {
   const normalized = line.trim();
   return (
@@ -331,6 +337,22 @@ export class SessionController {
       }
     }
     return rows;
+  }
+
+  /** Return the rendered viewport together with the xterm cursor position. */
+  getLiveViewportState(): LiveViewportState {
+    const buffer = this.terminal.buffer.active;
+    const lines: string[] = [];
+    for (let y = buffer.viewportY; y < buffer.viewportY + this.terminal.rows; y++) {
+      const line = buffer.getLine(y);
+      lines.push(line ? line.translateToString(true).trimEnd() : '');
+    }
+
+    return {
+      lines,
+      cursorRow: buffer.cursorY,
+      cursorColumn: buffer.cursorX,
+    };
   }
 
   /** Return rolling snapshot window (which includes recent historical viewport + current). */
