@@ -15,6 +15,8 @@ interface PendingInput {
   submitValue: string;
   deliveryId?: string;
   retries: number;
+  retryDelayMs: number;
+  maxRetries: number;
   retryDeadlineAt?: number;
 }
 
@@ -30,7 +32,12 @@ export class InputSubmitWatcher {
     this.options = options;
   }
 
-  track(text: string, submitValue: string, deliveryId?: string): void {
+  track(
+    text: string,
+    submitValue: string,
+    deliveryId?: string,
+    overrides?: { retryDelayMs?: number; maxRetries?: number; maxWindowMs?: number }
+  ): void {
     if (this.disposed || !text.trim()) return;
     const startedAt = Date.now();
     this.pending = {
@@ -38,13 +45,15 @@ export class InputSubmitWatcher {
       submitValue,
       deliveryId,
       retries: 0,
+      retryDelayMs: overrides?.retryDelayMs ?? this.options.retryDelayMs,
+      maxRetries: overrides?.maxRetries ?? this.options.maxRetries,
       retryDeadlineAt:
-        this.options.maxWindowMs !== undefined
-          ? startedAt + Math.max(0, this.options.maxWindowMs)
+        (overrides?.maxWindowMs ?? this.options.maxWindowMs) !== undefined
+          ? startedAt + Math.max(0, overrides?.maxWindowMs ?? this.options.maxWindowMs ?? 0)
           : undefined,
     };
     this.lastActivityAt = startedAt;
-    this.schedule(this.getNextDelay(this.options.retryDelayMs, this.pending));
+    this.schedule(this.getNextDelay(this.pending.retryDelayMs, this.pending));
   }
 
   observeOutput(chunk: string): void {
@@ -90,8 +99,8 @@ export class InputSubmitWatcher {
     }
 
     const elapsed = now - this.lastActivityAt;
-    if (elapsed < this.options.retryDelayMs) {
-      this.schedule(this.getNextDelay(this.options.retryDelayMs - elapsed, pending));
+    if (elapsed < pending.retryDelayMs) {
+      this.schedule(this.getNextDelay(pending.retryDelayMs - elapsed, pending));
       return;
     }
 
@@ -108,11 +117,11 @@ export class InputSubmitWatcher {
         return;
       }
 
-      this.schedule(this.getNextDelay(this.options.retryDelayMs, pending));
+      this.schedule(this.getNextDelay(pending.retryDelayMs, pending));
       return;
     }
 
-    if (pending.retries >= this.options.maxRetries) {
+    if (pending.retries >= pending.maxRetries) {
       this.pending = null;
       this.options.onExhausted?.(pending.deliveryId);
       return;
@@ -128,7 +137,7 @@ export class InputSubmitWatcher {
     pending.retries += 1;
     this.options.onRetry?.(pending.deliveryId);
     this.lastActivityAt = Date.now();
-    this.schedule(this.getNextDelay(this.options.retryDelayMs, pending));
+    this.schedule(this.getNextDelay(pending.retryDelayMs, pending));
   }
 
   private getNextDelay(delayMs: number, pending: PendingInput): number {

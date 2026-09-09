@@ -137,6 +137,27 @@ describe('input submit watcher', () => {
     expect(jest.getTimerCount()).toBe(0);
   });
 
+  it('accepts a bounded wake-specific retry budget', () => {
+    const writes: string[] = [];
+    const watcher = new InputSubmitWatcher({
+      retryDelayMs: 100,
+      maxRetries: 1,
+      maxWindowMs: 200,
+      write: () => (data) => writes.push(data),
+      isInputVisible: () => true,
+    });
+
+    watcher.track('hello', '\r', 'wake-delivery', {
+      retryDelayMs: 200,
+      maxRetries: 3,
+      maxWindowMs: 700,
+    });
+    jest.advanceTimersByTime(700);
+
+    expect(writes).toEqual(['\r', '\r', '\r']);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
   it('reports acknowledgement when the input disappears', () => {
     let acknowledged = false;
     const onAcknowledged = jest.fn();

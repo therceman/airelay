@@ -28,12 +28,9 @@ import { ensureCodexProfileStandalone } from '../utils/codex-standalone';
 import { isInputTextVisible } from '../runtime/input-submit-watcher';
 import { parseDurationMs } from '../utils/duration';
 import { createRuntimeIdentity, RuntimeIdentity } from '../runtime/identity';
-import {
-  waitForInputProbe,
-  WAKE_INPUT_PROBE_ERASE_TIMEOUT_MS,
-  WAKE_INPUT_PROBE_POLL_MS,
-  WAKE_INPUT_PROBE_TIMEOUT_MS,
-} from '../runtime/input-probe';
+
+const WAKE_PROMPT_RETRY_WINDOW_MS = 60_000;
+const WAKE_PROMPT_RETRY_INTERVAL_MS = 5_000;
 
 function generateSessionKey(profileName: string): string {
   const suffix = Math.random().toString(36).slice(2, 6);
@@ -126,7 +123,6 @@ function setupController(
   onInterrupt?: () => Promise<InterruptResult>,
   onWakeRequested?: () => Promise<void>,
   onActivity?: () => void,
-  waitForInputReady?: () => Promise<void>,
   onInputPrepared?: (deliveryId: string, text: string, submitValue: string) => void,
   waitForInputVisible?: (text: string) => Promise<void>
 ) {
@@ -177,8 +173,6 @@ function setupController(
           IpcErrorReasons.NOT_PROMPTABLE
         );
       }
-      await waitForInputReady?.();
-
       const params = request.params as {
         text?: string;
         deliveryId?: string;
@@ -305,7 +299,7 @@ export async function runCommand(
   let wakeReadyResolve: (() => void) | null = null;
   let wakeReadyReject: ((error: Error) => void) | null = null;
   let foregroundWakeCleanup: (() => void) | null = null;
-  let wakeNeedsInputReady = false;
+  let wakePromptPending = false;
   let hibernateTimer: ReturnType<typeof setTimeout> | null = null;
   let resetHibernateTimer: () => void = () => undefined;
 
@@ -323,7 +317,7 @@ export async function runCommand(
   const requestWake = async (): Promise<void> => {
     if (!hibernated) return;
     wakeRequested = true;
-    wakeNeedsInputReady = true;
+    wakePromptPending = true;
     wakeSignalResolve?.();
     if (wakeReady) await wakeReady;
   };
@@ -387,37 +381,19 @@ export async function runCommand(
       })
     : null;
   const inputRetry = harnessCapabilities.inputSubmitRetry;
-  const waitForInputReady = async (): Promise<void> => {
-    if (!wakeNeedsInputReady) return;
-
-    const write = ptyWriteRef.current;
-    if (!write) {
-      wakeNeedsInputReady = false;
-      throw new IpcError(
-        IpcErrorCodes.INTERNAL_ERROR,
-        'Prompt readiness probe unavailable: the session PTY is not ready.',
-        IpcErrorReasons.NOT_PROMPTABLE
-      );
-    }
-
-    try {
-      await waitForInputProbe({
-        write,
-        readViewport: () => controller.getLiveViewportLines(),
-        timeoutMs: WAKE_INPUT_PROBE_TIMEOUT_MS,
-        eraseTimeoutMs: WAKE_INPUT_PROBE_ERASE_TIMEOUT_MS,
-        pollIntervalMs: WAKE_INPUT_PROBE_POLL_MS,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'unknown probe failure';
-      throw new IpcError(
-        IpcErrorCodes.INTERNAL_ERROR,
-        `${message} No prompt was sent.`,
-        IpcErrorReasons.NOT_PROMPTABLE
-      );
-    } finally {
-      wakeNeedsInputReady = false;
-    }
+  const getWakeRetryOverrides = ():
+    | {
+        retryDelayMs: number;
+        maxRetries: number;
+        maxWindowMs: number;
+      }
+    | undefined => {
+    if (!wakePromptPending || !inputRetry) return undefined;
+    return {
+      maxWindowMs: WAKE_PROMPT_RETRY_WINDOW_MS,
+      retryDelayMs: WAKE_PROMPT_RETRY_INTERVAL_MS,
+      maxRetries: Math.ceil(WAKE_PROMPT_RETRY_WINDOW_MS / WAKE_PROMPT_RETRY_INTERVAL_MS),
+    };
   };
   const beginTurn = (deliveryId: string): void => {
     turnGeneration += 1;
@@ -472,11 +448,15 @@ export async function runCommand(
       Promise.resolve({ outcome: 'unsupported', requested: false } as InterruptResult),
     requestWake,
     () => resetHibernateTimer(),
-    waitForInputReady,
-    (deliveryId, text, submitValue) => inputWatcher?.track(text, submitValue, deliveryId),
+    (deliveryId, text, submitValue) => {
+      const overrides = getWakeRetryOverrides();
+      wakePromptPending = false;
+      inputWatcher?.track(text, submitValue, deliveryId, overrides);
+    },
     async (text) => {
       if (!text.trim()) return;
-      const deadline = Date.now() + (inputRetry?.maxWindowMs ?? 5000);
+      const deadline =
+        Date.now() + (getWakeRetryOverrides()?.maxWindowMs ?? inputRetry?.maxWindowMs ?? 5000);
       while (Date.now() < deadline) {
         if (
           isInputTextVisible(
