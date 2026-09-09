@@ -1,6 +1,7 @@
 import { isInputTextVisible } from './input-submit-watcher';
 
-export const WAKE_INPUT_PROBE = ':::';
+/** Printable single-cell Unicode probe that should not submit or trigger TUI commands. */
+export const WAKE_INPUT_PROBE = '¤';
 export const WAKE_INPUT_PROBE_ERASE = '\x7f'.repeat(WAKE_INPUT_PROBE.length);
 export const WAKE_INPUT_PROBE_TIMEOUT_MS = 20000;
 export const WAKE_INPUT_PROBE_POLL_MS = 100;
