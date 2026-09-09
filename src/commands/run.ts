@@ -348,6 +348,7 @@ export async function runCommand(
   };
 
   let currentDeliveryId: string | undefined;
+  let currentInputText: string | undefined;
   let turnGeneration = 0;
   let activeTurnGeneration: number | undefined;
   let workingSeen = false;
@@ -409,6 +410,14 @@ export async function runCommand(
     }
     resetHibernateTimer();
   };
+  const isCurrentInputVisible = (): boolean => {
+    if (!currentInputText) return false;
+    return isInputTextVisible(
+      currentInputText,
+      controllerRef?.getLiveViewportLines() || [],
+      inputRetry?.pendingInputMarkers
+    );
+  };
   const inputWatcher =
     usePty && inputRetry
       ? new InputSubmitWatcher({
@@ -416,6 +425,7 @@ export async function runCommand(
           write: () => ptyWriteRef.current,
           isSubmissionAcknowledged: () => workingSeen,
           onAcknowledged: (deliveryId) => {
+            currentInputText = undefined;
             if (deliveryId) deliveryTracker.markSubmitAcknowledged(deliveryId);
           },
           onRetry: (deliveryId) => {
@@ -425,6 +435,7 @@ export async function runCommand(
             }
           },
           onExhausted: (deliveryId) => {
+            currentInputText = undefined;
             if (deliveryId) {
               deliveryTracker.markFailure(deliveryId, controllerRef?.getLiveViewportLines() || []);
             }
@@ -452,6 +463,7 @@ export async function runCommand(
     requestWake,
     () => resetHibernateTimer(),
     (deliveryId, text, submitValue) => {
+      currentInputText = text;
       const overrides = getWakeRetryOverrides();
       wakePromptPending = false;
       inputWatcher?.track(text, submitValue, deliveryId, overrides);
@@ -581,7 +593,9 @@ export async function runCommand(
     deliveryTracker.updatePreview(currentDeliveryId, lines);
     const rendered = lines.join(' ');
     const isWorking =
-      !!harnessCapabilities.uiWorkingHint && rendered.includes(harnessCapabilities.uiWorkingHint);
+      !!harnessCapabilities.uiWorkingHint &&
+      rendered.includes(harnessCapabilities.uiWorkingHint) &&
+      !isCurrentInputVisible();
 
     if (isWorking) {
       workingSeen = true;
@@ -614,6 +628,7 @@ export async function runCommand(
             return;
           }
           deliveryTracker.markResponseReceived(current.deliveryId, preview());
+          currentInputText = undefined;
           activeTurnGeneration = undefined;
           currentDeliveryId = undefined;
           workingSeen = false;

@@ -177,6 +177,26 @@ describe('input submit watcher', () => {
     expect(onAcknowledged).toHaveBeenCalledWith('delivery-1');
   });
 
+  it('does not acknowledge working state while the submitted input remains visible', () => {
+    const writes: string[] = [];
+    const onAcknowledged = jest.fn();
+    const watcher = new InputSubmitWatcher({
+      retryDelayMs: 100,
+      maxRetries: 1,
+      write: () => (data) => writes.push(data),
+      isInputVisible: () => true,
+      isSubmissionAcknowledged: () => true,
+      onAcknowledged,
+    });
+
+    watcher.track('pending prompt', '\r', 'delivery-1');
+    watcher.observeOutput('esc to interrupt');
+    jest.advanceTimersByTime(100);
+
+    expect(onAcknowledged).not.toHaveBeenCalled();
+    expect(writes).toEqual(['\r']);
+  });
+
   it('does not treat missing input text as a successful submission', () => {
     const onAcknowledged = jest.fn();
     const onExhausted = jest.fn();
