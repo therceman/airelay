@@ -319,7 +319,7 @@ export function configHelpCommand(): void {
       '  airelay config list                   Show config and resolved defaults',
       '  airelay config list --json            Show config as JSON',
       `  airelay config set ${PROMPT_MAX_LENGTH_KEY} -1`,
-      `  airelay config set ${HIBERNATE_AFTER_KEY} 5m`,
+      `  airelay config set ${HIBERNATE_AFTER_KEY} 30m`,
       '  airelay config set profiles.my-profile.cwd ~/git/project',
       `  airelay config set profiles.my-profile.args '["--verbose"]'`,
       '  airelay config set profiles.my-profile.env.HARNESS_HOME ~/.airelay-profile',

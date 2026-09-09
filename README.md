@@ -64,7 +64,7 @@ version: 1
 
 settings:
   promptMaxLength: -1
-  hibernateAfter: 5m
+  hibernateAfter: 30m
   harnessSelfUpdate: false
 
 profiles:
