@@ -97,6 +97,9 @@ export interface HarnessCapabilities {
   /** Terminal markers that mean the harness is still restoring its prompt. */
   inputBlockedMarkers?: string[];
 
+  /** Terminal markers that prove the harness input prompt is ready after wake. */
+  inputReadyMarkers?: string[];
+
   /** Native terminal control used to interrupt an active turn without killing the PTY. */
   interrupt?: {
     value?: string;
@@ -141,6 +144,7 @@ const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
       pendingInputMarkers: ['[Pasted Content ', '[Paste '],
     },
     inputBlockedMarkers: ['Resuming session…', 'Resuming session...'],
+    inputReadyMarkers: ['›'],
     selfUpdateDisabled: {
       args: ['-c', 'check_for_update_on_startup=false'],
     },

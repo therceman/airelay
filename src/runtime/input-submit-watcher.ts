@@ -176,3 +176,19 @@ export function isInputTextVisible(
   const anchors = [normalizedText.slice(0, anchorLength), normalizedText.slice(-anchorLength)];
   return anchors.some((anchor) => anchor.length >= 16 && viewport.includes(anchor));
 }
+
+/** Return whether the harness has a usable prompt and is not restoring it. */
+export function isInputReady(
+  viewportLines: string[],
+  blockedMarkers: string[] = [],
+  readyMarkers: string[] = []
+): boolean {
+  if (blockedMarkers.some((marker) => viewportLines.some((line) => line.includes(marker)))) {
+    return false;
+  }
+
+  return (
+    readyMarkers.length === 0 ||
+    viewportLines.some((line) => readyMarkers.some((marker) => line.includes(marker)))
+  );
+}

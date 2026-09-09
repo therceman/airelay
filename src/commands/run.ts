@@ -25,7 +25,7 @@ import {
 } from '../runtime/detached-registry';
 import fs from 'fs';
 import { ensureCodexProfileStandalone } from '../utils/codex-standalone';
-import { isInputTextVisible } from '../runtime/input-submit-watcher';
+import { isInputReady, isInputTextVisible } from '../runtime/input-submit-watcher';
 import { parseDurationMs } from '../utils/duration';
 import { createRuntimeIdentity, RuntimeIdentity } from '../runtime/identity';
 
@@ -297,6 +297,7 @@ export async function runCommand(
   let wakeReadyResolve: (() => void) | null = null;
   let wakeReadyReject: ((error: Error) => void) | null = null;
   let foregroundWakeCleanup: (() => void) | null = null;
+  let wakeNeedsInputReady = false;
   let hibernateTimer: ReturnType<typeof setTimeout> | null = null;
   let resetHibernateTimer: () => void = () => undefined;
 
@@ -314,6 +315,7 @@ export async function runCommand(
   const requestWake = async (): Promise<void> => {
     if (!hibernated) return;
     wakeRequested = true;
+    wakeNeedsInputReady = true;
     wakeSignalResolve?.();
     if (wakeReady) await wakeReady;
   };
@@ -379,14 +381,29 @@ export async function runCommand(
   const inputRetry = harnessCapabilities.inputSubmitRetry;
   const waitForInputReady = async (): Promise<void> => {
     const markers = harnessCapabilities.inputBlockedMarkers || [];
-    if (markers.length === 0) return;
+    const readyMarkers = wakeNeedsInputReady ? harnessCapabilities.inputReadyMarkers || [] : [];
+    if (markers.length === 0 && readyMarkers.length === 0) return;
 
     const deadline = Date.now() + 20000;
+    let readySince = 0;
     while (Date.now() < deadline) {
       const viewport = controller.getLiveViewportLines();
-      if (!markers.some((marker) => viewport.some((line) => line.includes(marker)))) return;
+      if (isInputReady(viewport, markers, readyMarkers)) {
+        if (readyMarkers.length === 0) {
+          wakeNeedsInputReady = false;
+          return;
+        }
+        if (readySince === 0) readySince = Date.now();
+        if (Date.now() - readySince >= 100) {
+          wakeNeedsInputReady = false;
+          return;
+        }
+      } else {
+        readySince = 0;
+      }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
+    wakeNeedsInputReady = false;
   };
   const beginTurn = (deliveryId: string): void => {
     turnGeneration += 1;
@@ -433,9 +450,8 @@ export async function runCommand(
     ptyWriteRef,
     ptyResizeRef,
     deliveryTracker,
-    (deliveryId, text, submitValue) => {
+    (deliveryId) => {
       beginTurn(deliveryId);
-      inputWatcher?.track(text, submitValue, deliveryId);
     },
     () =>
       interruptController?.request() ||
