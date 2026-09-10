@@ -1,6 +1,6 @@
 {
   "name": "airelay",
-  "version": "0.1.131",
+  "version": "0.1.132",
   "description": "Cross-platform CLI for launching profile-isolated AI harness instances",
   "main": "./dist/index.js",
   "bin": {

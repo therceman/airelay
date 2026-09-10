@@ -31,6 +31,12 @@ import { createRuntimeIdentity, RuntimeIdentity } from '../runtime/identity';
 
 const WAKE_PROMPT_RETRY_WINDOW_MS = 60_000;
 const WAKE_PROMPT_RETRY_INTERVAL_MS = 5_000;
+// Invisible terminal-safe suffix used only for command-driven delivery tracking.
+const DELIVERY_MARKER = '\u2063\u200b\u2063';
+
+function stripDeliveryMarker(text: string): string {
+  return text.endsWith(DELIVERY_MARKER) ? text.slice(0, -DELIVERY_MARKER.length) : text;
+}
 
 function generateSessionKey(profileName: string): string {
   const suffix = Math.random().toString(36).slice(2, 6);
@@ -126,8 +132,7 @@ function setupController(
   onInterrupt?: () => Promise<InterruptResult>,
   onWakeRequested?: () => Promise<void>,
   onActivity?: () => void,
-  onInputPrepared?: (deliveryId: string, text: string, submitValue: string) => void,
-  waitForInputVisible?: (text: string) => Promise<void>
+  onInputPrepared?: (deliveryId: string, text: string, submitValue: string) => void
 ) {
   const controller = new SessionController(sessionKey);
   controller.setDeliveryStatusProvider(() => deliveryTracker.get());
@@ -192,10 +197,10 @@ function setupController(
         return { delivered: true, duplicate: true, sessionKey, delivery: begin.status };
       }
 
+      const injectedText = text ? `${text}${DELIVERY_MARKER}` : text;
       try {
         onActivity?.();
-        ptyWrite.current(text);
-        await waitForInputVisible?.(text);
+        ptyWrite.current(injectedText);
       } catch (error) {
         deliveryTracker.markFailure(deliveryId, controller.getLiveViewportLines());
         throw error;
@@ -205,7 +210,7 @@ function setupController(
         const byte = typeof submit === 'string' ? submit : '\r';
         // This is only for command-driven session.input. Raw terminal typing
         // never enters the watcher, so unfinished manual input is untouched.
-        onInputPrepared?.(deliveryId, text, byte);
+        onInputPrepared?.(deliveryId, injectedText, byte);
         // Small delay before submit to let the app process text input first.
         // Without this, the submit byte can land in the wrong buffer position
         // and produce a newline instead of submit (especially under tmux).
@@ -349,6 +354,10 @@ export async function runCommand(
 
   let currentDeliveryId: string | undefined;
   let currentInputText: string | undefined;
+  let inputMarkerSeen = false;
+  let inputMarkerWasHidden = false;
+  let inputMarkerReturned = false;
+  let inputMarkerConsumed = false;
   let turnGeneration = 0;
   let activeTurnGeneration: number | undefined;
   let workingSeen = false;
@@ -413,11 +422,32 @@ export async function runCommand(
   const isCurrentInputVisible = (): boolean => {
     if (!currentInputText) return false;
     const viewport = controllerRef?.getLiveViewportState();
-    return isInputTextVisible(
-      currentInputText,
-      viewport?.lines || [],
-      inputRetry?.pendingInputMarkers || [],
-      viewport ? { row: viewport.cursorRow, column: viewport.cursorColumn } : undefined
+    if (!viewport) return false;
+    const cursor = { row: viewport.cursorRow, column: viewport.cursorColumn };
+    return (
+      isInputTextVisible(
+        currentInputText,
+        viewport.lines,
+        inputRetry?.pendingInputMarkers || [],
+        cursor
+      ) ||
+      isInputTextVisible(
+        stripDeliveryMarker(currentInputText),
+        viewport.lines,
+        inputRetry?.pendingInputMarkers || [],
+        cursor
+      )
+    );
+  };
+  const isCurrentDeliveryMarkerVisible = (): boolean => {
+    if (!currentInputText) return false;
+    const viewport = controllerRef?.getLiveViewportState();
+    return (
+      !!viewport &&
+      isInputTextVisible(currentInputText, viewport.lines, inputRetry?.pendingInputMarkers || [], {
+        row: viewport.cursorRow,
+        column: viewport.cursorColumn,
+      })
     );
   };
   const inputWatcher =
@@ -425,9 +455,13 @@ export async function runCommand(
       ? new InputSubmitWatcher({
           ...inputRetry,
           write: () => ptyWriteRef.current,
-          isSubmissionAcknowledged: () => workingSeen,
+          isSubmissionAcknowledged: () => workingSeen || inputMarkerConsumed,
           onAcknowledged: (deliveryId) => {
             currentInputText = undefined;
+            inputMarkerSeen = false;
+            inputMarkerWasHidden = false;
+            inputMarkerReturned = false;
+            inputMarkerConsumed = false;
             if (deliveryId) deliveryTracker.markSubmitAcknowledged(deliveryId);
           },
           onRetry: (deliveryId) => {
@@ -438,15 +472,26 @@ export async function runCommand(
           },
           onExhausted: (deliveryId) => {
             currentInputText = undefined;
+            inputMarkerSeen = false;
+            inputMarkerWasHidden = false;
+            inputMarkerReturned = false;
+            inputMarkerConsumed = false;
             if (deliveryId) {
               deliveryTracker.markFailure(deliveryId, controllerRef?.getLiveViewportLines() || []);
             }
           },
           isInputVisible: (text) => {
-            return isInputTextVisible(
-              text,
-              controllerRef?.getLiveViewportLines() || [],
-              inputRetry.pendingInputMarkers
+            const viewport = controllerRef?.getLiveViewportState();
+            if (!viewport) return false;
+            const cursor = { row: viewport.cursorRow, column: viewport.cursorColumn };
+            return (
+              isInputTextVisible(text, viewport.lines, inputRetry.pendingInputMarkers, cursor) ||
+              isInputTextVisible(
+                stripDeliveryMarker(text),
+                viewport.lines,
+                inputRetry.pendingInputMarkers,
+                cursor
+              )
             );
           },
         })
@@ -466,26 +511,13 @@ export async function runCommand(
     () => resetHibernateTimer(),
     (deliveryId, text, submitValue) => {
       currentInputText = text;
+      inputMarkerSeen = false;
+      inputMarkerWasHidden = false;
+      inputMarkerReturned = false;
+      inputMarkerConsumed = false;
       const overrides = getWakeRetryOverrides();
       wakePromptPending = false;
       inputWatcher?.track(text, submitValue, deliveryId, overrides);
-    },
-    async (text) => {
-      if (!text.trim()) return;
-      const deadline =
-        Date.now() + (getWakeRetryOverrides()?.maxWindowMs ?? inputRetry?.maxWindowMs ?? 5000);
-      while (Date.now() < deadline) {
-        const viewport = controller.getLiveViewportState();
-        if (
-          isInputTextVisible(text, viewport.lines, inputRetry?.pendingInputMarkers || [], {
-            row: viewport.cursorRow,
-            column: viewport.cursorColumn,
-          })
-        ) {
-          return;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
     }
   );
   controllerRef = controller;
@@ -523,6 +555,11 @@ export async function runCommand(
       }
       activeTurnGeneration = undefined;
       currentDeliveryId = undefined;
+      currentInputText = undefined;
+      inputMarkerSeen = false;
+      inputMarkerWasHidden = false;
+      inputMarkerReturned = false;
+      inputMarkerConsumed = false;
       workingSeen = false;
       resetHibernateTimer();
     },
@@ -587,6 +624,17 @@ export async function runCommand(
     }, hibernateAfterMs);
   };
   const observeDeliveryState = (): void => {
+    if (currentInputText) {
+      if (isCurrentDeliveryMarkerVisible()) {
+        if (inputMarkerWasHidden) inputMarkerReturned = true;
+        inputMarkerSeen = true;
+      } else if (inputMarkerSeen) {
+        inputMarkerWasHidden = true;
+      }
+      if (inputMarkerReturned && !isCurrentDeliveryMarkerVisible()) {
+        inputMarkerConsumed = true;
+      }
+    }
     if (!currentDeliveryId) return;
     const status = deliveryTracker.get(currentDeliveryId);
     if (!status || status.state === 'terminal_delivery_failure') return;
@@ -631,6 +679,10 @@ export async function runCommand(
           }
           deliveryTracker.markResponseReceived(current.deliveryId, preview());
           currentInputText = undefined;
+          inputMarkerSeen = false;
+          inputMarkerWasHidden = false;
+          inputMarkerReturned = false;
+          inputMarkerConsumed = false;
           activeTurnGeneration = undefined;
           currentDeliveryId = undefined;
           workingSeen = false;
