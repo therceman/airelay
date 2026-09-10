@@ -210,6 +210,7 @@ describe('foreground PTY resize stabilization', () => {
       file: 'node',
       args: ['-e', 'setTimeout(() => process.exit(0), 250)'],
       resizeSource: source,
+      resizeStartupGraceMs: 0,
       onResizeTrace: (trace) => {
         if (trace.kind === 'forwarded') forwarded.push(`${trace.cols}x${trace.rows}`);
       },
@@ -221,6 +222,39 @@ describe('foreground PTY resize stabilization', () => {
     await wait(120);
 
     expect(forwarded).toEqual(['160x50']);
+    await pty.exitCode;
+  });
+
+  it('holds resize bursts during initial harness output and forwards the final size once', async () => {
+    const source = new FakeResizeSource();
+    const forwarded: string[] = [];
+    const pty = createPty({
+      file: 'node',
+      args: [
+        '-e',
+        "setTimeout(() => { process.stdout.write('ready'); setTimeout(() => process.exit(0), 1000) }, 250)",
+      ],
+      resizeSource: source,
+      onResizeTrace: (trace) => {
+        if (trace.kind === 'forwarded') forwarded.push(`${trace.cols}x${trace.rows}`);
+      },
+    });
+
+    source.rows = 41;
+    source.emit('resize');
+    await wait(120);
+    source.rows = 42;
+    source.emit('resize');
+    await wait(120);
+    source.rows = 41;
+    source.emit('resize');
+    await wait(120);
+
+    expect(forwarded).toEqual([]);
+    source.rows = 50;
+    source.emit('resize');
+    await wait(1100);
+    expect(forwarded).toEqual(['143x50']);
     await pty.exitCode;
   });
 
