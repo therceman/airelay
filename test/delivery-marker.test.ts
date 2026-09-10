@@ -5,8 +5,11 @@ import {
 } from '../src/runtime/delivery-marker';
 import { writeCommandInput } from '../src/runtime/delivery-sequence';
 import { InputSubmitWatcher } from '../src/runtime/input-submit-watcher';
+import { SessionController } from '../src/controller';
+import { useTestEnv } from './test-utils';
 
 const marker = '[12:33:12]';
+useTestEnv();
 
 function viewport(lines: string[], cursorRow: number, cursorColumn = 0) {
   return { lines, cursorRow, cursorColumn };
@@ -23,9 +26,24 @@ describe('delivery marker state machine', () => {
   });
 
   it('classifies a collapsed paste marker in the active editor', () => {
-    expect(
-      classifyDeliveryMarker(viewport([`› [Pasted Content 2278 chars] ${marker}`], 0), marker)
-    ).toBe('editor');
+    const line = `› [Pasted Content 2278 chars] ${marker}`;
+    expect(classifyDeliveryMarker(viewport([line], 0, line.length), marker)).toBe('editor');
+  });
+
+  it('requires the marker to be before the cursor on the current row', () => {
+    const line = `› [Pasted Content 2278 chars] ${marker}`;
+    const markerStart = line.lastIndexOf(marker);
+
+    expect(classifyDeliveryMarker(viewport([line], 0, markerStart), marker)).toBe('absent');
+    expect(classifyDeliveryMarker(viewport([`old ${marker} output`], 0, 3), marker)).toBe('absent');
+    expect(classifyDeliveryMarker(viewport([`${marker} text`], 0, marker.length + 2), marker)).toBe(
+      'absent'
+    );
+  });
+
+  it('classifies a wrapped marker ending before a cursor at the next row', () => {
+    const line = `› wrapped ${marker}`;
+    expect(classifyDeliveryMarker(viewport([line, ''], 1, 0), marker)).toBe('editor');
   });
 
   it('classifies a marker above the active editor as committed', () => {
@@ -116,6 +134,13 @@ describe('delivery marker state machine', () => {
     expect(tracker.isAcknowledged()).toBe(true);
   });
 
+  it('accepts a positively committed marker even if the editor frame was coalesced', () => {
+    const tracker = new DeliveryMarkerTracker();
+
+    expect(tracker.observe('committed')).toBe('acknowledged');
+    expect(tracker.isAcknowledged()).toBe(true);
+  });
+
   it('allows working fallback only before a redraw-return cycle', () => {
     const direct = new DeliveryMarkerTracker();
     direct.observe('editor');
@@ -128,5 +153,78 @@ describe('delivery marker state machine', () => {
     redraw.observe('editor');
     redraw.observe('absent');
     expect(redraw.canUseWorkingAck()).toBe(false);
+  });
+
+  it('does not allow a working hint to acknowledge a returned redraw', () => {
+    const tracker = new DeliveryMarkerTracker();
+    tracker.observe('editor');
+    tracker.observe('absent');
+    tracker.observe('editor');
+    tracker.observe('absent');
+
+    expect(tracker.isAcknowledged()).toBe(false);
+    expect(tracker.canUseWorkingAck()).toBe(false);
+  });
+
+  it('classifies the current xterm frame after the current chunk is flushed', async () => {
+    const controller = new SessionController(`delivery_marker_render_${process.pid}`);
+    await controller.start();
+
+    const line = `› [Pasted Content 2278 chars] ${marker}`;
+    controller.feedOutput(line);
+    expect(classifyDeliveryMarker(controller.getLiveViewportState(), marker)).toBe('absent');
+
+    await controller.flushViewport();
+    expect(classifyDeliveryMarker(controller.getLiveViewportState(), marker)).toBe('editor');
+
+    await controller.stop();
+  });
+
+  it('tracks resume redraw through the rendered controller and retries Enter only once', async () => {
+    const controller = new SessionController(`delivery_marker_resume_${process.pid}_${Date.now()}`);
+    await controller.start();
+    const writes: string[] = ['body'];
+    const tracker = new DeliveryMarkerTracker();
+    const acknowledged = jest.fn();
+    const watcher = new InputSubmitWatcher({
+      retryDelayMs: 30,
+      maxRetries: 3,
+      maxWindowMs: 200,
+      write: () => (value) => writes.push(value),
+      isInputVisible: (activeMarker) =>
+        classifyDeliveryMarker(controller.getLiveViewportState(), activeMarker) === 'editor',
+      isSubmissionAcknowledged: () => tracker.isAcknowledged(),
+      onAcknowledged: acknowledged,
+    });
+
+    const feed = async (output: string): Promise<void> => {
+      controller.feedOutput(output);
+      await controller.flushViewport();
+    };
+
+    const editorLine = `› [Pasted Content 2278 chars] ${marker}`;
+    await feed(editorLine);
+    tracker.observe(classifyDeliveryMarker(controller.getLiveViewportState(), marker));
+    watcher.track(marker, '\r', 'resume-redraw');
+
+    await feed('\x1b[2J\x1b[H');
+    tracker.observe(classifyDeliveryMarker(controller.getLiveViewportState(), marker));
+    await feed(editorLine);
+    tracker.observe(classifyDeliveryMarker(controller.getLiveViewportState(), marker));
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    expect(writes).toEqual(['body', '\r']);
+    expect(tracker.isAcknowledged()).toBe(false);
+    expect(acknowledged).not.toHaveBeenCalled();
+
+    await feed(`\x1b[2J\x1b[H• committed ${marker}\r\n› `);
+    tracker.observe(classifyDeliveryMarker(controller.getLiveViewportState(), marker));
+    watcher.observeOutput('committed marker');
+
+    expect(writes).toEqual(['body', '\r']);
+    expect(tracker.isAcknowledged()).toBe(true);
+    expect(acknowledged).toHaveBeenCalledWith('resume-redraw');
+    watcher.dispose();
+    await controller.stop();
   });
 });

@@ -585,6 +585,7 @@ export async function runCommand(
       !isCurrentInputVisible();
 
     if (isWorking) {
+      if (!markerTracker.canUseWorkingAck()) return;
       workingSeen = true;
       deliveryTracker.markSubmitAcknowledged(currentDeliveryId);
       if (completionTimer) {
@@ -748,13 +749,20 @@ export async function runCommand(
     };
   }
 
-  // Feed PTY output to the controller's ring buffer for session-find / ui_hint
+  let outputRenderQueue: Promise<void> = Promise.resolve();
+
+  // Feed PTY output to the controller's ring buffer for session-find / ui_hint.
+  // Serialize xterm writes so each delivery observation sees the frame produced
+  // by the current PTY chunk, not a stale or later frame.
   spawnOpts.onOutput = (chunk: string) => {
-    controller.feedOutput(chunk);
     capacityWatcher?.observe(chunk);
-    inputWatcher?.observeOutput(chunk);
-    observeDeliveryState();
-    if (activeTurnGeneration !== undefined) resetHibernateTimer();
+    outputRenderQueue = outputRenderQueue.then(async () => {
+      controller.feedOutput(chunk);
+      await controller.flushViewport();
+      inputWatcher?.observeOutput(chunk);
+      observeDeliveryState();
+      if (activeTurnGeneration !== undefined) resetHibernateTimer();
+    });
   };
   spawnOpts.onInput = () => resetHibernateTimer();
 
@@ -763,6 +771,7 @@ export async function runCommand(
     let exitCode = 0;
     while (keepRunning) {
       exitCode = await spawnAndWait(spawnOpts);
+      await outputRenderQueue;
       runtime.harnessPid = null;
       ptyWriteRef.current = null;
       ptyResizeRef.current = null;
@@ -798,6 +807,7 @@ export async function runCommand(
     }
     throw e;
   } finally {
+    await outputRenderQueue;
     runtime.runtimeState = 'stopping';
     runtime.harnessPid = null;
     persistRuntimeState();

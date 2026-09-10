@@ -40,16 +40,29 @@ export function classifyDeliveryMarker(
 
   if (nearestRow < 0) return 'absent';
 
-  if (nearestRow === viewport.cursorRow) return 'editor';
+  if (nearestRow === viewport.cursorRow) {
+    const line = viewport.lines[nearestRow] || '';
+    const markerStart = line.lastIndexOf(marker);
+    const markerEnd = markerStart + marker.length;
+    if (markerStart < 0 || markerEnd > viewport.cursorColumn) return 'absent';
+    if (/\S/.test(line.slice(markerEnd, viewport.cursorColumn))) return 'absent';
+    return 'editor';
+  }
 
   // A wrapped editor line can place the suffix one row above the cursor.
-  if (nearestRow === viewport.cursorRow - 1 && viewport.lines[viewport.cursorRow]?.trim() === '') {
+  if (
+    nearestRow === viewport.cursorRow - 1 &&
+    viewport.cursorColumn === 0 &&
+    viewport.lines[viewport.cursorRow]?.trim() === ''
+  ) {
     const line = viewport.lines[nearestRow] || '';
-    const markerEnd = line.indexOf(marker) + marker.length;
+    const markerIndex = line.lastIndexOf(marker);
+    if (markerIndex < 0) return 'absent';
+    const markerEnd = markerIndex + marker.length;
     if (line.slice(markerEnd).trim() === '') return 'editor';
   }
 
-  return 'committed';
+  return nearestRow < viewport.cursorRow ? 'committed' : 'absent';
 }
 
 /** Conservative per-delivery marker lifecycle. */
@@ -71,7 +84,7 @@ export class DeliveryMarkerTracker {
   observe(observation: MarkerObservation): DeliveryMarkerPhase {
     if (this.acknowledged) return 'acknowledged';
 
-    if (observation === 'committed' && this.sawEditor) {
+    if (observation === 'committed') {
       this.acknowledged = true;
       this.observation = observation;
       this.phase = 'acknowledged';
@@ -108,6 +121,9 @@ export class DeliveryMarkerTracker {
 
   /** Working-state fallback is unsafe after a redraw-return cycle. */
   canUseWorkingAck(): boolean {
-    return this.sawEditor && !this.returnedToEditor && this.observation !== 'editor';
+    return (
+      this.acknowledged ||
+      (this.sawEditor && !this.returnedToEditor && this.observation !== 'editor')
+    );
   }
 }
