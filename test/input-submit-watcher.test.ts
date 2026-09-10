@@ -176,7 +176,7 @@ describe('input submit watcher', () => {
     expect(onAcknowledged).toHaveBeenCalledWith('delivery-1');
   });
 
-  it('does not acknowledge working state while the submitted input remains visible', () => {
+  it('acknowledges verified working state even while the submitted input remains visible', () => {
     const writes: string[] = [];
     const onAcknowledged = jest.fn();
     const watcher = new InputSubmitWatcher({
@@ -192,8 +192,8 @@ describe('input submit watcher', () => {
     watcher.observeOutput('esc to interrupt');
     jest.advanceTimersByTime(100);
 
-    expect(onAcknowledged).not.toHaveBeenCalled();
-    expect(writes).toEqual(['\r']);
+    expect(onAcknowledged).toHaveBeenCalledWith('delivery-1');
+    expect(writes).toEqual([]);
   });
 
   it('does not treat missing input text as a successful submission', () => {

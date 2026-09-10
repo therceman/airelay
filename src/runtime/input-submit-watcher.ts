@@ -58,10 +58,7 @@ export class InputSubmitWatcher {
 
   observeOutput(chunk: string): void {
     if (this.disposed || !chunk.trim() || !this.pending) return;
-    if (
-      !this.options.isInputVisible(this.pending.marker) &&
-      this.options.isSubmissionAcknowledged?.()
-    ) {
+    if (this.options.isSubmissionAcknowledged?.()) {
       const deliveryId = this.pending.deliveryId;
       this.pending = null;
       this.clearTimer();
@@ -94,6 +91,12 @@ export class InputSubmitWatcher {
     const pending = this.pending;
     if (this.disposed || !pending) return;
 
+    if (this.options.isSubmissionAcknowledged?.()) {
+      this.pending = null;
+      this.options.onAcknowledged?.(pending.deliveryId);
+      return;
+    }
+
     const now = Date.now();
     if (pending.retryDeadlineAt !== undefined && now >= pending.retryDeadlineAt) {
       this.pending = null;
@@ -109,12 +112,6 @@ export class InputSubmitWatcher {
 
     const inputVisible = this.options.isInputVisible(pending.marker);
     if (!inputVisible) {
-      if (this.options.isSubmissionAcknowledged?.()) {
-        this.pending = null;
-        this.options.onAcknowledged?.(pending.deliveryId);
-        return;
-      }
-
       if (pending.retryDeadlineAt === undefined) {
         this.pending = null;
         this.options.onExhausted?.(pending.deliveryId);

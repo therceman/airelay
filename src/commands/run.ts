@@ -34,6 +34,7 @@ import {
   MarkerViewport,
 } from '../runtime/delivery-marker';
 import { writeCommandInput } from '../runtime/delivery-sequence';
+import { PostSubmitWorkingDetector } from '../runtime/post-submit-working';
 
 const WAKE_PROMPT_RETRY_WINDOW_MS = 60_000;
 const WAKE_PROMPT_RETRY_INTERVAL_MS = 5_000;
@@ -353,6 +354,9 @@ export async function runCommand(
   let turnGeneration = 0;
   let activeTurnGeneration: number | undefined;
   let workingSeen = false;
+  let outputGeneration = 0;
+  let submitOutputGeneration = 0;
+  const postSubmitWorking = new PostSubmitWorkingDetector(harnessCapabilities.uiWorkingHint);
   let completionTimer: ReturnType<typeof setTimeout> | null = null;
   let controllerRef: SessionController | null = null;
   let interruptController: InterruptController | null = null;
@@ -400,31 +404,35 @@ export async function runCommand(
       maxRetries: Math.ceil(WAKE_PROMPT_RETRY_WINDOW_MS / WAKE_PROMPT_RETRY_INTERVAL_MS),
     };
   };
+  const beginSubmitAttempt = (): void => {
+    submitOutputGeneration = outputGeneration;
+    postSubmitWorking.reset();
+    markerTracker.reset();
+  };
   const beginTurn = (deliveryId: string): void => {
     turnGeneration += 1;
     activeTurnGeneration = turnGeneration;
     currentDeliveryId = deliveryId;
     workingSeen = false;
+    beginSubmitAttempt();
     if (completionTimer) {
       clearTimeout(completionTimer);
       completionTimer = null;
     }
     resetHibernateTimer();
   };
-  const getCurrentMarkerObservation = (): 'editor' | 'committed' | 'absent' => {
+  const getCurrentMarkerObservation = (): 'visible' | 'absent' => {
     if (!currentTerminalMarker) return 'absent';
     const viewport = controllerRef?.getLiveViewportState();
     if (!viewport) return 'absent';
     return classifyDeliveryMarker(viewport as MarkerViewport, currentTerminalMarker);
   };
-  const isCurrentInputVisible = (): boolean => getCurrentMarkerObservation() === 'editor';
   const inputWatcher =
     usePty && inputRetry
       ? new InputSubmitWatcher({
           ...inputRetry,
           write: () => ptyWriteRef.current,
-          isSubmissionAcknowledged: () =>
-            markerTracker.isAcknowledged() || (workingSeen && markerTracker.canUseWorkingAck()),
+          isSubmissionAcknowledged: () => markerTracker.isAcknowledged() || workingSeen,
           onAcknowledged: (deliveryId) => {
             currentTerminalMarker = undefined;
             markerTracker.reset();
@@ -433,7 +441,11 @@ export async function runCommand(
           onRetry: (deliveryId) => {
             if (deliveryId) {
               deliveryTracker.markSubmitRetry(deliveryId);
-              if (activeTurnGeneration === undefined) beginTurn(deliveryId);
+              if (activeTurnGeneration === undefined) {
+                beginTurn(deliveryId);
+              } else {
+                beginSubmitAttempt();
+              }
             }
           },
           onExhausted: (deliveryId) => {
@@ -445,7 +457,7 @@ export async function runCommand(
           },
           isInputVisible: (text) => {
             const viewport = controllerRef?.getLiveViewportState();
-            return !!viewport && classifyDeliveryMarker(viewport, text) === 'editor';
+            return !!viewport && classifyDeliveryMarker(viewport, text) === 'visible';
           },
         })
       : null;
@@ -570,7 +582,7 @@ export async function runCommand(
       }
     }, hibernateAfterMs);
   };
-  const observeDeliveryState = (): void => {
+  const observeDeliveryState = (freshWorkingSignal = false): void => {
     if (currentTerminalMarker) markerTracker.observe(getCurrentMarkerObservation());
     if (!currentDeliveryId) return;
     const status = deliveryTracker.get(currentDeliveryId);
@@ -578,15 +590,10 @@ export async function runCommand(
 
     const lines = preview();
     deliveryTracker.updatePreview(currentDeliveryId, lines);
-    const rendered = lines.join(' ');
-    const isWorking =
-      !!harnessCapabilities.uiWorkingHint &&
-      rendered.includes(harnessCapabilities.uiWorkingHint) &&
-      !isCurrentInputVisible();
-
-    if (isWorking) {
+    if (freshWorkingSignal) {
       if (!markerTracker.canUseWorkingAck()) return;
       workingSeen = true;
+      markerTracker.markAcknowledged();
       deliveryTracker.markSubmitAcknowledged(currentDeliveryId);
       if (completionTimer) {
         clearTimeout(completionTimer);
@@ -756,11 +763,14 @@ export async function runCommand(
   // by the current PTY chunk, not a stale or later frame.
   spawnOpts.onOutput = (chunk: string) => {
     capacityWatcher?.observe(chunk);
+    const chunkGeneration = ++outputGeneration;
     outputRenderQueue = outputRenderQueue.then(async () => {
       controller.feedOutput(chunk);
       await controller.flushViewport();
+      const freshWorkingSignal =
+        chunkGeneration > submitOutputGeneration && postSubmitWorking.observe(chunk);
+      observeDeliveryState(freshWorkingSignal);
       inputWatcher?.observeOutput(chunk);
-      observeDeliveryState();
       if (activeTurnGeneration !== undefined) resetHibernateTimer();
     });
   };

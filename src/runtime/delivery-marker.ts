@@ -1,4 +1,4 @@
-export type MarkerObservation = 'editor' | 'committed' | 'absent';
+export type MarkerObservation = 'visible' | 'absent';
 
 export type DeliveryMarkerPhase =
   | 'pending_visible'
@@ -21,8 +21,9 @@ export function formatTerminalMarker(date = new Date()): string {
 }
 
 /**
- * Classify only the bounded cursor window. A marker above the active editor is
- * committed content; an absent marker is deliberately ambiguous.
+ * Report only whether the active delivery marker is rendered in the bounded
+ * current terminal window. Marker geometry is intentionally not an ACK signal:
+ * multiline editors may render the input suffix above the terminal cursor.
  */
 export function classifyDeliveryMarker(
   viewport: MarkerViewport,
@@ -32,74 +33,40 @@ export function classifyDeliveryMarker(
   if (!marker) return 'absent';
   const start = Math.max(0, viewport.cursorRow - windowRows);
   const end = Math.min(viewport.lines.length, viewport.cursorRow + 1);
-  let nearestRow = -1;
-
   for (let row = start; row < end; row += 1) {
-    if (viewport.lines[row]?.includes(marker)) nearestRow = row;
+    if (viewport.lines[row]?.includes(marker)) return 'visible';
   }
-
-  if (nearestRow < 0) return 'absent';
-
-  if (nearestRow === viewport.cursorRow) {
-    const line = viewport.lines[nearestRow] || '';
-    const markerStart = line.lastIndexOf(marker);
-    const markerEnd = markerStart + marker.length;
-    if (markerStart < 0 || markerEnd > viewport.cursorColumn) return 'absent';
-    if (/\S/.test(line.slice(markerEnd, viewport.cursorColumn))) return 'absent';
-    return 'editor';
-  }
-
-  // A wrapped editor line can place the suffix one row above the cursor.
-  if (
-    nearestRow === viewport.cursorRow - 1 &&
-    viewport.cursorColumn === 0 &&
-    viewport.lines[viewport.cursorRow]?.trim() === ''
-  ) {
-    const line = viewport.lines[nearestRow] || '';
-    const markerIndex = line.lastIndexOf(marker);
-    if (markerIndex < 0) return 'absent';
-    const markerEnd = markerIndex + marker.length;
-    if (line.slice(markerEnd).trim() === '') return 'editor';
-  }
-
-  return nearestRow < viewport.cursorRow ? 'committed' : 'absent';
+  return 'absent';
 }
 
 /** Conservative per-delivery marker lifecycle. */
 export class DeliveryMarkerTracker {
   private observation: MarkerObservation = 'absent';
   private phase: DeliveryMarkerPhase = 'transient_hidden';
-  private sawEditor = false;
-  private returnedToEditor = false;
+  private sawVisible = false;
+  private returnedToVisible = false;
   private acknowledged = false;
 
   reset(): void {
     this.observation = 'absent';
     this.phase = 'transient_hidden';
-    this.sawEditor = false;
-    this.returnedToEditor = false;
+    this.sawVisible = false;
+    this.returnedToVisible = false;
     this.acknowledged = false;
   }
 
   observe(observation: MarkerObservation): DeliveryMarkerPhase {
     if (this.acknowledged) return 'acknowledged';
 
-    if (observation === 'committed') {
-      this.acknowledged = true;
-      this.observation = observation;
-      this.phase = 'acknowledged';
-      return this.phase;
-    }
-
-    if (observation === 'editor') {
-      if (this.observation === 'absent' && this.sawEditor) {
-        this.returnedToEditor = true;
+    if (observation === 'visible') {
+      if (this.observation === 'absent' && this.sawVisible) {
+        this.returnedToVisible = true;
         this.phase = 'pending_returned';
       } else {
         this.phase = 'pending_visible';
       }
-      this.sawEditor = true;
-    } else if (observation === 'absent' && this.sawEditor) {
+      this.sawVisible = true;
+    } else if (this.sawVisible) {
       this.phase = 'transient_hidden';
     }
 
@@ -107,12 +74,19 @@ export class DeliveryMarkerTracker {
     return this.phase;
   }
 
+  /** Acknowledgement is granted only by a separate positive signal. */
+  markAcknowledged(): DeliveryMarkerPhase {
+    this.acknowledged = true;
+    this.phase = 'acknowledged';
+    return this.phase;
+  }
+
   getPhase(): DeliveryMarkerPhase {
     return this.phase;
   }
 
-  isInEditor(): boolean {
-    return !this.acknowledged && this.observation === 'editor';
+  isVisible(): boolean {
+    return !this.acknowledged && this.observation === 'visible';
   }
 
   isAcknowledged(): boolean {
@@ -121,9 +95,6 @@ export class DeliveryMarkerTracker {
 
   /** Working-state fallback is unsafe after a redraw-return cycle. */
   canUseWorkingAck(): boolean {
-    return (
-      this.acknowledged ||
-      (this.sawEditor && !this.returnedToEditor && this.observation !== 'editor')
-    );
+    return this.sawVisible && !this.returnedToVisible;
   }
 }
