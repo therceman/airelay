@@ -225,36 +225,70 @@ describe('foreground PTY resize stabilization', () => {
     await pty.exitCode;
   });
 
-  it('holds resize bursts during initial harness output and forwards the final size once', async () => {
+  it('holds spaced resize oscillation after early output until startup grace expires', async () => {
     const source = new FakeResizeSource();
     const forwarded: string[] = [];
     const pty = createPty({
       file: 'node',
       args: [
         '-e',
-        "setTimeout(() => { process.stdout.write('ready'); setTimeout(() => process.exit(0), 1000) }, 250)",
+        "setTimeout(() => { process.stdout.write('ready'); setTimeout(() => process.exit(0), 1000) }, 100)",
       ],
       resizeSource: source,
+      resizeStartupGraceMs: 700,
       onResizeTrace: (trace) => {
         if (trace.kind === 'forwarded') forwarded.push(`${trace.cols}x${trace.rows}`);
       },
     });
 
+    await wait(120);
     source.rows = 41;
     source.emit('resize');
-    await wait(120);
+    await wait(100);
     source.rows = 42;
     source.emit('resize');
-    await wait(120);
+    await wait(100);
     source.rows = 41;
     source.emit('resize');
-    await wait(120);
+    await wait(100);
+    source.rows = 42;
+    source.emit('resize');
+    await wait(100);
+    source.rows = 41;
+    source.emit('resize');
 
     expect(forwarded).toEqual([]);
-    source.rows = 50;
-    source.emit('resize');
-    await wait(1100);
-    expect(forwarded).toEqual(['143x50']);
+    await wait(350);
+    expect(forwarded).toEqual(['143x41']);
+    await pty.exitCode;
+  });
+
+  it('does not forward startup oscillation when the final size equals the initial size', async () => {
+    const source = new FakeResizeSource();
+    const forwarded: string[] = [];
+    const pty = createPty({
+      file: 'node',
+      args: [
+        '-e',
+        "setTimeout(() => { process.stdout.write('ready'); setTimeout(() => process.exit(0), 900) }, 100)",
+      ],
+      resizeSource: source,
+      resizeStartupGraceMs: 700,
+      onResizeTrace: (trace) => {
+        if (trace.kind === 'forwarded') forwarded.push(`${trace.cols}x${trace.rows}`);
+      },
+    });
+
+    await wait(120);
+    for (const row of [41, 42, 41, 42]) {
+      source.rows = row;
+      source.emit('resize');
+      await wait(100);
+    }
+
+    expect(forwarded).toEqual([]);
+    await wait(350);
+    expect(forwarded).toEqual([]);
     await pty.exitCode;
   });
 

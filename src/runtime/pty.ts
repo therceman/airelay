@@ -69,7 +69,6 @@ export function createPty(options: PtyOptions): PtyInstance {
   let resizeTimer: ReturnType<typeof setTimeout> | null = null;
   const resizeStartupGraceMs = Math.max(0, options.resizeStartupGraceMs ?? 1000);
   const resizeStartupDeadline = Date.now() + resizeStartupGraceMs;
-  let hasOutput = false;
   let traceCount = 0;
   const traceLimit = 128;
   const traceResize = (kind: PtyResizeTrace['kind'], nextCols: number, nextRows: number): void => {
@@ -108,14 +107,14 @@ export function createPty(options: PtyOptions): PtyInstance {
     pendingResize = { cols: nextCols, rows: nextRows };
     if (resizeTimer) clearTimeout(resizeTimer);
     const quietPeriodMs = Math.max(0, options.resizeDebounceMs ?? 75);
-    const startupDelayMs = hasOutput ? 0 : Math.max(0, resizeStartupDeadline - Date.now());
+    const startupDelayMs = Math.max(0, resizeStartupDeadline - Date.now());
     resizeTimer = setTimeout(
       () => {
         resizeTimer = null;
         const next = pendingResize;
         pendingResize = null;
         if (!next) return;
-        if (!hasOutput && Date.now() < resizeStartupDeadline) {
+        if (Date.now() < resizeStartupDeadline) {
           pendingResize = next;
           scheduleOuterResize(next.cols, next.rows);
           return;
@@ -130,7 +129,6 @@ export function createPty(options: PtyOptions): PtyInstance {
   // In detached mode, output is only fed to onOutput (the controller's ring
   // buffer / viewport); it must not leak to the launcher's stdio.
   term.onData((data: string) => {
-    hasOutput = true;
     if (!options.detached) {
       process.stdout.write(data);
     }
