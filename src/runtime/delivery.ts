@@ -8,6 +8,7 @@ export type DeliveryState =
 
 export interface DeliveryStatus {
   deliveryId: string;
+  terminalMarker?: string;
   state: DeliveryState;
   acceptedAt: number;
   submitSentAt?: number;
@@ -59,12 +60,13 @@ export class DeliveryTracker {
   private readonly records = new Map<string, DeliveryStatus>();
   private activeDeliveryId: string | null = null;
 
-  begin(deliveryId: string): DeliveryBeginResult {
+  begin(deliveryId: string, terminalMarker?: string): DeliveryBeginResult {
     const existing = this.records.get(deliveryId);
     if (existing) return { status: cloneStatus(existing), duplicate: true };
 
     const status: DeliveryStatus = {
       deliveryId,
+      terminalMarker,
       state: 'prompt_not_submitted',
       acceptedAt: Date.now(),
       submitAttempts: 0,

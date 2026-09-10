@@ -1,6 +1,16 @@
 import { DeliveryTracker } from '../src/runtime/delivery';
 
 describe('delivery tracker', () => {
+  it('exposes the human-facing marker without replacing delivery identity', () => {
+    const tracker = new DeliveryTracker();
+    const result = tracker.begin('delivery-1', '[12:03:07]');
+
+    expect(result.status).toMatchObject({
+      deliveryId: 'delivery-1',
+      terminalMarker: '[12:03:07]',
+    });
+  });
+
   it('deduplicates a repeated delivery id without creating a second record', () => {
     const tracker = new DeliveryTracker();
     const first = tracker.begin('delivery-1');

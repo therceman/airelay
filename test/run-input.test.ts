@@ -12,7 +12,10 @@ interface InputResponse {
   data?: { deliveryId?: string };
 }
 
-function sendInput(endpoint: string): Promise<InputResponse> {
+function sendInput(
+  endpoint: string,
+  params: { text: string; deliveryId: string; enter: string | boolean; submitDelayMs?: number }
+): Promise<InputResponse> {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(endpoint);
     let buffer = '';
@@ -26,12 +29,7 @@ function sendInput(endpoint: string): Promise<InputResponse> {
         JSON.stringify({
           id: 'input-test',
           method: 'session.input',
-          params: {
-            text: 'resume input',
-            deliveryId: 'resume-input-test',
-            enter: '\r',
-            submitDelayMs: 25,
-          },
+          params,
         }) + '\n'
       );
     });
@@ -57,6 +55,7 @@ describe('command-driven input after resume', () => {
       harnessPath,
       `#!/usr/bin/env node
 const fs = require('fs');
+if (process.stdin.isTTY && process.stdin.setRawMode) process.stdin.setRawMode(true);
 process.stdin.on('data', (chunk) => {
   fs.appendFileSync(${JSON.stringify(inputLogPath)}, JSON.stringify(chunk.toString()) + '\\n');
   if (chunk.includes('\\r') || chunk.includes('\\n')) process.exit(0);
@@ -90,7 +89,12 @@ setTimeout(() => process.exit(2), 1500);
     }
     expect(endpoint).toBeTruthy();
 
-    const response = await sendInput(endpoint);
+    const response = await sendInput(endpoint, {
+      text: 'resume input',
+      deliveryId: 'resume-input-test',
+      enter: '\r',
+      submitDelayMs: 250,
+    });
     expect(response.type).toBe('success');
     expect(response.data?.deliveryId).toBe('resume-input-test');
 
@@ -99,10 +103,65 @@ setTimeout(() => process.exit(2), 1500);
       .readFileSync(inputLogPath, 'utf8')
       .trim()
       .split('\n')
-      .map((line) => JSON.parse(line) as string)
-      .join('');
-    expect(writes).toContain('resume input');
-    expect(writes).toContain('\u2063\u200b\u2063');
-    expect(writes.includes('\r') || writes.includes('\n')).toBe(true);
+      .map((line) => JSON.parse(line) as string);
+    const combined = writes.join('');
+    // PTY drivers may coalesce adjacent writes into one stdin event. The
+    // deterministic sequence unit test proves the write boundaries/order.
+    expect(writes.length).toBeGreaterThanOrEqual(1);
+    expect(combined.match(/resume input/g)).toHaveLength(1);
+    expect(combined).toMatch(/ \[\d{2}:\d{2}:\d{2}\]/);
+    expect(combined.includes('\r') || combined.includes('\n')).toBe(true);
+  }, 10000);
+
+  it('writes enter:false text exactly without a marker or submit key', async () => {
+    const harnessPath = path.join(testEnv.testDir, 'raw-input-harness');
+    const inputLogPath = path.join(testEnv.testDir, 'raw-input.log');
+    fs.writeFileSync(
+      harnessPath,
+      `#!/usr/bin/env node
+const fs = require('fs');
+if (process.stdin.isTTY && process.stdin.setRawMode) process.stdin.setRawMode(true);
+process.stdin.on('data', (chunk) => {
+  fs.appendFileSync(${JSON.stringify(inputLogPath)}, chunk.toString());
+  process.exit(0);
+});
+setTimeout(() => process.exit(2), 1500);
+`
+    );
+    fs.chmodSync(harnessPath, 0o755);
+    fs.writeFileSync(
+      testEnv.configPath,
+      JSON.stringify({
+        version: 1,
+        settings: { hibernateAfter: 'off', harnessSelfUpdate: true },
+        profiles: { raw_input: { executable: harnessPath } },
+      })
+    );
+
+    let endpoint = '';
+    const runPromise = runCommand('raw_input', [], {
+      usePty: true,
+      detached: true,
+      sessionKey: 'raw_input_test',
+      onSessionStart: (info) => {
+        endpoint = info.controllerEndpoint;
+      },
+    });
+
+    const deadline = Date.now() + 1000;
+    while (!endpoint && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(endpoint).toBeTruthy();
+
+    const response = await sendInput(endpoint, {
+      text: 'unfinished manual text',
+      deliveryId: 'raw-input-test',
+      enter: false,
+    });
+
+    expect(response.type).toBe('success');
+    await expect(runPromise).resolves.toBe(0);
+    expect(fs.readFileSync(inputLogPath, 'utf8')).toBe('unfinished manual text');
   }, 10000);
 });

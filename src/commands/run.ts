@@ -25,18 +25,18 @@ import {
 } from '../runtime/detached-registry';
 import fs from 'fs';
 import { ensureCodexProfileStandalone } from '../utils/codex-standalone';
-import { isInputTextVisible } from '../runtime/input-submit-watcher';
 import { parseDurationMs } from '../utils/duration';
 import { createRuntimeIdentity, RuntimeIdentity } from '../runtime/identity';
+import {
+  classifyDeliveryMarker,
+  DeliveryMarkerTracker,
+  formatTerminalMarker,
+  MarkerViewport,
+} from '../runtime/delivery-marker';
+import { writeCommandInput } from '../runtime/delivery-sequence';
 
 const WAKE_PROMPT_RETRY_WINDOW_MS = 60_000;
 const WAKE_PROMPT_RETRY_INTERVAL_MS = 5_000;
-// Invisible terminal-safe suffix used only for command-driven delivery tracking.
-const DELIVERY_MARKER = '\u2063\u200b\u2063';
-
-function stripDeliveryMarker(text: string): string {
-  return text.endsWith(DELIVERY_MARKER) ? text.slice(0, -DELIVERY_MARKER.length) : text;
-}
 
 function generateSessionKey(profileName: string): string {
   const suffix = Math.random().toString(36).slice(2, 6);
@@ -132,7 +132,7 @@ function setupController(
   onInterrupt?: () => Promise<InterruptResult>,
   onWakeRequested?: () => Promise<void>,
   onActivity?: () => void,
-  onInputPrepared?: (deliveryId: string, text: string, submitValue: string) => void
+  onInputPrepared?: (deliveryId: string, marker: string, submitValue: string) => void
 ) {
   const controller = new SessionController(sessionKey);
   controller.setDeliveryStatusProvider(() => deliveryTracker.get());
@@ -188,47 +188,42 @@ function setupController(
         submitDelayMs?: number;
       };
       const text = params.text || '';
+      const submit = params.enter;
+      const shouldSubmit = submit !== false && submit !== undefined;
+      const terminalMarker = shouldSubmit && text ? formatTerminalMarker() : undefined;
       const deliveryId =
         typeof params.deliveryId === 'string' && params.deliveryId.trim()
           ? params.deliveryId
           : `legacy_${request.id}_${Date.now()}`;
-      const begin = deliveryTracker.begin(deliveryId);
+      const begin = deliveryTracker.begin(deliveryId, terminalMarker);
       if (begin.duplicate) {
         return { delivered: true, duplicate: true, sessionKey, delivery: begin.status };
       }
 
-      const injectedText = text ? `${text}${DELIVERY_MARKER}` : text;
       try {
         onActivity?.();
-        ptyWrite.current(injectedText);
+        if (!shouldSubmit) {
+          ptyWrite.current(text);
+        } else {
+          const byte = typeof submit === 'string' ? submit : '\r';
+          const totalDelayMs =
+            typeof params.submitDelayMs === 'number'
+              ? Math.max(0, Math.floor(params.submitDelayMs))
+              : 250;
+          await writeCommandInput({
+            body: text,
+            marker: terminalMarker,
+            submit: byte,
+            totalDelayMs,
+            write: ptyWrite.current,
+            onMarkerWritten: () => onInputPrepared?.(deliveryId, terminalMarker || '', byte),
+          });
+          deliveryTracker.markSubmitSent(deliveryId);
+          onInputInjected?.(deliveryId, text, byte);
+        }
       } catch (error) {
         deliveryTracker.markFailure(deliveryId, controller.getLiveViewportLines());
         throw error;
-      }
-      const submit = params.enter;
-      if (submit !== false && submit !== undefined) {
-        const byte = typeof submit === 'string' ? submit : '\r';
-        // This is only for command-driven session.input. Raw terminal typing
-        // never enters the watcher, so unfinished manual input is untouched.
-        onInputPrepared?.(deliveryId, injectedText, byte);
-        // Small delay before submit to let the app process text input first.
-        // Without this, the submit byte can land in the wrong buffer position
-        // and produce a newline instead of submit (especially under tmux).
-        const delayMs =
-          typeof params.submitDelayMs === 'number' && params.submitDelayMs > 0
-            ? Math.floor(params.submitDelayMs)
-            : 0;
-        if (delayMs > 0) {
-          await new Promise((resolve) => setTimeout(resolve, delayMs));
-        }
-        try {
-          ptyWrite.current(byte);
-        } catch (error) {
-          deliveryTracker.markFailure(deliveryId, controller.getLiveViewportLines());
-          throw error;
-        }
-        deliveryTracker.markSubmitSent(deliveryId);
-        onInputInjected?.(deliveryId, text, byte);
       }
       return {
         delivered: true,
@@ -353,11 +348,8 @@ export async function runCommand(
   };
 
   let currentDeliveryId: string | undefined;
-  let currentInputText: string | undefined;
-  let inputMarkerSeen = false;
-  let inputMarkerWasHidden = false;
-  let inputMarkerReturned = false;
-  let inputMarkerConsumed = false;
+  let currentTerminalMarker: string | undefined;
+  const markerTracker = new DeliveryMarkerTracker();
   let turnGeneration = 0;
   let activeTurnGeneration: number | undefined;
   let workingSeen = false;
@@ -419,49 +411,23 @@ export async function runCommand(
     }
     resetHibernateTimer();
   };
-  const isCurrentInputVisible = (): boolean => {
-    if (!currentInputText) return false;
+  const getCurrentMarkerObservation = (): 'editor' | 'committed' | 'absent' => {
+    if (!currentTerminalMarker) return 'absent';
     const viewport = controllerRef?.getLiveViewportState();
-    if (!viewport) return false;
-    const cursor = { row: viewport.cursorRow, column: viewport.cursorColumn };
-    return (
-      isInputTextVisible(
-        currentInputText,
-        viewport.lines,
-        inputRetry?.pendingInputMarkers || [],
-        cursor
-      ) ||
-      isInputTextVisible(
-        stripDeliveryMarker(currentInputText),
-        viewport.lines,
-        inputRetry?.pendingInputMarkers || [],
-        cursor
-      )
-    );
+    if (!viewport) return 'absent';
+    return classifyDeliveryMarker(viewport as MarkerViewport, currentTerminalMarker);
   };
-  const isCurrentDeliveryMarkerVisible = (): boolean => {
-    if (!currentInputText) return false;
-    const viewport = controllerRef?.getLiveViewportState();
-    return (
-      !!viewport &&
-      isInputTextVisible(currentInputText, viewport.lines, inputRetry?.pendingInputMarkers || [], {
-        row: viewport.cursorRow,
-        column: viewport.cursorColumn,
-      })
-    );
-  };
+  const isCurrentInputVisible = (): boolean => getCurrentMarkerObservation() === 'editor';
   const inputWatcher =
     usePty && inputRetry
       ? new InputSubmitWatcher({
           ...inputRetry,
           write: () => ptyWriteRef.current,
-          isSubmissionAcknowledged: () => workingSeen || inputMarkerConsumed,
+          isSubmissionAcknowledged: () =>
+            markerTracker.isAcknowledged() || (workingSeen && markerTracker.canUseWorkingAck()),
           onAcknowledged: (deliveryId) => {
-            currentInputText = undefined;
-            inputMarkerSeen = false;
-            inputMarkerWasHidden = false;
-            inputMarkerReturned = false;
-            inputMarkerConsumed = false;
+            currentTerminalMarker = undefined;
+            markerTracker.reset();
             if (deliveryId) deliveryTracker.markSubmitAcknowledged(deliveryId);
           },
           onRetry: (deliveryId) => {
@@ -471,28 +437,15 @@ export async function runCommand(
             }
           },
           onExhausted: (deliveryId) => {
-            currentInputText = undefined;
-            inputMarkerSeen = false;
-            inputMarkerWasHidden = false;
-            inputMarkerReturned = false;
-            inputMarkerConsumed = false;
+            currentTerminalMarker = undefined;
+            markerTracker.reset();
             if (deliveryId) {
               deliveryTracker.markFailure(deliveryId, controllerRef?.getLiveViewportLines() || []);
             }
           },
           isInputVisible: (text) => {
             const viewport = controllerRef?.getLiveViewportState();
-            if (!viewport) return false;
-            const cursor = { row: viewport.cursorRow, column: viewport.cursorColumn };
-            return (
-              isInputTextVisible(text, viewport.lines, inputRetry.pendingInputMarkers, cursor) ||
-              isInputTextVisible(
-                stripDeliveryMarker(text),
-                viewport.lines,
-                inputRetry.pendingInputMarkers,
-                cursor
-              )
-            );
+            return !!viewport && classifyDeliveryMarker(viewport, text) === 'editor';
           },
         })
       : null;
@@ -509,15 +462,12 @@ export async function runCommand(
       Promise.resolve({ outcome: 'unsupported', requested: false } as InterruptResult),
     requestWake,
     () => resetHibernateTimer(),
-    (deliveryId, text, submitValue) => {
-      currentInputText = text;
-      inputMarkerSeen = false;
-      inputMarkerWasHidden = false;
-      inputMarkerReturned = false;
-      inputMarkerConsumed = false;
+    (deliveryId, marker, submitValue) => {
+      currentTerminalMarker = marker || undefined;
+      markerTracker.reset();
       const overrides = getWakeRetryOverrides();
       wakePromptPending = false;
-      inputWatcher?.track(text, submitValue, deliveryId, overrides);
+      if (marker) inputWatcher?.track(marker, submitValue, deliveryId, overrides);
     }
   );
   controllerRef = controller;
@@ -555,11 +505,8 @@ export async function runCommand(
       }
       activeTurnGeneration = undefined;
       currentDeliveryId = undefined;
-      currentInputText = undefined;
-      inputMarkerSeen = false;
-      inputMarkerWasHidden = false;
-      inputMarkerReturned = false;
-      inputMarkerConsumed = false;
+      currentTerminalMarker = undefined;
+      markerTracker.reset();
       workingSeen = false;
       resetHibernateTimer();
     },
@@ -624,17 +571,7 @@ export async function runCommand(
     }, hibernateAfterMs);
   };
   const observeDeliveryState = (): void => {
-    if (currentInputText) {
-      if (isCurrentDeliveryMarkerVisible()) {
-        if (inputMarkerWasHidden) inputMarkerReturned = true;
-        inputMarkerSeen = true;
-      } else if (inputMarkerSeen) {
-        inputMarkerWasHidden = true;
-      }
-      if (inputMarkerReturned && !isCurrentDeliveryMarkerVisible()) {
-        inputMarkerConsumed = true;
-      }
-    }
+    if (currentTerminalMarker) markerTracker.observe(getCurrentMarkerObservation());
     if (!currentDeliveryId) return;
     const status = deliveryTracker.get(currentDeliveryId);
     if (!status || status.state === 'terminal_delivery_failure') return;
@@ -678,11 +615,8 @@ export async function runCommand(
             return;
           }
           deliveryTracker.markResponseReceived(current.deliveryId, preview());
-          currentInputText = undefined;
-          inputMarkerSeen = false;
-          inputMarkerWasHidden = false;
-          inputMarkerReturned = false;
-          inputMarkerConsumed = false;
+          currentTerminalMarker = undefined;
+          markerTracker.reset();
           activeTurnGeneration = undefined;
           currentDeliveryId = undefined;
           workingSeen = false;

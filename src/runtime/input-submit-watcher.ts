@@ -3,20 +3,15 @@ export interface InputSubmitWatcherOptions {
   maxRetries: number;
   maxWindowMs?: number;
   write: () => ((data: string) => void) | null;
-  isInputVisible: (text: string) => boolean;
+  isInputVisible: (marker: string) => boolean;
   isSubmissionAcknowledged?: () => boolean;
   onAcknowledged?: (deliveryId?: string) => void;
   onRetry?: (deliveryId?: string) => void;
   onExhausted?: (deliveryId?: string) => void;
 }
 
-export interface InputCursorPosition {
-  row: number;
-  column: number;
-}
-
 interface PendingInput {
-  text: string;
+  marker: string;
   submitValue: string;
   deliveryId?: string;
   retries: number;
@@ -38,15 +33,15 @@ export class InputSubmitWatcher {
   }
 
   track(
-    text: string,
+    marker: string,
     submitValue: string,
     deliveryId?: string,
     overrides?: { retryDelayMs?: number; maxRetries?: number; maxWindowMs?: number }
   ): void {
-    if (this.disposed || !text.trim()) return;
+    if (this.disposed || !marker.trim()) return;
     const startedAt = Date.now();
     this.pending = {
-      text,
+      marker,
       submitValue,
       deliveryId,
       retries: 0,
@@ -64,7 +59,7 @@ export class InputSubmitWatcher {
   observeOutput(chunk: string): void {
     if (this.disposed || !chunk.trim() || !this.pending) return;
     if (
-      !this.options.isInputVisible(this.pending.text) &&
+      !this.options.isInputVisible(this.pending.marker) &&
       this.options.isSubmissionAcknowledged?.()
     ) {
       const deliveryId = this.pending.deliveryId;
@@ -112,7 +107,7 @@ export class InputSubmitWatcher {
       return;
     }
 
-    const inputVisible = this.options.isInputVisible(pending.text);
+    const inputVisible = this.options.isInputVisible(pending.marker);
     if (!inputVisible) {
       if (this.options.isSubmissionAcknowledged?.()) {
         this.pending = null;
@@ -163,42 +158,4 @@ export class InputSubmitWatcher {
       this.timer = null;
     }
   }
-}
-
-/** Match terminal-wrapped input without requiring the whole prompt in one viewport. */
-export function isInputTextVisible(
-  text: string,
-  viewportLines: string[],
-  pendingInputMarkers: string[] = [],
-  cursor?: InputCursorPosition
-): boolean {
-  const normalizedText = text.replace(/\s+/g, ' ').trim();
-  const visibleLines = cursor
-    ? viewportLines.slice(
-        Math.max(0, cursor.row - 16),
-        Math.min(viewportLines.length, cursor.row + 1)
-      )
-    : viewportLines;
-  const viewport = visibleLines.join(' ').replace(/\s+/g, ' ').trim();
-  if (!normalizedText || !viewport) return false;
-  if (viewport.includes(normalizedText)) return true;
-
-  // Some TUIs replace pasted input with a bounded placeholder instead of rendering its text.
-  // Only harness-declared markers can keep the retry eligible; arbitrary output is ignored.
-  if (
-    visibleLines.some((line) =>
-      pendingInputMarkers.some((marker) => {
-        const markerIndex = line.indexOf(marker);
-        if (markerIndex < 0) return false;
-        const suffix = line.slice(markerIndex + marker.length);
-        return suffix.length <= 96 && suffix.includes(']');
-      })
-    )
-  ) {
-    return true;
-  }
-
-  const anchorLength = 16;
-  const anchors = [normalizedText.slice(0, anchorLength), normalizedText.slice(-anchorLength)];
-  return anchors.some((anchor) => anchor.length >= 16 && viewport.includes(anchor));
 }

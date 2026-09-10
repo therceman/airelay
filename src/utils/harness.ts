@@ -95,8 +95,6 @@ export interface HarnessCapabilities {
     maxRetries: number;
     /** Absolute time after the initial submit during which retries are allowed. */
     maxWindowMs: number;
-    /** Harness-owned prompt placeholders that prove pasted input remains in the editor. */
-    pendingInputMarkers?: string[];
   };
 
   /** Native terminal control used to interrupt an active turn without killing the PTY. */
@@ -140,7 +138,6 @@ const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
       retryDelayMs: 2500,
       maxRetries: 3,
       maxWindowMs: 10000,
-      pendingInputMarkers: ['[Pasted Content ', '[Paste '],
     },
     selfUpdateDisabled: {
       args: ['-c', 'check_for_update_on_startup=false'],

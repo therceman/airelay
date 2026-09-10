@@ -1,4 +1,4 @@
-import { InputSubmitWatcher, isInputTextVisible } from '../src/runtime/input-submit-watcher';
+import { InputSubmitWatcher } from '../src/runtime/input-submit-watcher';
 import { getHarnessCapabilities, getHarnessSelfUpdateOverrides } from '../src/utils/harness';
 
 describe('input submit watcher', () => {
@@ -24,7 +24,6 @@ describe('input submit watcher', () => {
       retryDelayMs: 2500,
       maxRetries: 3,
       maxWindowMs: 10000,
-      pendingInputMarkers: ['[Pasted Content ', '[Paste '],
     });
   });
 
@@ -216,42 +215,6 @@ describe('input submit watcher', () => {
 
     expect(onAcknowledged).not.toHaveBeenCalled();
     expect(onExhausted).toHaveBeenCalledWith('delivery-1');
-  });
-
-  it('matches a long prompt through a visible terminal anchor', () => {
-    const text = 'x'.repeat(160) + ' final prompt text';
-    expect(isInputTextVisible(text, [`› [Pasted Content 176 chars] ${text.slice(-64)}`])).toBe(
-      true
-    );
-    expect(isInputTextVisible(text, ['previous output only'])).toBe(false);
-  });
-
-  it('matches the minimum 16-character prompt anchor', () => {
-    expect(isInputTextVisible('[SP-GTW-120E] go with more text', ['› [SP-GTW-120E] go'])).toBe(
-      true
-    );
-    expect(isInputTextVisible('[SP-GTW-120E] go more', ['› [SP-GTW-120E]'])).toBe(false);
-  });
-
-  it('limits prompt visibility checks to the rendered input area near the cursor', () => {
-    const prompt = 'unique prompt text';
-    const lines = [
-      'previous response with unique prompt text',
-      ...Array.from({ length: 18 }, () => ''),
-      '▏unique prompt text',
-    ];
-
-    expect(isInputTextVisible(prompt, lines, [], { row: 19, column: prompt.length })).toBe(true);
-    expect(
-      isInputTextVisible(prompt, [...lines.slice(0, 19), ''], [], { row: 19, column: 0 })
-    ).toBe(false);
-  });
-
-  it('matches a short prompt represented by a harness-owned paste placeholder', () => {
-    expect(isInputTextVisible('olo', ['› [Pasted Content 3 chars]'], ['[Pasted Content '])).toBe(
-      true
-    );
-    expect(isInputTextVisible('olo', ['agent output [Pasted Content 3 chars]'])).toBe(false);
   });
 
   it('cleans pending retry on disposal', () => {
