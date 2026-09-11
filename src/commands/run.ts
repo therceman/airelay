@@ -3,7 +3,7 @@ import { Profile } from '../config/schema';
 import { resolvePath, isPathLike } from '../config/paths';
 import { buildEnv } from '../runtime/env';
 import { spawnAndWait, SpawnOptions } from '../runtime/spawn';
-import { SessionController } from '../controller';
+import { LIVE_PRESENTATION_RESET, SessionController } from '../controller';
 import { IpcError, IpcErrorCodes, IpcErrorReasons } from '../types/controller';
 import { addSession, deleteSession, updateSessionRuntime } from './sessions';
 import { recordLaunchHistory } from './history';
@@ -283,7 +283,6 @@ export async function runCommand(
   const ptyResizeRef: { current: ((cols: number, rows: number) => void) | null } = {
     current: null,
   };
-  const ptySizeRef: { current: { cols: number; rows: number } | null } = { current: null };
   const ptyKillRef: { current: ((signal?: string) => void) | null } = { current: null };
   const usePty = options?.usePty === true;
   const detectedProfileSessionId = options?.profileSessionId || detectResumeSessionId(args);
@@ -539,19 +538,23 @@ export async function runCommand(
     !hibernateRequested &&
     isAgentIdle() &&
     controller.getAttachedClientCount() === 0;
-  const showHibernatedScreen = (): void => {
+  const buildHibernatedScreen = (): string => {
     const label = harnessLabel === 'unknown' ? profile.executable : harnessLabel;
-    const screen =
-      `\x1b[2J\x1b[HAgent hibernated [${label}]\r\n` +
+    return (
+      `Agent hibernated [${label}]\r\n` +
       `Session: ${detectedProfileSessionId}\r\n` +
       `Project: ${cwd}\r\n\r\n` +
-      'Press [space] to wake up\r\n';
+      'Press [space] to wake up\r\n'
+    );
+  };
+  const showHibernatedScreen = async (): Promise<void> => {
+    const screen = buildHibernatedScreen();
+    await controller.resetLivePresentation(screen);
     // Keep the controller's viewport/attach stream truthful while the child
     // process is gone. This also gives detached clients a useful idle screen.
-    controller.feedOutput(screen);
     if (!process.stdout.isTTY || options?.detached === true) return;
     try {
-      process.stdout.write(screen);
+      process.stdout.write(`${LIVE_PRESENTATION_RESET}${screen}`);
     } catch {
       // The terminal may have closed while the child was shutting down.
     }
@@ -684,6 +687,10 @@ export async function runCommand(
   env.AIRELAY_VERSION = getAirelayVersion();
   env.AIRELAY_CONTROLLER_PROTOCOL_VERSION = String(CONTROLLER_PROTOCOL_VERSION);
 
+  if (process.stdout.isTTY) {
+    controller.resize(process.stdout.columns || 120, process.stdout.rows || 30);
+  }
+
   const spawnOpts: SpawnOptions = {
     executable: profile.executable,
     args,
@@ -702,19 +709,13 @@ export async function runCommand(
   if (usePty) {
     spawnOpts.onPtyReady = (pty) => {
       ptyWriteRef.current = pty.write;
-      ptyResizeRef.current = (cols, rows) => {
-        if (ptySizeRef.current?.cols === cols && ptySizeRef.current.rows === rows) return;
-        pty.resize(cols, rows);
-        ptySizeRef.current = { cols, rows };
-      };
+      ptyResizeRef.current = pty.requestExternalResize;
       ptyKillRef.current = pty.kill;
       runtime.harnessPid = pty.pid;
       runtime.runtimeState = 'running';
       persistRuntimeState();
-      const cols = process.stdout.isTTY ? process.stdout.columns : 80;
-      const rows = process.stdout.isTTY ? process.stdout.rows : 24;
-      if (process.stdout.isTTY) controller.resize(cols, rows);
-      ptySizeRef.current = controller.getTerminalSize();
+      const desiredSize = controller.getTerminalSize();
+      pty.requestExternalResize(desiredSize.cols, desiredSize.rows);
       // Record the PID used for liveness pruning. For a detached runtime the
       // session is serviced by the runtime/controller process (this process),
       // so liveness must track that PID — not the harness agent PID — to keep
@@ -786,7 +787,6 @@ export async function runCommand(
       ptyWriteRef.current = null;
       ptyResizeRef.current = null;
       ptyKillRef.current = null;
-      ptySizeRef.current = null;
 
       if (!hibernateRequested) {
         runtime.runtimeState = 'stopping';
@@ -796,10 +796,14 @@ export async function runCommand(
       }
 
       hibernateRequested = false;
+      await showHibernatedScreen();
       runtime.runtimeState = 'hibernated';
       persistRuntimeState();
-      showHibernatedScreen();
       await waitForWake();
+      await controller.resetLivePresentation('');
+      if (!options?.detached && process.stdout.isTTY) {
+        process.stdout.write(LIVE_PRESENTATION_RESET);
+      }
       runtime.runtimeState = 'starting';
       persistRuntimeState();
       // Reuse the original resumable launch arguments. The harness restores

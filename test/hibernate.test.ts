@@ -215,8 +215,11 @@ setInterval(() => process.stdout.write('heartbeat\\n'), 50);
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line) as number[]);
+    // The resize request may arrive after the first PTY has already been
+    // spawned. The onPtyReady reconciliation applies the controller's desired
+    // size before the resumed generation starts.
     expect(sizes.slice(0, 2)).toEqual([
-      [100, 40],
+      [120, 30],
       [100, 40],
     ]);
     const running = readStoredRuntime();

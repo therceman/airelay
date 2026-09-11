@@ -11,6 +11,7 @@ import { fetchControllerInfo } from '../src/commands/session-ipc';
 import { DeliveryTracker } from '../src/runtime/delivery';
 import type { RuntimeIdentity } from '../src/runtime/identity';
 import { readTranscript } from '../src/utils/transcript';
+import { readLines } from '../src/controller/protocol';
 
 const testDir = path.join(os.tmpdir(), 'airelay-e2e-test-' + process.pid + '-' + Date.now());
 const testSessionsPath = path.join(testDir, 'sessions.json');
@@ -54,6 +55,70 @@ beforeEach(() => {
 });
 
 describe('controller E2E: real IPC socket flow', () => {
+  it('starts a clean live presentation epoch and attach bootstrap', async () => {
+    const controller = new SessionController('e2e_presentation_epoch');
+    controller.onRequest(async () => ({ handled: false }));
+    await controller.start();
+    controller.feedOutput(
+      Array.from({ length: 400 }, (_, index) => `OLD-GENERATION-${index}\r\n`).join('')
+    );
+    await controller.flushViewport();
+    expect(controller.getRenderedScrollbackLines()).toContain('OLD-GENERATION-399');
+
+    const captureAttachBootstrap = async (): Promise<string> =>
+      new Promise((resolve, reject) => {
+        const socket = net.createConnection(controller.endpointPath);
+        let buffer = '';
+        let stream = '';
+        const timer = setTimeout(() => {
+          socket.destroy();
+          reject(new Error('attach bootstrap timed out'));
+        }, 2000);
+        socket.on('connect', () => {
+          socket.write(
+            JSON.stringify({ id: 'presentation-attach', method: 'session.attach' }) + '\n'
+          );
+        });
+        socket.on('data', (chunk: Buffer) => {
+          buffer = readLines(buffer + chunk.toString(), (line) => {
+            const message = JSON.parse(line) as {
+              type?: string;
+              data?: { chunk?: string };
+            };
+            if (message.type === 'stream') stream += message.data?.chunk || '';
+            if (message.type === 'success') {
+              clearTimeout(timer);
+              socket.destroy();
+              resolve(stream);
+            }
+          });
+        });
+        socket.on('error', (error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+      });
+
+    await controller.resetLivePresentation(
+      'Agent hibernated [codex]\r\nSession: presentation\r\nPress [space] to wake up\r\n'
+    );
+    expect(controller.getRenderedScrollbackLines()).toContain('Agent hibernated [codex]');
+    expect(controller.getRenderedScrollbackLines()).not.toContain('OLD-GENERATION-399');
+    const hibernateBootstrap = await captureAttachBootstrap();
+    expect(hibernateBootstrap).toContain('\x1b[0m\x1b[3J\x1b[2J\x1b[H');
+    expect(hibernateBootstrap).toContain('Agent hibernated [codex]');
+    expect(hibernateBootstrap).not.toContain('OLD-GENERATION');
+
+    await controller.resetLivePresentation('');
+    controller.feedOutput('NEW-GENERATION\r\n');
+    await controller.flushViewport();
+    const wakeBootstrap = await captureAttachBootstrap();
+    expect(wakeBootstrap).toContain('NEW-GENERATION');
+    expect(wakeBootstrap).not.toContain('OLD-GENERATION');
+    expect(wakeBootstrap).not.toContain('Agent hibernated');
+    await controller.stop();
+  });
+
   it('returns invalid_encoding for malformed UTF-8 request bytes', async () => {
     const controller = new SessionController('e2e_invalid_encoding');
     controller.onRequest(async () => ({ handled: true }));

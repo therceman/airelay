@@ -16,7 +16,7 @@ export interface SpawnOptions {
   onPtyReady?: (pty: {
     pid: number;
     write: (data: string) => void;
-    resize: (cols: number, rows: number) => void;
+    requestExternalResize: (cols: number, rows: number) => void;
     kill: (signal?: string) => void;
   }) => void;
 
@@ -124,7 +124,7 @@ async function spawnAndWaitPty(options: SpawnOptions): Promise<number> {
     options.onPtyReady({
       pid: pty.pid,
       write: (data: string) => pty.write(data),
-      resize: (cols: number, rows: number) => pty.resize(cols, rows),
+      requestExternalResize: (cols: number, rows: number) => pty.requestExternalResize(cols, rows),
       kill: (signal?: string) => pty.kill(signal),
     });
   }

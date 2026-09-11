@@ -20,6 +20,10 @@ export interface PtyOptions {
   resizeStartupGraceMs?: number;
   /** Bounded resize diagnostics; no PTY output is included. */
   onResizeTrace?: (trace: PtyResizeTrace) => void;
+  /** Quiet period required after startup output before releasing a resize. */
+  resizeStartupQuietMs?: number;
+  /** Absolute startup hold bound, even if the harness continuously outputs. */
+  resizeStartupMaxMs?: number;
   /**
    * Detached mode: the PTY is owned by a supervised runtime process that has
    * no inherited terminal. Output is only forwarded to onOutput (never to
@@ -48,7 +52,7 @@ export interface PtyInstance {
   pid: number;
   exitCode: Promise<number>;
   kill(signal?: string): void;
-  resize(cols: number, rows: number): void;
+  requestExternalResize(cols: number, rows: number): void;
 }
 
 export function createPty(options: PtyOptions): PtyInstance {
@@ -68,7 +72,14 @@ export function createPty(options: PtyOptions): PtyInstance {
   let pendingResize: { cols: number; rows: number } | null = null;
   let resizeTimer: ReturnType<typeof setTimeout> | null = null;
   const resizeStartupGraceMs = Math.max(0, options.resizeStartupGraceMs ?? 1000);
-  const resizeStartupDeadline = Date.now() + resizeStartupGraceMs;
+  const resizeStartupQuietMs = Math.max(0, options.resizeStartupQuietMs ?? 250);
+  const resizeStartupMaxMs = Math.max(resizeStartupGraceMs, options.resizeStartupMaxMs ?? 4000);
+  const resizeStartupStartedAt = Date.now();
+  const resizeStartupDeadline = resizeStartupStartedAt + resizeStartupGraceMs;
+  const resizeStartupMaxDeadline = resizeStartupStartedAt + resizeStartupMaxMs;
+  let lastOutputAt = resizeStartupStartedAt;
+  let hasOutput = false;
+  let startupResizeSettled = false;
   let traceCount = 0;
   const traceLimit = 128;
   const traceResize = (kind: PtyResizeTrace['kind'], nextCols: number, nextRows: number): void => {
@@ -93,7 +104,7 @@ export function createPty(options: PtyOptions): PtyInstance {
     resizeTimer = null;
     pendingResize = null;
   };
-  const resizeIfChanged = (nextCols: number, nextRows: number): void => {
+  const resizeImmediateIfChanged = (nextCols: number, nextRows: number): void => {
     if (nextCols <= 0 || nextRows <= 0) return;
     cancelPendingResize();
     if (currentCols === nextCols && currentRows === nextRows) return;
@@ -102,33 +113,60 @@ export function createPty(options: PtyOptions): PtyInstance {
     currentRows = nextRows;
     traceResize('forwarded', nextCols, nextRows);
   };
-  const scheduleOuterResize = (nextCols: number, nextRows: number): void => {
-    traceResize('outer', nextCols, nextRows);
-    pendingResize = { cols: nextCols, rows: nextRows };
+  const scheduleResizeEvaluation = (): void => {
     if (resizeTimer) clearTimeout(resizeTimer);
-    const quietPeriodMs = Math.max(0, options.resizeDebounceMs ?? 75);
-    const startupDelayMs = Math.max(0, resizeStartupDeadline - Date.now());
+    resizeTimer = null;
+    if (!pendingResize) return;
+
+    const now = Date.now();
+    if (startupResizeSettled) {
+      resizeTimer = setTimeout(
+        () => {
+          resizeTimer = null;
+          const next = pendingResize;
+          pendingResize = null;
+          if (next) resizeImmediateIfChanged(next.cols, next.rows);
+        },
+        Math.max(0, Math.max(0, options.resizeDebounceMs ?? 75))
+      );
+      return;
+    }
+
+    const quietReadyAt = hasOutput ? lastOutputAt + resizeStartupQuietMs : now;
+    const releaseAt = Math.min(
+      resizeStartupMaxDeadline,
+      Math.max(resizeStartupDeadline, quietReadyAt)
+    );
     resizeTimer = setTimeout(
       () => {
         resizeTimer = null;
-        const next = pendingResize;
-        pendingResize = null;
-        if (!next) return;
-        if (Date.now() < resizeStartupDeadline) {
-          pendingResize = next;
-          scheduleOuterResize(next.cols, next.rows);
+        if (!pendingResize) return;
+        if (Date.now() < releaseAt) {
+          scheduleResizeEvaluation();
           return;
         }
-        resizeIfChanged(next.cols, next.rows);
+        startupResizeSettled = true;
+        const next = pendingResize;
+        pendingResize = null;
+        if (next) resizeImmediateIfChanged(next.cols, next.rows);
       },
-      Math.max(quietPeriodMs, startupDelayMs)
+      Math.max(0, releaseAt - now)
     );
+  };
+  const requestExternalResize = (nextCols: number, nextRows: number): void => {
+    traceResize('outer', nextCols, nextRows);
+    if (nextCols <= 0 || nextRows <= 0) return;
+    pendingResize = { cols: nextCols, rows: nextRows };
+    scheduleResizeEvaluation();
   };
 
   // Forward PTY output to parent's stdout and optional onOutput callback.
   // In detached mode, output is only fed to onOutput (the controller's ring
   // buffer / viewport); it must not leak to the launcher's stdio.
   term.onData((data: string) => {
+    hasOutput = true;
+    lastOutputAt = Date.now();
+    if (!startupResizeSettled && pendingResize) scheduleResizeEvaluation();
     if (!options.detached) {
       process.stdout.write(data);
     }
@@ -172,7 +210,7 @@ export function createPty(options: PtyOptions): PtyInstance {
       const c = resizeSource.columns;
       const r = resizeSource.rows;
       if (c && r) {
-        scheduleOuterResize(c, r);
+        requestExternalResize(c, r);
       }
     };
     resizeSource.on('resize', onResize);
@@ -187,6 +225,7 @@ export function createPty(options: PtyOptions): PtyInstance {
   }
 
   const runCleanups = (): void => {
+    cancelPendingResize();
     for (const fn of cleanups) {
       fn();
     }
@@ -204,6 +243,6 @@ export function createPty(options: PtyOptions): PtyInstance {
     pid: term.pid,
     exitCode: exitPromise,
     kill: (signal?: string) => term.kill(signal),
-    resize: resizeIfChanged,
+    requestExternalResize,
   };
 }

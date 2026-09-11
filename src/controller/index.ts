@@ -44,6 +44,7 @@ const RAW_RING_MAX_CHUNKS = 8192;
 const STREAM_MAX_BUFFERED_BYTES = 256 * 1024;
 /** Bound on server.close() during shutdown so stop() can never hang. */
 const STOP_TIMEOUT_MS = 2000;
+export const LIVE_PRESENTATION_RESET = '\x1b[0m\x1b[3J\x1b[2J\x1b[H';
 
 export interface LiveViewportState {
   lines: string[];
@@ -160,6 +161,27 @@ export class SessionController {
     return new Promise((resolve) => {
       this.terminal.write('', resolve);
     });
+  }
+
+  /** Start a new live PTY presentation epoch without deleting durable history. */
+  async resetLivePresentation(screen = ''): Promise<void> {
+    this.flushPendingTranscript();
+    this.rawRing.length = 0;
+    this.rawRingBytes = 0;
+    this.snapshotWindow.length = 0;
+    this.snapshotLineSet.clear();
+    this.lastTranscriptLines = null;
+    this.pendingTranscriptLines = null;
+
+    const presentation = `${LIVE_PRESENTATION_RESET}${screen}`;
+    this.lastOutputChangeAt = Date.now();
+    this.terminal.write(presentation);
+    for (const socket of this.attachedClients) {
+      this.writeStreamFrame(socket, presentation);
+    }
+    this.rawRing.push(presentation);
+    this.rawRingBytes = presentation.length;
+    await this.flushViewport();
   }
 
   /**
