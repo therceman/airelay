@@ -31,6 +31,7 @@ import {
   classifyDeliveryMarker,
   DeliveryMarkerTracker,
   formatTerminalMarker,
+  isInputPromptMarkerVisible,
   MarkerViewport,
 } from '../runtime/delivery-marker';
 import { writeCommandInput } from '../runtime/delivery-sequence';
@@ -456,7 +457,11 @@ export async function runCommand(
           },
           isInputVisible: (text) => {
             const viewport = controllerRef?.getLiveViewportState();
-            return !!viewport && classifyDeliveryMarker(viewport, text) === 'visible';
+            if (!viewport) return false;
+            return (
+              classifyDeliveryMarker(viewport, text) === 'visible' ||
+              isInputPromptMarkerVisible(viewport, harnessCapabilities.inputPromptMarker || '')
+            );
           },
         })
       : null;

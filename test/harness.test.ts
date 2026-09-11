@@ -32,6 +32,12 @@ describe('harness metadata', () => {
       submitValue: '\r',
       submitDelayMs: 0,
       uiWorkingHint: '',
+      inputPromptMarker: '❭',
+      inputSubmitRetry: {
+        retryDelayMs: 2500,
+        maxRetries: 3,
+        maxWindowMs: 10000,
+      },
       interrupt: {
         value: DEFAULT_INTERRUPT_SEQUENCE,
       },

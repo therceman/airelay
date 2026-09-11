@@ -39,6 +39,21 @@ export function classifyDeliveryMarker(
   return 'absent';
 }
 
+/** Detect a harness-provided active-editor prompt marker in the bounded view. */
+export function isInputPromptMarkerVisible(
+  viewport: MarkerViewport,
+  promptMarker: string,
+  windowRows = 16
+): boolean {
+  if (!promptMarker) return false;
+  const start = Math.max(0, viewport.cursorRow - windowRows);
+  const end = Math.min(viewport.lines.length, viewport.cursorRow + 1);
+  for (let row = start; row < end; row += 1) {
+    if (viewport.lines[row]?.trimStart().startsWith(promptMarker)) return true;
+  }
+  return false;
+}
+
 /** Conservative per-delivery marker lifecycle. */
 export class DeliveryMarkerTracker {
   private observation: MarkerObservation = 'absent';

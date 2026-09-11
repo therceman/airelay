@@ -2,6 +2,7 @@ import {
   classifyDeliveryMarker,
   DeliveryMarkerTracker,
   formatTerminalMarker,
+  isInputPromptMarkerVisible,
 } from '../src/runtime/delivery-marker';
 import { writeCommandInput } from '../src/runtime/delivery-sequence';
 import { InputSubmitWatcher } from '../src/runtime/input-submit-watcher';
@@ -46,6 +47,32 @@ describe('delivery marker state machine', () => {
         marker
       )
     ).toBe('visible');
+  });
+
+  it('recognizes Devin collapsed paste input without requiring the timestamp suffix', () => {
+    expect(
+      isInputPromptMarkerVisible(viewport(['❭ [Pasted text #1 +14 lines]', 'footer'], 0, 28), '❭')
+    ).toBe(true);
+    expect(isInputPromptMarkerVisible(viewport(['old ❭ output'], 0, 0), '❭')).toBe(false);
+  });
+
+  it('retries Enter for Devin collapsed paste input without rewriting the body', () => {
+    jest.useFakeTimers();
+    const writes: string[] = [];
+    const devinViewport = viewport(['❭ [Pasted text #1 +14 lines]'], 0, 28);
+    const watcher = new InputSubmitWatcher({
+      retryDelayMs: 2500,
+      maxRetries: 3,
+      maxWindowMs: 10000,
+      write: () => (value) => writes.push(value),
+      isInputVisible: () => isInputPromptMarkerVisible(devinViewport, '❭'),
+    });
+
+    watcher.track('[12:33:12]', '\r', 'devin-delivery');
+    jest.advanceTimersByTime(2500);
+
+    expect(writes).toEqual(['\r']);
+    watcher.dispose();
   });
 
   it('does not search outside the bounded current cursor window', () => {

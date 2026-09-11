@@ -79,6 +79,9 @@ export interface HarnessCapabilities {
    */
   uiWorkingHint: string;
 
+  /** Visible active-editor prompt marker used when paste content is collapsed. */
+  inputPromptMarker?: string;
+
   /** Automatic continuation for a verified capacity interruption, if supported. */
   capacityContinuation?: {
     message: string;
@@ -148,6 +151,12 @@ const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
     submitValue: '\r',
     submitDelayMs: 0,
     uiWorkingHint: '',
+    inputPromptMarker: '❭',
+    inputSubmitRetry: {
+      retryDelayMs: 2500,
+      maxRetries: 3,
+      maxWindowMs: 10000,
+    },
   },
   unknown: {
     submitMode: 'byte',
