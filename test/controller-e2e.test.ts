@@ -453,23 +453,29 @@ describe('controller E2E: real IPC socket flow', () => {
     expect(result.error).toBeTruthy();
   });
 
-  it('lastOutputChangeAt updates on feedOutput', async () => {
-    const controller = new SessionController('activity_test');
+  it('exposes structured activity diagnostics through session.info', async () => {
+    const controller = new SessionController('activity_info_test');
+    controller.setActivityDiagnosticsProvider(() => ({
+      state: 'busy',
+      activityReason: 'recent_io',
+      lastInputAt: 100,
+      lastOutputAt: 200,
+      lastActivityAt: 200,
+      quietForMs: 800,
+    }));
+    controller.onRequest(async () => ({ handled: false }));
+    await controller.start();
 
-    const before = controller.lastOutputChangeAtForTest();
-    await new Promise((r) => setTimeout(r, 5));
-    controller.feedOutput('new output\n');
-    const after = controller.lastOutputChangeAtForTest();
-
-    expect(after).toBeGreaterThan(before);
-  });
-
-  it('lastOutputChangeAt does not update on empty feed', async () => {
-    const controller = new SessionController('activity_empty_test');
-    const before = controller.lastOutputChangeAtForTest();
-    controller.feedOutput('');
-    const after = controller.lastOutputChangeAtForTest();
-    expect(after).toBe(before);
+    const info = await fetchControllerInfo(controller.endpointPath);
+    expect(info).toMatchObject({
+      state: 'busy',
+      activityReason: 'recent_io',
+      lastInputAt: 100,
+      lastOutputAt: 200,
+      lastActivityAt: 200,
+      quietForMs: 800,
+    });
+    await controller.stop();
   });
 
   it('session.viewport IPC returns visible lines', async () => {

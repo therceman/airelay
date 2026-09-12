@@ -114,7 +114,8 @@ describe('automatic hibernation', () => {
 const fs = require('fs');
 fs.appendFileSync(process.env.AIRELAY_TEST_ARGS_LOG, JSON.stringify(process.argv.slice(2)) + '\\n');
 fs.appendFileSync(process.env.AIRELAY_TEST_SIZE_LOG, JSON.stringify([process.stdout.columns, process.stdout.rows]) + '\\n');
-setInterval(() => process.stdout.write('heartbeat\\n'), 50);
+setTimeout(() => process.stdout.write('heartbeat\\n'), 50);
+setInterval(() => {}, 50);
 `
     );
     fs.chmodSync(harnessPath, 0o755);
@@ -143,6 +144,12 @@ setInterval(() => process.stdout.write('heartbeat\\n'), 50);
   });
 
   it('shows the idle screen and wakes the same resumable launch', async () => {
+    const config = JSON.parse(fs.readFileSync(testEnv.configPath, 'utf8')) as {
+      settings: { hibernateAfter: string };
+    };
+    config.settings.hibernateAfter = '6s';
+    fs.writeFileSync(testEnv.configPath, JSON.stringify(config));
+
     let endpoint = '';
     const runPromise = runCommand('sleeper', ['resume', 'native-session'], {
       usePty: true,
@@ -162,6 +169,9 @@ setInterval(() => process.stdout.write('heartbeat\\n'), 50);
     expect(endpoint).toBeTruthy();
 
     await sendResize(endpoint, 100, 40);
+    await new Promise((resolve) => setTimeout(resolve, 5200));
+    const beforeConfiguredHibernate = await request(endpoint, 'session.viewport');
+    expect(beforeConfiguredHibernate.data?.lines?.join(' ')).not.toContain('Agent hibernated');
     await waitForHibernatedScreen(endpoint);
     const hibernated = readStoredRuntime();
     expect(hibernated.runtimeState).toBe('hibernated');

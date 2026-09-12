@@ -4,6 +4,8 @@ import { getIpcEndpointPath } from '../utils/ipc-path';
 import { fetchSessionOutput } from './session-output';
 import { preflightVersionCheck } from './session-ipc';
 import type { DeliveryStatus } from '../runtime/delivery';
+import { ACTIVITY_QUIET_MS } from '../runtime/activity';
+import type { ActivityReason } from '../runtime/activity';
 import type {
   RuntimeBuffers,
   RuntimeHealth,
@@ -12,8 +14,6 @@ import type {
 } from '../runtime/identity';
 
 const IPC_TIMEOUT = 3000;
-const ACTIVITY_WINDOW_MS = 10000;
-
 interface StatusResult {
   sessionId: string;
   profile: string;
@@ -22,6 +22,11 @@ interface StatusResult {
   controllerReachable: boolean;
   pingLatencyMs?: number;
   state?: string;
+  activityReason?: ActivityReason;
+  lastInputAt?: number | null;
+  lastOutputAt?: number | null;
+  lastActivityAt?: number | null;
+  quietForMs?: number | null;
   outputLines: number;
   airelayVersion?: string;
   controllerProtocolVersion?: number;
@@ -96,6 +101,11 @@ function fetchSessionInfo(endpoint: string): Promise<{
   startedAt?: number;
   lastOutputChangeAt?: number;
   state?: 'busy' | 'idle';
+  activityReason?: ActivityReason;
+  lastInputAt?: number | null;
+  lastOutputAt?: number | null;
+  lastActivityAt?: number | null;
+  quietForMs?: number | null;
   compatError?: string;
   delivery?: DeliveryStatus;
   runtime?: RuntimeIdentity;
@@ -137,6 +147,11 @@ function fetchSessionInfo(endpoint: string): Promise<{
               startedAt: parsed.data.startedAt as number,
               lastOutputChangeAt: parsed.data.lastOutputChangeAt as number | undefined,
               state: parsed.data.state as 'busy' | 'idle' | undefined,
+              activityReason: parsed.data.activityReason as ActivityReason | undefined,
+              lastInputAt: parsed.data.lastInputAt as number | null | undefined,
+              lastOutputAt: parsed.data.lastOutputAt as number | null | undefined,
+              lastActivityAt: parsed.data.lastActivityAt as number | null | undefined,
+              quietForMs: parsed.data.quietForMs as number | null | undefined,
               delivery: parsed.data.delivery as DeliveryStatus | undefined,
               runtime: parsed.data.runtime as RuntimeIdentity | undefined,
               memory: parsed.data.memory as RuntimeMemory | undefined,
@@ -195,14 +210,18 @@ export async function sessionStatusCommand(
     fetchSessionInfo(endpointPath),
   ]);
 
-  // Prefer the controller's semantic state. The timestamp fallback keeps
-  // session-status useful with controllers from before the state field existed.
+  // Prefer the controller's semantic state. The diagnostics fallback keeps
+  // session-status useful when only the activity timestamps are available.
   let state: string | undefined;
   if (info.state) {
     state = info.state;
-  } else if (info.lastOutputChangeAt !== undefined) {
-    const elapsed = Date.now() - info.lastOutputChangeAt;
-    state = elapsed < ACTIVITY_WINDOW_MS ? 'busy' : 'idle';
+  } else if (info.lastActivityAt !== undefined && info.lastActivityAt !== null) {
+    state =
+      info.quietForMs !== null &&
+      info.quietForMs !== undefined &&
+      info.quietForMs < ACTIVITY_QUIET_MS
+        ? 'busy'
+        : 'idle';
   }
 
   const ALLOWED_FIELDS = [
@@ -215,6 +234,11 @@ export async function sessionStatusCommand(
     'controllerProtocolVersion',
     'startedAt',
     'state',
+    'activityReason',
+    'lastInputAt',
+    'lastOutputAt',
+    'lastActivityAt',
+    'quietForMs',
     'deliveryState',
     'health',
     'runtimeState',
@@ -228,6 +252,11 @@ export async function sessionStatusCommand(
     controllerReachable: ping.reachable,
     pingLatencyMs: ping.latencyMs,
     state,
+    activityReason: info.activityReason,
+    lastInputAt: info.lastInputAt,
+    lastOutputAt: info.lastOutputAt,
+    lastActivityAt: info.lastActivityAt,
+    quietForMs: info.quietForMs,
     outputLines: output.lines.length,
     airelayVersion: info.airelayVersion,
     controllerProtocolVersion: info.controllerProtocolVersion,
@@ -277,6 +306,12 @@ export async function sessionStatusCommand(
     }
     if (result.state) {
       console.log(`  State: ${result.state}`);
+    }
+    if (result.activityReason) {
+      console.log(`  Activity reason: ${result.activityReason}`);
+    }
+    if (result.quietForMs !== undefined && result.quietForMs !== null) {
+      console.log(`  Quiet for: ${result.quietForMs}ms`);
     }
     if (result.health) {
       console.log(`  Health: ${result.health}`);

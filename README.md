@@ -99,7 +99,7 @@ airelay doctor [profile]           # Run diagnostics
 airelay init                       # Create starter config
 airelay resume [key]               # Pick a saved launch from this folder or resume by key
 airelay sessions [--json] [--active]  # List saved sessions
-airelay session-status <session>       # Report canonical State: idle/busy
+airelay session-status <session>       # Report canonical State: idle/busy and reason
 airelay prompt <session> <text>    # Send input to an active session
 airelay config list                # Show config and resolved defaults
 airelay config set settings.promptMaxLength 1024
@@ -167,6 +167,12 @@ All schema-defined profile fields can also be changed without opening YAML:
 `createDirs`. Use YAML or JSON syntax for array/map values, for example
 `airelay config set profiles.my-profile.args '["--verbose"]'`.
 Every change is validated against the config schema before it is written.
+
+Session activity is deterministic: a session is `busy` while a command-driven
+prompt delivery is unresolved, while the harness working guard is visible, or
+while PTY input/output occurred within the last five seconds. Otherwise it is
+`idle`. Use `airelay session-status <session> --json` to inspect the activity
+reason and input/output timestamps.
 
 Resumable PTY sessions hibernate after five minutes without observed activity by
 default. Change the threshold with `airelay config set settings.hibernateAfter

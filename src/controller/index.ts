@@ -23,6 +23,7 @@ import { getAirelayVersion, CONTROLLER_PROTOCOL_VERSION } from '../utils/version
 import { appendTranscriptSnapshot } from '../utils/transcript';
 import { serializeStreamFrame } from './protocol';
 import type { DeliveryStatus } from '../runtime/delivery';
+import type { ActivitySnapshot } from '../runtime/activity';
 import type { RuntimeBuffers, RuntimeIdentity, RuntimeMemory } from '../runtime/identity';
 import {
   getSocketIdentity,
@@ -84,14 +85,13 @@ export class SessionController {
   private snapshotWindow: string[] = [];
   private snapshotLineSet: Set<string> = new Set();
   private snapshotTimer: ReturnType<typeof setInterval> | null = null;
-  /** Timestamp of last output change (for activity state) */
-  private lastOutputChangeAt: number = Date.now();
   private lastTranscriptLines: string[] | null = null;
   private pendingTranscriptLines: string[] | null = null;
   private pendingTranscriptTimer: ReturnType<typeof setTimeout> | null = null;
   private transcriptPersistenceEnabled = false;
   private deliveryStatusProvider: (() => DeliveryStatus | undefined) | null = null;
   private activityStateProvider: (() => 'busy' | 'idle') | null = null;
+  private activityDiagnosticsProvider: (() => ActivitySnapshot) | null = null;
   private runtimeInfoProvider: (() => RuntimeIdentity) | null = null;
   /** Open sockets that are attached viewport clients (tracked for session.info / registry). */
   private attachedClients: Set<net.Socket> = new Set();
@@ -109,11 +109,6 @@ export class SessionController {
   /** Number of currently attached viewport clients. */
   getAttachedClientCount(): number {
     return this.attachedClients.size;
-  }
-
-  /** Test accessor for lastOutputChangeAt. */
-  lastOutputChangeAtForTest(): number {
-    return this.lastOutputChangeAt;
   }
 
   /** Test accessor: current headless terminal viewport coordinates. */
@@ -174,7 +169,6 @@ export class SessionController {
     this.pendingTranscriptLines = null;
 
     const presentation = `${LIVE_PRESENTATION_RESET}${screen}`;
-    this.lastOutputChangeAt = Date.now();
     this.terminal.write(presentation);
     for (const socket of this.attachedClients) {
       this.writeStreamFrame(socket, presentation);
@@ -192,9 +186,6 @@ export class SessionController {
    * bounded by the write buffering cap.
    */
   feedOutput(chunk: string): void {
-    if (chunk.trim()) {
-      this.lastOutputChangeAt = Date.now();
-    }
     this.terminal.write(chunk);
     const lines = chunk.split('\n');
     for (const raw of lines) {
@@ -405,6 +396,10 @@ export class SessionController {
     this.activityStateProvider = provider;
   }
 
+  setActivityDiagnosticsProvider(provider: () => ActivitySnapshot): void {
+    this.activityDiagnosticsProvider = provider;
+  }
+
   setRuntimeInfoProvider(provider: () => RuntimeIdentity): void {
     this.runtimeInfoProvider = provider;
   }
@@ -551,14 +546,22 @@ export class SessionController {
         return;
       } else if (request.method === 'session.info') {
         const memory: RuntimeMemory = process.memoryUsage();
+        const activity = this.activityDiagnosticsProvider?.();
         response = createSuccessResponse(request.id, {
           sessionKey: this.sessionKey,
           active: !!this.handler,
-          state: this.activityStateProvider?.(),
+          state: activity?.state ?? this.activityStateProvider?.(),
+          activityReason: activity?.activityReason,
+          lastInputAt: activity?.lastInputAt,
+          lastOutputAt: activity?.lastOutputAt,
+          lastActivityAt: activity?.lastActivityAt,
+          quietForMs: activity?.quietForMs,
           airelayVersion: this.airelayVersion,
           controllerProtocolVersion: this.protocolVersion,
           startedAt: this.startedAt,
-          lastOutputChangeAt: this.lastOutputChangeAt,
+          // Compatibility alias for older status consumers. ActivityTracker
+          // remains the sole runtime activity authority.
+          lastOutputChangeAt: activity?.lastOutputAt,
           delivery: this.deliveryStatusProvider?.(),
           attached: this.attachedClients.size,
           runtime: this.runtimeInfoProvider?.(),
@@ -654,6 +657,7 @@ export class SessionController {
         this.handler = null;
         this.deliveryStatusProvider = null;
         this.activityStateProvider = null;
+        this.activityDiagnosticsProvider = null;
         this.runtimeInfoProvider = null;
         this.rawRing.length = 0;
         this.rawRingBytes = 0;

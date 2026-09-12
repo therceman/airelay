@@ -1,6 +1,7 @@
 import net from 'net';
 import { CONTROLLER_PROTOCOL_VERSION, getAirelayVersion } from '../utils/version';
 import type { DeliveryStatus } from '../runtime/delivery';
+import type { ActivityReason } from '../runtime/activity';
 import type { RuntimeBuffers, RuntimeIdentity, RuntimeMemory } from '../runtime/identity';
 
 const IPC_TIMEOUT = 5000;
@@ -11,6 +12,11 @@ export interface ControllerInfo {
   controllerProtocolVersion?: number;
   startedAt?: number;
   state?: 'busy' | 'idle';
+  activityReason?: ActivityReason;
+  lastInputAt?: number | null;
+  lastOutputAt?: number | null;
+  lastActivityAt?: number | null;
+  quietForMs?: number | null;
   delivery?: DeliveryStatus;
   runtime?: RuntimeIdentity;
   memory?: RuntimeMemory;
@@ -127,6 +133,11 @@ export function fetchControllerInfo(
               controllerProtocolVersion: parsed.data.controllerProtocolVersion as number,
               startedAt: parsed.data.startedAt as number,
               state: parsed.data.state as 'busy' | 'idle' | undefined,
+              activityReason: parsed.data.activityReason as ActivityReason | undefined,
+              lastInputAt: parsed.data.lastInputAt as number | null | undefined,
+              lastOutputAt: parsed.data.lastOutputAt as number | null | undefined,
+              lastActivityAt: parsed.data.lastActivityAt as number | null | undefined,
+              quietForMs: parsed.data.quietForMs as number | null | undefined,
               delivery: parsed.data.delivery as DeliveryStatus | undefined,
               runtime: parsed.data.runtime as RuntimeIdentity | undefined,
               memory: parsed.data.memory as RuntimeMemory | undefined,

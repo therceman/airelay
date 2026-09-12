@@ -1,4 +1,5 @@
 import type { DeliveryStatus } from '../runtime/delivery';
+import type { ActivityReason } from '../runtime/activity';
 import type { RuntimeBuffers, RuntimeMemory } from '../runtime/identity';
 
 export type IpcMethod =
@@ -137,6 +138,11 @@ export interface SessionInfoData {
   active: boolean;
   /** Semantic harness availability state used by external watchers. */
   state?: 'busy' | 'idle';
+  activityReason?: ActivityReason;
+  lastInputAt?: number | null;
+  lastOutputAt?: number | null;
+  lastActivityAt?: number | null;
+  quietForMs?: number | null;
   airelayVersion: string;
   controllerProtocolVersion: number;
   startedAt: number;

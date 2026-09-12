@@ -36,6 +36,7 @@ import {
 } from '../runtime/delivery-marker';
 import { writeCommandInput } from '../runtime/delivery-sequence';
 import { PostSubmitWorkingDetector } from '../runtime/post-submit-working';
+import { ActivityTracker } from '../runtime/activity';
 
 const WAKE_PROMPT_RETRY_WINDOW_MS = 60_000;
 const WAKE_PROMPT_RETRY_INTERVAL_MS = 5_000;
@@ -285,6 +286,7 @@ export async function runCommand(
     current: null,
   };
   const ptyKillRef: { current: ((signal?: string) => void) | null } = { current: null };
+  const activity = new ActivityTracker();
   const usePty = options?.usePty === true;
   const detectedProfileSessionId = options?.profileSessionId || detectResumeSessionId(args);
   const hibernationEnabled =
@@ -534,9 +536,14 @@ export async function runCommand(
     const hint = harnessCapabilities.uiWorkingHint;
     return !!hint && preview().join(' ').includes(hint);
   };
-  const isAgentIdle = (): boolean =>
-    activeTurnGeneration === undefined && !inputWatcher?.hasPending() && !isHarnessWorking();
-  controller.setActivityStateProvider(() => (isAgentIdle() ? 'idle' : 'busy'));
+  const getActivitySnapshot = () =>
+    activity.snapshot({
+      promptDeliveryPending: inputWatcher?.hasPending() === true,
+      harnessWorking: isHarnessWorking(),
+    });
+  const isAgentIdle = (): boolean => getActivitySnapshot().state === 'idle';
+  controller.setActivityStateProvider(() => getActivitySnapshot().state);
+  controller.setActivityDiagnosticsProvider(getActivitySnapshot);
   const canHibernate = (): boolean =>
     hibernationEnabled &&
     !hibernated &&
@@ -713,7 +720,13 @@ export async function runCommand(
 
   if (usePty) {
     spawnOpts.onPtyReady = (pty) => {
-      ptyWriteRef.current = pty.write;
+      ptyWriteRef.current = (data: string): void => {
+        if (data.length > 0) {
+          activity.noteInput();
+          resetHibernateTimer();
+        }
+        pty.write(data);
+      };
       ptyResizeRef.current = pty.requestExternalResize;
       ptyKillRef.current = pty.kill;
       runtime.harnessPid = pty.pid;
@@ -768,6 +781,10 @@ export async function runCommand(
   // Serialize xterm writes so each delivery observation sees the frame produced
   // by the current PTY chunk, not a stale or later frame.
   spawnOpts.onOutput = (chunk: string) => {
+    if (chunk.trim().length > 0) {
+      activity.noteOutput();
+      resetHibernateTimer();
+    }
     capacityWatcher?.observe(chunk);
     const chunkGeneration = ++outputGeneration;
     outputRenderQueue = outputRenderQueue.then(async () => {
@@ -777,10 +794,12 @@ export async function runCommand(
         chunkGeneration > submitOutputGeneration && postSubmitWorking.observe(chunk);
       observeDeliveryState(freshWorkingSignal);
       inputWatcher?.observeOutput(chunk);
-      if (activeTurnGeneration !== undefined) resetHibernateTimer();
     });
   };
-  spawnOpts.onInput = () => resetHibernateTimer();
+  spawnOpts.onInput = () => {
+    activity.noteInput();
+    resetHibernateTimer();
+  };
 
   try {
     let keepRunning = true;
