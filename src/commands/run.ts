@@ -38,6 +38,7 @@ import { writeCommandInput } from '../runtime/delivery-sequence';
 import { PostSubmitWorkingDetector } from '../runtime/post-submit-working';
 import { ActivityTracker } from '../runtime/activity';
 import { RuntimeDiagnostics } from '../runtime/diagnostics';
+import { createControllerReveal, ResumePresentationGate } from '../runtime/resume-presentation';
 
 const WAKE_PROMPT_RETRY_WINDOW_MS = 60_000;
 const WAKE_PROMPT_RETRY_INTERVAL_MS = 5_000;
@@ -719,6 +720,8 @@ export async function runCommand(
         : controller.getTerminalSize(),
   };
   const diagnosticsEnabled = usePty && !!detectedProfileSessionId;
+  const resumePresentationEnabled =
+    usePty && !options?.detached && process.stdout.isTTY === true && !!detectedProfileSessionId;
 
   if (usePty) {
     spawnOpts.onPtyReady = (pty) => {
@@ -808,6 +811,31 @@ export async function runCommand(
     let exitCode = 0;
     while (keepRunning) {
       const diagnostics = diagnosticsEnabled ? RuntimeDiagnostics.start(sessionKey) : null;
+      let presentationGate: ResumePresentationGate | null = null;
+      if (resumePresentationEnabled) {
+        const writeForeground = (chunk: string): void => {
+          try {
+            process.stdout.write(chunk);
+          } catch {
+            // The foreground terminal may close during runtime shutdown.
+          }
+        };
+        presentationGate = new ResumePresentationGate({
+          writeForeground,
+          reveal: createControllerReveal(controller, () => outputRenderQueue, writeForeground),
+          onStarted: () => diagnostics?.recordPresentationGateStarted(),
+          onRevealed: (info) =>
+            diagnostics?.recordPresentationGateRevealed(
+              info.reason,
+              info.suppressedBytes,
+              info.suppressedChunks,
+              info.rows
+            ),
+        });
+        spawnOpts.onForegroundOutput = (chunk) => presentationGate?.write(chunk);
+      } else {
+        spawnOpts.onForegroundOutput = undefined;
+      }
       spawnOpts.diagnostics = diagnostics || undefined;
       let generationOutcome: 'exited' | 'hibernated' | 'failed' = 'failed';
       try {
@@ -815,6 +843,9 @@ export async function runCommand(
         await outputRenderQueue;
         generationOutcome = hibernateRequested ? 'hibernated' : 'exited';
       } finally {
+        presentationGate?.dispose();
+        presentationGate = null;
+        spawnOpts.onForegroundOutput = undefined;
         diagnostics?.recordRuntimeStop(generationOutcome);
         diagnostics?.close();
         spawnOpts.diagnostics = undefined;

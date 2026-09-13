@@ -9,6 +9,8 @@ export interface PtyOptions {
   cwd?: string;
   env?: Record<string, string>;
   onOutput?: (chunk: string) => void;
+  /** Optional foreground writer; onOutput remains the authoritative ingest path. */
+  onForegroundOutput?: (chunk: string) => void;
   onInput?: () => void;
   /** Optional parent terminal source, primarily for deterministic tests. */
   resizeSource?: PtyResizeSource;
@@ -188,7 +190,7 @@ export function createPty(options: PtyOptions): PtyInstance {
     options.diagnostics?.recordPtyOutput(Buffer.byteLength(data, 'utf8'));
     if (!startupResizeSettled && pendingResize) scheduleResizeEvaluation();
     if (!options.detached) {
-      process.stdout.write(data);
+      (options.onForegroundOutput ?? ((chunk: string) => process.stdout.write(chunk)))(data);
     }
     options.onOutput?.(data);
   });

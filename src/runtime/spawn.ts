@@ -29,6 +29,8 @@ export interface SpawnOptions {
    * Used by SessionController to maintain a recent output buffer.
    */
   onOutput?: (chunk: string) => void;
+  /** Optional foreground PTY writer; detached runtimes never use it. */
+  onForegroundOutput?: (chunk: string) => void;
   diagnostics?: PtyDiagnostics;
 }
 
@@ -114,6 +116,7 @@ async function spawnAndWaitPty(options: SpawnOptions): Promise<number> {
     cwd: options.cwd,
     env: options.env,
     onOutput: options.onOutput,
+    onForegroundOutput: options.onForegroundOutput,
     onInput: options.onInput,
     diagnostics: options.diagnostics,
     detached: options.detached === true,

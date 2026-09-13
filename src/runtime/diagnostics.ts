@@ -8,6 +8,7 @@ export const PTY_OUTPUT_AGGREGATION_MS = 150;
 
 export type StartupReleaseReason = 'quiet_period' | 'absolute_max';
 export type RuntimeStopReason = 'exited' | 'hibernated' | 'failed';
+export type PresentationRevealReason = 'quiet_period' | 'absolute_max';
 
 export type RuntimeDiagnosticEvent =
   | { ts: number; event: 'runtime_start' }
@@ -29,6 +30,15 @@ export type RuntimeDiagnosticEvent =
       reason: StartupReleaseReason;
     }
   | { ts: number; event: 'startup_max_reached' }
+  | { ts: number; event: 'presentation_gate_started' }
+  | {
+      ts: number;
+      event: 'presentation_gate_revealed';
+      reason: PresentationRevealReason;
+      suppressedBytes: number;
+      suppressedChunks: number;
+      rows: number;
+    }
   | { ts: number; event: 'pty_exit'; code: number }
   | { ts: number; event: 'runtime_stop'; reason: RuntimeStopReason };
 
@@ -41,6 +51,13 @@ export interface PtyDiagnostics {
   recordResizeForwarded(cols: number, rows: number): void;
   recordStartupStabilized(reason: StartupReleaseReason): void;
   recordStartupMaxReached(): void;
+  recordPresentationGateStarted(): void;
+  recordPresentationGateRevealed(
+    reason: PresentationRevealReason,
+    suppressedBytes: number,
+    suppressedChunks: number,
+    rows: number
+  ): void;
   recordPtyExit(code: number): void;
 }
 
@@ -243,6 +260,26 @@ export class RuntimeDiagnostics implements PtyDiagnostics {
 
   recordStartupMaxReached(): void {
     this.record({ ts: Date.now(), event: 'startup_max_reached' });
+  }
+
+  recordPresentationGateStarted(): void {
+    this.record({ ts: Date.now(), event: 'presentation_gate_started' });
+  }
+
+  recordPresentationGateRevealed(
+    reason: PresentationRevealReason,
+    suppressedBytes: number,
+    suppressedChunks: number,
+    rows: number
+  ): void {
+    this.record({
+      ts: Date.now(),
+      event: 'presentation_gate_revealed',
+      reason,
+      suppressedBytes,
+      suppressedChunks,
+      rows,
+    });
   }
 
   recordPtyExit(code: number): void {
