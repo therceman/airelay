@@ -145,6 +145,74 @@ describe('controller resume presentation serialization', () => {
     expect(buffer.cursorX).toBe(8);
   });
 
+  it('round-trips full-width background rows including blank cells', async () => {
+    const source = createTerminal(128, 5);
+    const destination = createTerminal(128, 5);
+    const prompt = '\u203a hey';
+    const input = '\u203a Ask Codex to do anything';
+
+    await write(
+      source,
+      `\x1b[1;1H\x1b[48;5;236m${prompt}${' '.repeat(128 - prompt.length)}` +
+        `\x1b[3;1H${input}${' '.repeat(128 - input.length)}` +
+        '\x1b[5;1H\x1b[38;5;11mstatus\x1b[0m'
+    );
+
+    const sourcePromptBackground = readCell(source.buffer.active, 0, 127);
+    const sourceInputBackground = readCell(source.buffer.active, 2, 127);
+    expect(sourcePromptBackground.isBgPalette()).toBe(true);
+    expect(sourcePromptBackground.getBgColor()).toBe(236);
+    expect(sourceInputBackground.isBgPalette()).toBe(true);
+    expect(sourceInputBackground.getBgColor()).toBe(236);
+
+    await write(destination, 'old content\r\n'.repeat(5));
+    await write(destination, serializeTerminalPresentation(source, LIVE_PRESENTATION_RESET));
+
+    expect(snapshotTerminal(destination)).toEqual(snapshotTerminal(source));
+    expect(readCell(destination.buffer.active, 0, 127).getBgColor()).toBe(236);
+    expect(readCell(destination.buffer.active, 2, 127).getBgColor()).toBe(236);
+    expect(readCell(destination.buffer.active, 1, 0).isBgDefault()).toBe(true);
+    expect(readCell(destination.buffer.active, 4, 0).getFgColor()).toBe(11);
+  });
+
+  it('preserves backgrounds applied by BCE erase operations', async () => {
+    const source = createTerminal(128, 3);
+    const destination = createTerminal(128, 3);
+
+    await write(source, '\x1b[1;1H\x1b[48;5;236m\x1b[2K\x1b[1;1H\x1b[0mBCE row');
+
+    expect(readCell(source.buffer.active, 0, 127).isBgPalette()).toBe(true);
+    expect(readCell(source.buffer.active, 0, 127).getBgColor()).toBe(236);
+
+    await write(destination, serializeTerminalPresentation(source, LIVE_PRESENTATION_RESET));
+
+    expect(snapshotTerminal(destination)).toEqual(snapshotTerminal(source));
+  });
+
+  it('does not leak a previous row style through destination erase', async () => {
+    const source = createTerminal(16, 3);
+    const destination = createTerminal(16, 3);
+
+    await write(source, '\x1b[1;1H\x1b[48;5;236m' + 'x'.repeat(16));
+    await write(source, '\x1b[2;1H\x1b[0m');
+    await write(destination, 'stale row\r\nmore stale\r\n');
+    await write(destination, serializeTerminalPresentation(source, LIVE_PRESENTATION_RESET));
+
+    expect(snapshotTerminal(destination)).toEqual(snapshotTerminal(source));
+    expect(readCell(destination.buffer.active, 1, 0).isBgDefault()).toBe(true);
+  });
+
+  it('preserves inverse default colors across a full-width row', async () => {
+    const source = createTerminal(24, 2);
+    const destination = createTerminal(24, 2);
+
+    await write(source, '\x1b[1;1H\x1b[7mINVERSE' + ' '.repeat(17));
+    await write(destination, serializeTerminalPresentation(source, LIVE_PRESENTATION_RESET));
+
+    expect(snapshotTerminal(destination)).toEqual(snapshotTerminal(source));
+    expect(readCell(destination.buffer.active, 0, 23).isInverse()).not.toBe(0);
+  });
+
   it('restores every mode exposed by the installed public Terminal.modes API', async () => {
     const source = createTerminal();
     const destination = createTerminal();
@@ -192,6 +260,28 @@ describe('controller resume presentation serialization', () => {
     expect(destination.buffer.active.getLine(0)?.translateToString(true)).toBe('VISIBLE-1');
     expect(destination.buffer.active.getLine(1)?.translateToString(true)).toBe('VISIBLE-2');
     expect(destination.buffer.active.getLine(2)?.translateToString(true)).toBe('VISIBLE-3');
+  });
+
+  it('keeps live continuation equivalent after synthesized styled presentation', async () => {
+    const source = createTerminal(40, 4);
+    const destination = createTerminal(40, 4);
+    const hydration =
+      '\x1b[1;1H\x1b[48;5;236mPROMPT' +
+      ' '.repeat(34) +
+      '\x1b[2;1H\x1b[0massistant body' +
+      '\x1b[4;1H\x1b[38;5;11mfooter\x1b[0m';
+
+    await write(source, hydration);
+    await write(destination, serializeTerminalPresentation(source, LIVE_PRESENTATION_RESET));
+
+    const continuation = '\x1b[2;1H\x1b[2K\x1b[38;2;1;2;3mupdated\x1b[0m';
+    await write(source, continuation);
+    await write(destination, continuation);
+
+    expect(snapshotTerminal(destination)).toEqual(snapshotTerminal(source));
+    expect(snapshotModes(destination)).toEqual(snapshotModes(source));
+    expect(destination.buffer.active.cursorY).toBe(source.buffer.active.cursorY);
+    expect(destination.buffer.active.cursorX).toBe(source.buffer.active.cursorX);
   });
 
   it('exposes the styled serializer through SessionController', async () => {

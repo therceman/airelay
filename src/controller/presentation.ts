@@ -172,6 +172,29 @@ function serializeRow(
   const lastMaterialColumn = rowHasMaterialContent(line, columns, nullCell);
   if (lastMaterialColumn < 0) return '';
 
+  // Preserve xterm's empty-but-styled cells when a BCE operation reaches the
+  // right edge. EL applies the explicitly selected erase attributes without
+  // turning those cells into literal spaces.
+  let trailingEraseStart = -1;
+  if (lastMaterialColumn === columns - 1) {
+    const lastCell = getCell(line, lastMaterialColumn, nullCell);
+    if (lastCell.getChars().length === 0 && lastCell.getWidth() !== 0) {
+      const trailingStyle = getStyle(lastCell);
+      trailingEraseStart = lastMaterialColumn;
+      for (let column = lastMaterialColumn - 1; column >= 0; column -= 1) {
+        const cell = getCell(line, column, nullCell);
+        if (
+          cell.getWidth() === 0 ||
+          cell.getChars().length !== 0 ||
+          !stylesEqual(getStyle(cell), trailingStyle)
+        ) {
+          break;
+        }
+        trailingEraseStart = column;
+      }
+    }
+  }
+
   let result = '';
   let activeStyle: PresentationStyle | null = null;
   let text = '';
@@ -182,7 +205,8 @@ function serializeRow(
     }
   };
 
-  for (let column = 0; column <= lastMaterialColumn; column += 1) {
+  const textEnd = trailingEraseStart >= 0 ? trailingEraseStart : lastMaterialColumn + 1;
+  for (let column = 0; column < textEnd; column += 1) {
     const cell = getCell(line, column, nullCell);
     if (cell.getWidth() === 0) continue;
 
@@ -195,6 +219,13 @@ function serializeRow(
     text += cell.getChars() || ' ';
   }
   flush();
+
+  if (trailingEraseStart >= 0) {
+    const trailingCell = getCell(line, trailingEraseStart, nullCell);
+    result += styleSequence(getStyle(trailingCell));
+    result += '\x1b[0K';
+  }
+
   return result;
 }
 
@@ -206,7 +237,8 @@ export function serializeTerminalPresentation(terminal: Terminal, resetSequence:
 
   for (let row = 0; row < terminal.rows; row += 1) {
     const line = buffer.getLine(buffer.viewportY + row);
-    result += `\x1b[${row + 1};1H\x1b[2K\x1b[0m`;
+    // EL uses the current erase attributes, so neutralize them before clearing.
+    result += `\x1b[${row + 1};1H\x1b[0m\x1b[2K`;
     result += serializeRow(line, terminal.cols, nullCell);
   }
 
