@@ -4,7 +4,6 @@ import {
   RESUME_PRESENTATION_MAX_MS,
   RESUME_PRESENTATION_QUIET_MS,
   ResumePresentationGate,
-  serializeResumeViewport,
 } from '../src/runtime/resume-presentation';
 import { RuntimeDiagnostics, readLatestRuntimeDiagnostic } from '../src/runtime/diagnostics';
 import { createPty } from '../src/runtime/pty';
@@ -324,22 +323,6 @@ describe('resume foreground presentation gate', () => {
     expect(foreground).toHaveLength(1);
     expect(foreground[0]).toContain('current-two');
     expect(gate.isOpen()).toBe(true);
-  });
-
-  it('serializes only the visible rows and restores a clamped cursor without scrolling', () => {
-    const rendered = serializeResumeViewport(
-      {
-        lines: ['visible-1', 'visible-2', 'visible-3', 'historical-4'],
-        cursorRow: 99,
-        cursorColumn: 99,
-      },
-      { cols: 12, rows: 3 }
-    );
-
-    expect(rendered).toContain('visible-1\r\nvisible-2\r\nvisible-3');
-    expect(rendered).not.toContain('historical-4');
-    expect(rendered).toContain('\x1b[3;12H');
-    expect(rendered.endsWith('\n')).toBe(false);
   });
 
   it('disposes one generation and starts the next generation closed', async () => {

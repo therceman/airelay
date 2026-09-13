@@ -1,4 +1,4 @@
-import { LIVE_PRESENTATION_RESET, SessionController } from '../controller';
+import { SessionController } from '../controller';
 
 export const RESUME_PRESENTATION_QUIET_MS = 1000;
 export const RESUME_PRESENTATION_MAX_MS = 10_000;
@@ -6,17 +6,6 @@ export const RESUME_PRESENTATION_MAX_POST_CUTOFF_CHUNKS = 2048;
 export const RESUME_PRESENTATION_MAX_POST_CUTOFF_BYTES = 4 * 1024 * 1024;
 
 export type ResumePresentationRevealReason = 'quiet_period' | 'absolute_max';
-
-export interface PresentationViewport {
-  lines: string[];
-  cursorRow: number;
-  cursorColumn: number;
-}
-
-export interface PresentationTerminalSize {
-  cols: number;
-  rows: number;
-}
 
 export interface ResumePresentationRevealInfo {
   reason: ResumePresentationRevealReason;
@@ -216,20 +205,6 @@ export class ResumePresentationGate {
   }
 }
 
-export function serializeResumeViewport(
-  viewport: PresentationViewport,
-  size: PresentationTerminalSize
-): string {
-  const rows = Math.max(1, Math.floor(size.rows));
-  const cols = Math.max(1, Math.floor(size.cols));
-  const lines = viewport.lines.slice(0, rows);
-  while (lines.length < rows) lines.push('');
-
-  const cursorRow = Math.min(rows, Math.max(1, Math.floor(viewport.cursorRow) + 1));
-  const cursorColumn = Math.min(cols, Math.max(1, Math.floor(viewport.cursorColumn) + 1));
-  return `${LIVE_PRESENTATION_RESET}${lines.join('\r\n')}\x1b[${cursorRow};${cursorColumn}H`;
-}
-
 export function createControllerReveal(
   controller: SessionController,
   getOutputQueue: () => Promise<void>,
@@ -253,9 +228,7 @@ export function createControllerReveal(
       if (!isCurrent()) return null;
     }
 
-    const viewport = controller.getLiveViewportState();
-    const size = controller.getTerminalSize();
-    writeForeground(serializeResumeViewport(viewport, size));
-    return size.rows;
+    writeForeground(controller.serializeLivePresentation());
+    return controller.getTerminalSize().rows;
   };
 }

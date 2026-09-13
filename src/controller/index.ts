@@ -31,6 +31,7 @@ import {
   sameSocketIdentity,
   SocketIdentity,
 } from '../utils/unix-socket';
+import { serializeTerminalPresentation } from './presentation';
 
 const VIEWPORT_ROWS = 30;
 const VIEWPORT_COLS = 120;
@@ -366,6 +367,11 @@ export class SessionController {
       cursorRow: buffer.cursorY,
       cursorColumn: buffer.cursorX,
     };
+  }
+
+  /** Serialize the current visible terminal state for a foreground reveal. */
+  serializeLivePresentation(): string {
+    return serializeTerminalPresentation(this.terminal, LIVE_PRESENTATION_RESET);
   }
 
   /** Return rolling snapshot window (which includes recent historical viewport + current). */
