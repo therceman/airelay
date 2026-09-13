@@ -186,6 +186,22 @@ describe('parseArgs', () => {
     expect(result.flags.json).toBe(true);
   });
 
+  it('parses status with a session key, watch and interval flags', () => {
+    const result = parseArgs([
+      'node',
+      'airelay',
+      'status',
+      'worker_1',
+      '--watch',
+      '--interval',
+      '2s',
+      '--json',
+    ]);
+    expect(result.command).toBe('status');
+    expect(result.profile).toBe('worker_1');
+    expect(result.flags).toMatchObject({ watch: true, interval: '2s', json: true });
+  });
+
   it('prompt command shows error when missing session', () => {
     const result = parseArgs(['node', 'airelay', 'prompt']);
     expect(result.command).toBe('prompt');

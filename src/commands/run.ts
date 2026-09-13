@@ -694,12 +694,18 @@ export async function runCommand(
   persistRuntimeState();
 
   // Inject session metadata into child process environment
-  env.AIRELAY_SESSION_KEY = sessionKey;
-  env.AIRELAY_PROFILE = profileName;
-  env.AIRELAY_SESSION_ID = sessionKey;
-  env.AIRELAY_CWD = cwd;
-  env.AIRELAY_VERSION = getAirelayVersion();
-  env.AIRELAY_CONTROLLER_PROTOCOL_VERSION = String(CONTROLLER_PROTOCOL_VERSION);
+  Object.assign(env, {
+    AIRELAY_SESSION_KEY: sessionKey,
+    AIRELAY_RUNTIME_ID: runtimeId,
+    AIRELAY_PROFILE: profileName,
+    AIRELAY_CONTROLLER_PID: String(runtime.controllerPid),
+    AIRELAY_SESSION_ID: sessionKey,
+    AIRELAY_CWD: cwd,
+    AIRELAY_VERSION: getAirelayVersion(),
+    AIRELAY_CONTROLLER_PROTOCOL_VERSION: String(CONTROLLER_PROTOCOL_VERSION),
+  });
+  if (detectedProfileSessionId) env.AIRELAY_NATIVE_SESSION_ID = detectedProfileSessionId;
+  else delete env.AIRELAY_NATIVE_SESSION_ID;
 
   if (process.stdout.isTTY) {
     controller.resize(process.stdout.columns || 120, process.stdout.rows || 30);

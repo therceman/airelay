@@ -23,6 +23,11 @@ export interface TestEnv {
     AIRELAY_TRANSCRIPTS_DIR?: string;
     AIRELAY_DETACHED?: string;
     AIRELAY_DETACHED_RECEIPTS_DIR?: string;
+    AIRELAY_SESSION_KEY?: string;
+    AIRELAY_RUNTIME_ID?: string;
+    AIRELAY_PROFILE?: string;
+    AIRELAY_NATIVE_SESSION_ID?: string;
+    AIRELAY_CONTROLLER_PID?: string;
   };
 }
 
@@ -66,6 +71,11 @@ export function setupTestEnv(): TestEnv {
     AIRELAY_TRANSCRIPTS_DIR: process.env.AIRELAY_TRANSCRIPTS_DIR,
     AIRELAY_DETACHED: process.env.AIRELAY_DETACHED,
     AIRELAY_DETACHED_RECEIPTS_DIR: process.env.AIRELAY_DETACHED_RECEIPTS_DIR,
+    AIRELAY_SESSION_KEY: process.env.AIRELAY_SESSION_KEY,
+    AIRELAY_RUNTIME_ID: process.env.AIRELAY_RUNTIME_ID,
+    AIRELAY_PROFILE: process.env.AIRELAY_PROFILE,
+    AIRELAY_NATIVE_SESSION_ID: process.env.AIRELAY_NATIVE_SESSION_ID,
+    AIRELAY_CONTROLLER_PID: process.env.AIRELAY_CONTROLLER_PID,
   };
 
   return {
@@ -100,6 +110,11 @@ export function setupEnv(env: TestEnv): void {
   process.env.AIRELAY_TRANSCRIPTS_DIR = env.transcriptsDir;
   process.env.AIRELAY_DETACHED = env.detachedPath;
   process.env.AIRELAY_DETACHED_RECEIPTS_DIR = env.detachedReceiptsDir;
+  delete process.env.AIRELAY_SESSION_KEY;
+  delete process.env.AIRELAY_RUNTIME_ID;
+  delete process.env.AIRELAY_PROFILE;
+  delete process.env.AIRELAY_NATIVE_SESSION_ID;
+  delete process.env.AIRELAY_CONTROLLER_PID;
 }
 
 /**
@@ -169,6 +184,18 @@ export function cleanupEnv(env: TestEnv): void {
     process.env.AIRELAY_DETACHED_RECEIPTS_DIR = env.originalEnv.AIRELAY_DETACHED_RECEIPTS_DIR;
   } else {
     delete process.env.AIRELAY_DETACHED_RECEIPTS_DIR;
+  }
+
+  for (const key of [
+    'AIRELAY_SESSION_KEY',
+    'AIRELAY_RUNTIME_ID',
+    'AIRELAY_PROFILE',
+    'AIRELAY_NATIVE_SESSION_ID',
+    'AIRELAY_CONTROLLER_PID',
+  ] as const) {
+    const value = env.originalEnv[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
   }
 }
 

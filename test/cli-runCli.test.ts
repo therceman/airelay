@@ -48,6 +48,10 @@ jest.mock('../src/commands/prompt', () => ({
 jest.mock('../src/commands/interrupt', () => ({
   interruptCommand: jest.fn().mockResolvedValue(0),
 }));
+jest.mock('../src/commands/status', () => ({
+  parseStatusInterval: jest.fn().mockReturnValue(1000),
+  statusCommand: jest.fn().mockResolvedValue(0),
+}));
 jest.mock('../src/commands/history', () => ({
   historyCommand: jest.fn(),
   historyHelpCommand: jest.fn(),
@@ -540,4 +544,16 @@ it('executes interrupt command with session key', async () => {
 
   const { interruptCommand } = require('../src/commands/interrupt');
   expect(interruptCommand).toHaveBeenCalledWith('worker_1', { json: true, noWarn: true });
+});
+
+it('dispatches status with session key and watch options', async () => {
+  process.argv = ['node', 'cli.js', 'status', 'worker_1', '--watch', '--interval', '2s', '--json'];
+  await runCli();
+
+  const { statusCommand } = require('../src/commands/status');
+  expect(statusCommand).toHaveBeenCalledWith('worker_1', {
+    json: true,
+    watch: true,
+    intervalMs: 1000,
+  });
 });

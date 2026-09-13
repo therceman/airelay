@@ -31,6 +31,7 @@ const KNOWN_COMMANDS = [
   'prompt',
   'sessions',
   'session-status',
+  'status',
   'session-debug',
   'session-find',
   'tail',
@@ -233,6 +234,7 @@ Commands:
   detached              List detached runtimes (--json, --prune)
   sessions              List saved sessions
   session-status <key>  Show session health and UI status
+  status [key]           Show runtime, process, memory, and activity status
   session-debug <key>   Show latest persistent PTY/resume diagnostics
   interrupt <key>       Interrupt the active turn without destroying the session
   session-find <key>    Search current visible session output for pattern
@@ -701,6 +703,29 @@ async function runCli(): Promise<void> {
           process.exit(exitCode);
           return;
         }
+
+      case 'status': {
+        const { parseStatusInterval, statusCommand } = await import('./commands/status');
+        const intervalFlag = flags.interval as string | undefined;
+        const intervalMs = parseStatusInterval(intervalFlag);
+        if (intervalFlag !== undefined && intervalMs === undefined) {
+          const message = 'Interval must be a duration greater than zero, such as 1s or 1000ms.';
+          if (flags.json === true) {
+            console.log(JSON.stringify({ error: 'invalid_interval', message }));
+          } else {
+            console.error(`Error: ${message}`);
+          }
+          process.exit(1);
+          return;
+        }
+        const exitCode = await statusCommand(profile, {
+          json: flags.json === true,
+          watch: flags.watch === true,
+          intervalMs,
+        });
+        process.exit(exitCode);
+        return;
+      }
 
       case 'heartbeat':
         if (!profile) {

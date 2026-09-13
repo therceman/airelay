@@ -292,7 +292,7 @@ profiles:
     executable: node
     args:
       - -e
-      - "var k=process.env.AIRELAY_SESSION_KEY||'';var p=process.env.AIRELAY_PROFILE||'';var i=process.env.AIRELAY_SESSION_ID||'';var c=process.env.AIRELAY_CWD||'';process.exit(k&&p&&i&&c?0:1)"`
+      - "var k=process.env.AIRELAY_SESSION_KEY||'';var p=process.env.AIRELAY_PROFILE||'';var i=process.env.AIRELAY_SESSION_ID||'';var c=process.env.AIRELAY_CWD||'';var r=process.env.AIRELAY_RUNTIME_ID||'';var cp=process.env.AIRELAY_CONTROLLER_PID||'';process.exit(k&&p&&i&&c&&r&&cp?0:1)"`
     );
     process.env.AIRELAY_CONFIG = testConfigPath;
 
@@ -314,6 +314,23 @@ profiles:
     process.env.AIRELAY_CONFIG = testConfigPath;
 
     const exitCode = await runCommand('envcheck', []);
+    expect(exitCode).toBe(0);
+  });
+
+  it('injects runtime and native session identity for a resumed harness', async () => {
+    fs.writeFileSync(
+      testConfigPath,
+      `version: 1
+profiles:
+  test:
+    executable: node
+    args:
+      - -e
+      - "var r=process.env.AIRELAY_RUNTIME_ID||'';var p=process.env.AIRELAY_CONTROLLER_PID||'';var n=process.env.AIRELAY_NATIVE_SESSION_ID||'';process.exit(r&&Number(p)>0&&n==='native-id'?0:1)"`
+    );
+    process.env.AIRELAY_CONFIG = testConfigPath;
+
+    const exitCode = await runCommand('test', ['resume', 'native-id']);
     expect(exitCode).toBe(0);
   });
 
