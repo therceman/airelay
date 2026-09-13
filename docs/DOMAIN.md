@@ -168,6 +168,7 @@ offered.
 
 - `airelay config list` shows the config and resolved defaults
 - `airelay session-status <session>` reports the canonical `State: idle` or `State: busy` used by external watchers. Activity is busy for an unresolved prompt delivery or harness working guard, or for five seconds after PTY input/output; otherwise it is idle. JSON status includes the reason and activity timestamps.
+- `airelay session-debug <session>` reads the latest bounded PTY/resume metadata trace without requiring a live controller
 - `airelay config set settings.promptMaxLength <number|-1>` changes the prompt limit
 - `settings.promptMaxLength` defaults to `-1`
 - `airelay config set settings.hibernateAfter <duration|off>` changes automatic hibernation

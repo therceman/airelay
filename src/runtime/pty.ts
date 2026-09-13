@@ -1,4 +1,5 @@
 import * as pty from 'node-pty';
+import type { PtyDiagnostics, StartupReleaseReason } from './diagnostics';
 
 export interface PtyOptions {
   file: string;
@@ -24,6 +25,8 @@ export interface PtyOptions {
   resizeStartupQuietMs?: number;
   /** Absolute startup hold bound, even if the harness continuously outputs. */
   resizeStartupMaxMs?: number;
+  /** Best-effort metadata trace for resumable PTY startup/resize diagnostics. */
+  diagnostics?: PtyDiagnostics;
   /**
    * Detached mode: the PTY is owned by a supervised runtime process that has
    * no inherited terminal. Output is only forwarded to onOutput (never to
@@ -67,6 +70,7 @@ export function createPty(options: PtyOptions): PtyInstance {
     cwd: options.cwd,
     env: { ...process.env, ...options.env } as { [key: string]: string },
   });
+  options.diagnostics?.recordPtySpawn(cols, rows);
   let currentCols = cols;
   let currentRows = rows;
   let pendingResize: { cols: number; rows: number } | null = null;
@@ -83,19 +87,25 @@ export function createPty(options: PtyOptions): PtyInstance {
   let traceCount = 0;
   const traceLimit = 128;
   const traceResize = (kind: PtyResizeTrace['kind'], nextCols: number, nextRows: number): void => {
-    if (traceCount >= traceLimit) return;
-    traceCount += 1;
-    const trace: PtyResizeTrace = {
-      kind,
-      cols: nextCols,
-      rows: nextRows,
-      timestamp: Date.now(),
-    };
-    options.onResizeTrace?.(trace);
-    if (process.env.AIRELAY_DEBUG_PTY_RESIZE === '1') {
-      console.error(
-        `[airelay:pty-resize] ${trace.kind} ${trace.cols}x${trace.rows} ${trace.timestamp}`
-      );
+    if (traceCount < traceLimit) {
+      traceCount += 1;
+      const trace: PtyResizeTrace = {
+        kind,
+        cols: nextCols,
+        rows: nextRows,
+        timestamp: Date.now(),
+      };
+      options.onResizeTrace?.(trace);
+      if (process.env.AIRELAY_DEBUG_PTY_RESIZE === '1') {
+        console.error(
+          `[airelay:pty-resize] ${trace.kind} ${trace.cols}x${trace.rows} ${trace.timestamp}`
+        );
+      }
+    }
+    if (kind === 'outer') {
+      options.diagnostics?.recordResizeRequested(nextCols, nextRows);
+    } else if (kind === 'forwarded') {
+      options.diagnostics?.recordResizeForwarded(nextCols, nextRows);
     }
   };
   traceResize('initial', cols, rows);
@@ -145,6 +155,12 @@ export function createPty(options: PtyOptions): PtyInstance {
           scheduleResizeEvaluation();
           return;
         }
+        const releaseReason: StartupReleaseReason =
+          Date.now() >= resizeStartupMaxDeadline ? 'absolute_max' : 'quiet_period';
+        if (releaseReason === 'absolute_max') {
+          options.diagnostics?.recordStartupMaxReached();
+        }
+        options.diagnostics?.recordStartupStabilized(releaseReason);
         startupResizeSettled = true;
         const next = pendingResize;
         pendingResize = null;
@@ -157,6 +173,9 @@ export function createPty(options: PtyOptions): PtyInstance {
     traceResize('outer', nextCols, nextRows);
     if (nextCols <= 0 || nextRows <= 0) return;
     pendingResize = { cols: nextCols, rows: nextRows };
+    if (!startupResizeSettled) {
+      options.diagnostics?.recordResizeHeld(nextCols, nextRows);
+    }
     scheduleResizeEvaluation();
   };
 
@@ -166,6 +185,7 @@ export function createPty(options: PtyOptions): PtyInstance {
   term.onData((data: string) => {
     hasOutput = true;
     lastOutputAt = Date.now();
+    options.diagnostics?.recordPtyOutput(Buffer.byteLength(data, 'utf8'));
     if (!startupResizeSettled && pendingResize) scheduleResizeEvaluation();
     if (!options.detached) {
       process.stdout.write(data);
@@ -233,6 +253,7 @@ export function createPty(options: PtyOptions): PtyInstance {
 
   const exitPromise = new Promise<number>((resolve) => {
     term.onExit((ev: { exitCode: number; signal?: number }) => {
+      options.diagnostics?.recordPtyExit(ev.exitCode);
       runCleanups();
       resolve(ev.exitCode);
     });

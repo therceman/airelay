@@ -31,6 +31,7 @@ const KNOWN_COMMANDS = [
   'prompt',
   'sessions',
   'session-status',
+  'session-debug',
   'session-find',
   'tail',
   'heartbeat',
@@ -232,6 +233,7 @@ Commands:
   detached              List detached runtimes (--json, --prune)
   sessions              List saved sessions
   session-status <key>  Show session health and UI status
+  session-debug <key>   Show latest persistent PTY/resume diagnostics
   interrupt <key>       Interrupt the active turn without destroying the session
   session-find <key>    Search current visible session output for pattern
   tail <key>            Show the last session output lines
@@ -669,6 +671,18 @@ async function runCli(): Promise<void> {
             field,
             noWarn,
           });
+          process.exit(exitCode);
+        }
+
+      case 'session-debug':
+        if (!profile) {
+          console.error('Error: Session key or ID required');
+          console.error('Usage: airelay session-debug <session> [--json]');
+          process.exit(1);
+        }
+        {
+          const { sessionDebugCommand } = await import('./commands/session-debug');
+          const exitCode = await sessionDebugCommand(profile, { json: flags.json === true });
           process.exit(exitCode);
         }
 

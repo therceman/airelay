@@ -2,6 +2,7 @@ import spawn from 'cross-spawn';
 import { findExecutablePath } from './resolveExecutable';
 import { registerPID, unregisterPID } from '../utils/pid';
 import { createPty } from './pty';
+import type { PtyDiagnostics } from './diagnostics';
 
 export interface SpawnOptions {
   executable: string;
@@ -28,6 +29,7 @@ export interface SpawnOptions {
    * Used by SessionController to maintain a recent output buffer.
    */
   onOutput?: (chunk: string) => void;
+  diagnostics?: PtyDiagnostics;
 }
 
 function spawnChild(options: SpawnOptions) {
@@ -113,6 +115,7 @@ async function spawnAndWaitPty(options: SpawnOptions): Promise<number> {
     env: options.env,
     onOutput: options.onOutput,
     onInput: options.onInput,
+    diagnostics: options.diagnostics,
     detached: options.detached === true,
   });
 

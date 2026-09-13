@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { runCommand } from '../src/commands/run';
 import { readLines } from '../src/controller/protocol';
+import { readLatestRuntimeDiagnostic } from '../src/runtime/diagnostics';
 import { useTestEnv } from './test-utils';
 
 const testEnv = useTestEnv();
@@ -240,5 +241,15 @@ setInterval(() => {}, 50);
     await sendRaw(endpoint, '\u0003');
 
     await expect(runPromise).resolves.toBeDefined();
+    const trace = readLatestRuntimeDiagnostic('sleeper_test');
+    expect(trace?.events.map((event) => event.event)).toEqual(
+      expect.arrayContaining([
+        'runtime_start',
+        'resume_start',
+        'pty_spawn',
+        'pty_exit',
+        'runtime_stop',
+      ])
+    );
   }, 15000);
 });

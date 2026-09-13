@@ -37,6 +37,7 @@ import {
 import { writeCommandInput } from '../runtime/delivery-sequence';
 import { PostSubmitWorkingDetector } from '../runtime/post-submit-working';
 import { ActivityTracker } from '../runtime/activity';
+import { RuntimeDiagnostics } from '../runtime/diagnostics';
 
 const WAKE_PROMPT_RETRY_WINDOW_MS = 60_000;
 const WAKE_PROMPT_RETRY_INTERVAL_MS = 5_000;
@@ -717,6 +718,7 @@ export async function runCommand(
         ? { cols: process.stdout.columns, rows: process.stdout.rows }
         : controller.getTerminalSize(),
   };
+  const diagnosticsEnabled = usePty && !!detectedProfileSessionId;
 
   if (usePty) {
     spawnOpts.onPtyReady = (pty) => {
@@ -805,8 +807,18 @@ export async function runCommand(
     let keepRunning = true;
     let exitCode = 0;
     while (keepRunning) {
-      exitCode = await spawnAndWait(spawnOpts);
-      await outputRenderQueue;
+      const diagnostics = diagnosticsEnabled ? RuntimeDiagnostics.start(sessionKey) : null;
+      spawnOpts.diagnostics = diagnostics || undefined;
+      let generationOutcome: 'exited' | 'hibernated' | 'failed' = 'failed';
+      try {
+        exitCode = await spawnAndWait(spawnOpts);
+        await outputRenderQueue;
+        generationOutcome = hibernateRequested ? 'hibernated' : 'exited';
+      } finally {
+        diagnostics?.recordRuntimeStop(generationOutcome);
+        diagnostics?.close();
+        spawnOpts.diagnostics = undefined;
+      }
       runtime.harnessPid = null;
       ptyWriteRef.current = null;
       ptyResizeRef.current = null;

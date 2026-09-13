@@ -179,6 +179,13 @@ describe('parseArgs', () => {
     expect(result.flags).toHaveProperty('no-enter', true);
   });
 
+  it('parses session-debug with JSON output', () => {
+    const result = parseArgs(['node', 'airelay', 'session-debug', 'worker_1', '--json']);
+    expect(result.command).toBe('session-debug');
+    expect(result.profile).toBe('worker_1');
+    expect(result.flags.json).toBe(true);
+  });
+
   it('prompt command shows error when missing session', () => {
     const result = parseArgs(['node', 'airelay', 'prompt']);
     expect(result.command).toBe('prompt');

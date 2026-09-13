@@ -100,6 +100,7 @@ airelay init                       # Create starter config
 airelay resume [key]               # Pick a saved launch from this folder or resume by key
 airelay sessions [--json] [--active]  # List saved sessions
 airelay session-status <session>       # Report canonical State: idle/busy and reason
+airelay session-debug <session>        # Read latest persistent PTY/resume trace
 airelay prompt <session> <text>    # Send input to an active session
 airelay config list                # Show config and resolved defaults
 airelay config set settings.promptMaxLength 1024
