@@ -45,7 +45,7 @@ const RAW_RING_MAX_CHUNKS = 8192;
 const STREAM_MAX_BUFFERED_BYTES = 256 * 1024;
 /** Bound on server.close() during shutdown so stop() can never hang. */
 const STOP_TIMEOUT_MS = 2000;
-export const LIVE_PRESENTATION_RESET = '\x1b[0m\x1b[3J\x1b[2J\x1b[H';
+export const LIVE_PRESENTATION_RESET = '\x1b[0m\x1b[H\x1b[2J\x1b[3J\x1b[H';
 
 export interface LiveViewportState {
   lines: string[];

@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import net from 'net';
-import { SessionController } from '../src/controller';
+import { LIVE_PRESENTATION_RESET, SessionController } from '../src/controller';
 import { promptCommand } from '../src/commands/prompt';
 import { addSession, removeSessionByKey, findSessionByKey } from '../src/commands/sessions';
 
@@ -102,10 +102,11 @@ describe('controller E2E: real IPC socket flow', () => {
     await controller.resetLivePresentation(
       'Agent hibernated [codex]\r\nSession: presentation\r\nPress [space] to wake up\r\n'
     );
+    expect(LIVE_PRESENTATION_RESET).toBe('\x1b[0m\x1b[H\x1b[2J\x1b[3J\x1b[H');
     expect(controller.getRenderedScrollbackLines()).toContain('Agent hibernated [codex]');
     expect(controller.getRenderedScrollbackLines()).not.toContain('OLD-GENERATION-399');
     const hibernateBootstrap = await captureAttachBootstrap();
-    expect(hibernateBootstrap).toContain('\x1b[0m\x1b[3J\x1b[2J\x1b[H');
+    expect(hibernateBootstrap).toContain(LIVE_PRESENTATION_RESET);
     expect(hibernateBootstrap).toContain('Agent hibernated [codex]');
     expect(hibernateBootstrap).not.toContain('OLD-GENERATION');
 
