@@ -4,6 +4,7 @@ import { getConfigDir } from '../config/load';
 
 export const MAX_RUNTIME_DIAGNOSTIC_EVENTS = 256;
 export const MAX_RUNTIME_DIAGNOSTIC_FILES = 5;
+export const PTY_OUTPUT_AGGREGATION_MS = 150;
 
 export type StartupReleaseReason = 'quiet_period' | 'absolute_max';
 export type RuntimeStopReason = 'exited' | 'hibernated' | 'failed';
@@ -12,7 +13,7 @@ export type RuntimeDiagnosticEvent =
   | { ts: number; event: 'runtime_start' }
   | { ts: number; event: 'resume_start'; resumable: true }
   | { ts: number; event: 'pty_spawn'; cols: number; rows: number }
-  | { ts: number; event: 'pty_output'; bytes: number }
+  | { ts: number; event: 'pty_output'; bytes: number; chunks: number }
   | { ts: number; event: 'resize_requested'; cols: number; rows: number }
   | {
       ts: number;
@@ -105,8 +106,10 @@ function nextTracePath(dir: string): string {
 }
 
 export class RuntimeDiagnostics implements PtyDiagnostics {
-  private fd: number | null = null;
-  private eventCount = 0;
+  private writable = false;
+  private events: RuntimeDiagnosticEvent[] = [];
+  private pendingOutput: { bytes: number; chunks: number; ts: number } | null = null;
+  private outputTimer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
 
   private constructor(
@@ -120,10 +123,11 @@ export class RuntimeDiagnostics implements PtyDiagnostics {
     const diagnostics = new RuntimeDiagnostics(sessionKey, filePath);
     try {
       fs.mkdirSync(dir, { recursive: true });
-      diagnostics.fd = fs.openSync(filePath, 'a');
+      fs.writeFileSync(filePath, '');
+      diagnostics.writable = true;
       pruneTraceFiles(dir, filePath);
     } catch {
-      diagnostics.fd = null;
+      diagnostics.writable = false;
     }
     diagnostics.record({ ts: Date.now(), event: 'runtime_start' });
     diagnostics.record({ ts: Date.now(), event: 'resume_start', resumable: true });
@@ -131,21 +135,72 @@ export class RuntimeDiagnostics implements PtyDiagnostics {
   }
 
   record(event: RuntimeDiagnosticEvent): void {
-    if (this.closed || this.fd === null || this.eventCount >= MAX_RUNTIME_DIAGNOSTIC_EVENTS) {
+    this.flushPendingOutput();
+    this.appendEvent(event);
+  }
+
+  private appendEvent(event: RuntimeDiagnosticEvent): void {
+    if (this.closed || !this.writable) return;
+
+    if (this.events.length < MAX_RUNTIME_DIAGNOSTIC_EVENTS) {
+      this.events.push(event);
+      this.appendPersistedEvent(event);
       return;
     }
+
+    const outputIndex = this.events.findIndex((candidate) => candidate.event === 'pty_output');
+    const isTerminalEvent = event.event === 'pty_exit' || event.event === 'runtime_stop';
+    const evictIndex = isTerminalEvent
+      ? outputIndex >= 0
+        ? outputIndex
+        : this.events.findIndex(
+            (candidate) => candidate.event !== 'pty_exit' && candidate.event !== 'runtime_stop'
+          )
+      : outputIndex;
+    if (evictIndex < 0) return;
+    this.events.splice(evictIndex, 1);
+
+    this.events.push(event);
+    this.persist();
+  }
+
+  private appendPersistedEvent(event: RuntimeDiagnosticEvent): void {
+    if (this.closed || !this.writable || !this.traceFile) return;
     try {
-      fs.writeSync(this.fd, `${JSON.stringify(event)}\n`);
-      this.eventCount += 1;
+      fs.appendFileSync(this.traceFile, `${JSON.stringify(event)}\n`);
     } catch {
       // A diagnostic failure must never affect PTY or session control.
-      try {
-        fs.closeSync(this.fd);
-      } catch {
-        // Ignore cleanup failure for a broken diagnostic sink.
-      }
-      this.fd = null;
+      this.writable = false;
     }
+  }
+
+  private persist(): void {
+    if (this.closed || !this.writable || !this.traceFile) return;
+    try {
+      fs.writeFileSync(
+        this.traceFile,
+        `${this.events.map((event) => JSON.stringify(event)).join('\n')}\n`
+      );
+    } catch {
+      // A diagnostic failure must never affect PTY or session control.
+      this.writable = false;
+    }
+  }
+
+  private flushPendingOutput(): void {
+    if (this.outputTimer) {
+      clearTimeout(this.outputTimer);
+      this.outputTimer = null;
+    }
+    const pending = this.pendingOutput;
+    this.pendingOutput = null;
+    if (!pending) return;
+    this.appendEvent({
+      ts: pending.ts,
+      event: 'pty_output',
+      bytes: pending.bytes,
+      chunks: pending.chunks,
+    });
   }
 
   recordPtySpawn(cols: number, rows: number): void {
@@ -153,7 +208,21 @@ export class RuntimeDiagnostics implements PtyDiagnostics {
   }
 
   recordPtyOutput(bytes: number): void {
-    this.record({ ts: Date.now(), event: 'pty_output', bytes });
+    if (this.closed || !this.writable || bytes <= 0) return;
+    const ts = Date.now();
+    if (this.pendingOutput) {
+      this.pendingOutput.bytes += bytes;
+      this.pendingOutput.chunks += 1;
+      this.pendingOutput.ts = ts;
+    } else {
+      this.pendingOutput = { bytes, chunks: 1, ts };
+    }
+    if (!this.outputTimer) {
+      this.outputTimer = setTimeout(() => {
+        this.outputTimer = null;
+        this.flushPendingOutput();
+      }, PTY_OUTPUT_AGGREGATION_MS);
+    }
   }
 
   recordResizeRequested(cols: number, rows: number): void {
@@ -186,14 +255,8 @@ export class RuntimeDiagnostics implements PtyDiagnostics {
 
   close(): void {
     if (this.closed) return;
+    this.flushPendingOutput();
     this.closed = true;
-    if (this.fd === null) return;
-    try {
-      fs.closeSync(this.fd);
-    } catch {
-      // Diagnostics are best-effort.
-    }
-    this.fd = null;
   }
 }
 

@@ -5,6 +5,7 @@ import {
   getRuntimeDiagnosticsDir,
   MAX_RUNTIME_DIAGNOSTIC_EVENTS,
   MAX_RUNTIME_DIAGNOSTIC_FILES,
+  PTY_OUTPUT_AGGREGATION_MS,
   readLatestRuntimeDiagnostic,
   RuntimeDiagnostics,
 } from '../src/runtime/diagnostics';
@@ -33,11 +34,85 @@ describe('runtime PTY diagnostics', () => {
 
     const trace = readLatestRuntimeDiagnostic('trace_order');
     expect(trace).not.toBeNull();
-    expect(trace!.events).toHaveLength(MAX_RUNTIME_DIAGNOSTIC_EVENTS);
+    expect(trace!.events.length).toBeLessThanOrEqual(MAX_RUNTIME_DIAGNOSTIC_EVENTS);
     expect(trace!.events[0].event).toBe('runtime_start');
     expect(trace!.events[1].event).toBe('resume_start');
-    expect(trace!.events.at(-1)).toMatchObject({ event: 'pty_output', bytes: 254 });
+    expect(trace!.events.at(-1)).toMatchObject({
+      event: 'pty_output',
+      bytes: ((MAX_RUNTIME_DIAGNOSTIC_EVENTS + 10) * (MAX_RUNTIME_DIAGNOSTIC_EVENTS + 11)) / 2,
+      chunks: MAX_RUNTIME_DIAGNOSTIC_EVENTS + 10,
+    });
     expect(readTraceFile(trace!.traceFile).join('')).not.toContain('trace_order');
+  });
+
+  it('coalesces high-volume output and preserves structural events', () => {
+    const diagnostics = RuntimeDiagnostics.start('trace_saturation');
+    diagnostics.recordPtySpawn(143, 42);
+    for (let index = 0; index < 1000; index += 1) {
+      diagnostics.recordPtyOutput(1);
+    }
+    diagnostics.recordResizeRequested(143, 41);
+    diagnostics.recordResizeHeld(143, 41);
+    diagnostics.recordStartupMaxReached();
+    diagnostics.recordStartupStabilized('absolute_max');
+    diagnostics.recordResizeForwarded(143, 41);
+    diagnostics.recordPtyExit(0);
+    diagnostics.recordRuntimeStop('exited');
+    diagnostics.close();
+
+    const trace = readLatestRuntimeDiagnostic('trace_saturation')!;
+    const events = trace.events;
+    const outputEvents = events.filter((event) => event.event === 'pty_output');
+    expect(events.length).toBeLessThanOrEqual(MAX_RUNTIME_DIAGNOSTIC_EVENTS);
+    expect(outputEvents).toHaveLength(1);
+    expect(outputEvents[0]).toMatchObject({ event: 'pty_output', bytes: 1000, chunks: 1000 });
+    expect(events.map((event) => event.event)).toEqual(
+      expect.arrayContaining([
+        'runtime_start',
+        'resume_start',
+        'pty_spawn',
+        'pty_output',
+        'resize_requested',
+        'resize_held',
+        'startup_max_reached',
+        'startup_stabilized',
+        'resize_forwarded',
+        'pty_exit',
+        'runtime_stop',
+      ])
+    );
+    expect(readTraceFile(trace.traceFile).join('')).not.toContain('output content');
+  });
+
+  it('evicts telemetry before structural events at the event bound', () => {
+    jest.useFakeTimers();
+    try {
+      const diagnostics = RuntimeDiagnostics.start('trace_priority');
+      for (let index = 0; index < MAX_RUNTIME_DIAGNOSTIC_EVENTS + 10; index += 1) {
+        diagnostics.recordPtyOutput(1);
+        jest.advanceTimersByTime(PTY_OUTPUT_AGGREGATION_MS);
+      }
+      diagnostics.recordStartupMaxReached();
+      diagnostics.recordStartupStabilized('absolute_max');
+      diagnostics.recordResizeForwarded(143, 41);
+      diagnostics.recordPtyExit(0);
+      diagnostics.recordRuntimeStop('exited');
+      diagnostics.close();
+
+      const trace = readLatestRuntimeDiagnostic('trace_priority')!;
+      expect(trace.events.length).toBeLessThanOrEqual(MAX_RUNTIME_DIAGNOSTIC_EVENTS);
+      expect(trace.events.map((event) => event.event)).toEqual(
+        expect.arrayContaining([
+          'startup_max_reached',
+          'startup_stabilized',
+          'resize_forwarded',
+          'pty_exit',
+          'runtime_stop',
+        ])
+      );
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('retains only the bounded number of newest traces per session', () => {
@@ -108,6 +183,52 @@ describe('runtime PTY diagnostics', () => {
     expect(readTraceFile(trace.traceFile).join('')).not.toContain('SECRET-OUTPUT');
     expect(trace.events.find((event) => event.event === 'pty_output')).toEqual(
       expect.objectContaining({ bytes: expect.any(Number) })
+    );
+  });
+
+  it('keeps lifecycle events when a harness emits 1000 tiny writes', async () => {
+    const diagnostics = RuntimeDiagnostics.start('trace_high_volume_pty');
+    const pty = createPty({
+      file: 'node',
+      args: [
+        '-e',
+        "let n=0; const t=setInterval(() => { process.stdout.write('x'); n += 1; if (n === 1000) { clearInterval(t); setTimeout(() => process.exit(0), 300); } }, 1)",
+      ],
+      detached: true,
+      resizeStartupGraceMs: 100,
+      resizeStartupQuietMs: 80,
+      resizeStartupMaxMs: 220,
+      diagnostics,
+    });
+    pty.requestExternalResize(143, 41);
+    await pty.exitCode;
+    diagnostics.recordRuntimeStop('exited');
+    diagnostics.close();
+
+    const trace = readLatestRuntimeDiagnostic('trace_high_volume_pty')!;
+    const events = trace.events;
+    const outputEvents = events.filter((event) => event.event === 'pty_output');
+    const outputBytes = outputEvents.reduce(
+      (total, event) => total + (event.event === 'pty_output' ? event.bytes : 0),
+      0
+    );
+    expect(events.length).toBeLessThanOrEqual(MAX_RUNTIME_DIAGNOSTIC_EVENTS);
+    expect(outputBytes).toBe(1000);
+    expect(outputEvents.length).toBeLessThan(1000);
+    expect(events.map((event) => event.event)).toEqual(
+      expect.arrayContaining([
+        'runtime_start',
+        'resume_start',
+        'pty_spawn',
+        'pty_output',
+        'resize_requested',
+        'resize_held',
+        'startup_max_reached',
+        'startup_stabilized',
+        'resize_forwarded',
+        'pty_exit',
+        'runtime_stop',
+      ])
     );
   });
 
