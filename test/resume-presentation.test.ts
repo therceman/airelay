@@ -22,6 +22,36 @@ describe('resume foreground presentation gate', () => {
     jest.useRealTimers();
   });
 
+  it('does not start the quiet period until the first PTY output', async () => {
+    jest.useFakeTimers();
+    const foreground: string[] = [];
+    const reveals: string[] = [];
+    const gate = new ResumePresentationGate({
+      writeForeground: (chunk) => foreground.push(chunk),
+      reveal: async (reason) => {
+        reveals.push(reason);
+        return 30;
+      },
+    });
+
+    jest.advanceTimersByTime(1500);
+    await flushMicrotasks();
+    expect(gate.isOpen()).toBe(false);
+    expect(reveals).toEqual([]);
+
+    gate.write('first-output');
+    jest.advanceTimersByTime(RESUME_PRESENTATION_QUIET_MS - 1);
+    await flushMicrotasks();
+    expect(gate.isOpen()).toBe(false);
+    expect(reveals).toEqual([]);
+
+    jest.advanceTimersByTime(1);
+    await flushMicrotasks();
+    expect(gate.isOpen()).toBe(true);
+    expect(reveals).toEqual(['quiet_period']);
+    expect(foreground).toEqual([]);
+  });
+
   it('resets the full quiet timer for every output chunk', async () => {
     jest.useFakeTimers();
     const foreground: string[] = [];
@@ -148,6 +178,125 @@ describe('resume foreground presentation gate', () => {
     expect(gate.isOpen()).toBe(true);
     gate.write('live');
     expect(foreground.at(-1)).toBe('live');
+  });
+
+  it('writes post-cutoff chunks after the absolute-max viewport in order', async () => {
+    jest.useFakeTimers();
+    const foreground: string[] = [];
+    let releaseReveal!: () => void;
+    let revealStarted = false;
+    const gate = new ResumePresentationGate({
+      quietMs: 10,
+      maxMs: 100,
+      writeForeground: (chunk) => foreground.push(chunk),
+      reveal: async (reason) => {
+        expect(reason).toBe('absolute_max');
+        revealStarted = true;
+        await new Promise<void>((resolve) => {
+          releaseReveal = resolve;
+        });
+        foreground.push('FINAL-VIEWPORT');
+        return 3;
+      },
+    });
+
+    gate.write('pre-cutoff-1');
+    gate.write('pre-cutoff-2');
+    jest.advanceTimersByTime(100);
+    await flushMicrotasks();
+    expect(revealStarted).toBe(true);
+
+    gate.write('post-cutoff-1');
+    gate.write('post-cutoff-2');
+    releaseReveal();
+    await flushMicrotasks();
+
+    expect(foreground).toEqual(['FINAL-VIEWPORT', 'post-cutoff-1', 'post-cutoff-2']);
+    expect(foreground).not.toContain('pre-cutoff-1');
+    expect(foreground).not.toContain('pre-cutoff-2');
+    expect(gate.isOpen()).toBe(true);
+
+    gate.write('live-after-cutover');
+    expect(foreground).toEqual([
+      'FINAL-VIEWPORT',
+      'post-cutoff-1',
+      'post-cutoff-2',
+      'live-after-cutover',
+    ]);
+  });
+
+  it('materializes only through the max cutoff before flushing post-cutoff output', async () => {
+    jest.useFakeTimers();
+    const controller = new SessionController('resume_gate_cutoff_queue');
+    controller.resize(40, 3);
+    const foreground: string[] = [];
+    let releaseCutoffQueue!: () => void;
+    let outputGeneration = 0;
+    let cutoffGeneration: number | null = null;
+    let cutoffQueue: Promise<void> | null = null;
+    let releasePostOutput: (() => void) | null = null;
+    let postOutputRelease: Promise<void> | null = null;
+    let outputQueue: Promise<void> = new Promise<void>((resolve) => {
+      releaseCutoffQueue = resolve;
+    });
+    const queueOutput = (chunk: string): void => {
+      const chunkGeneration = ++outputGeneration;
+      outputQueue = outputQueue.then(async () => {
+        if (cutoffGeneration !== null && chunkGeneration > cutoffGeneration) {
+          await (postOutputRelease ?? Promise.resolve());
+        }
+        controller.feedOutput(chunk);
+        await controller.flushViewport();
+      });
+    };
+    const gate = new ResumePresentationGate({
+      quietMs: RESUME_PRESENTATION_QUIET_MS,
+      maxMs: RESUME_PRESENTATION_QUIET_MS,
+      writeForeground: (chunk) => foreground.push(chunk),
+      reveal: createControllerReveal(
+        controller,
+        () => cutoffQueue ?? outputQueue,
+        (chunk) => foreground.push(chunk)
+      ),
+      onAbsoluteMaxCutoff: () => {
+        cutoffQueue = outputQueue;
+        cutoffGeneration = outputGeneration;
+        postOutputRelease = new Promise<void>((resolve) => {
+          releasePostOutput = resolve;
+        });
+      },
+      onAbsoluteMaxRevealReady: () => {
+        releasePostOutput?.();
+        releasePostOutput = null;
+        postOutputRelease = null;
+        cutoffQueue = null;
+        cutoffGeneration = null;
+      },
+    });
+
+    gate.write('cutoff-output\r\n');
+    queueOutput('cutoff-output\r\n');
+    jest.advanceTimersByTime(RESUME_PRESENTATION_MAX_MS - 9000);
+    await flushMicrotasks();
+    expect(gate.isOpen()).toBe(false);
+
+    gate.write('post-cutoff-1');
+    queueOutput('post-cutoff-1');
+    gate.write('post-cutoff-2');
+    queueOutput('post-cutoff-2');
+    releaseCutoffQueue();
+    for (let i = 0; i < 6; i += 1) {
+      await flushMicrotasks();
+      jest.runOnlyPendingTimers();
+    }
+
+    expect(gate.isOpen()).toBe(true);
+    expect(foreground).toHaveLength(3);
+    expect(foreground[0]).toContain('cutoff-output');
+    expect(foreground[1]).toBe('post-cutoff-1');
+    expect(foreground[2]).toBe('post-cutoff-2');
+    expect(foreground[0]).not.toContain('post-cutoff-1');
+    expect(foreground[0]).not.toContain('post-cutoff-2');
   });
 
   it('feeds every suppressed chunk to the current controller viewport', async () => {

@@ -781,6 +781,14 @@ export async function runCommand(
   }
 
   let outputRenderQueue: Promise<void> = Promise.resolve();
+  let presentationCutoffQueue: Promise<void> | null = null;
+  let presentationCutoffGeneration: number | null = null;
+  let presentationReleasePromise: Promise<void> | null = null;
+  let releasePresentationOutput: (() => void) | null = null;
+  const releasePresentationOutputSafely = (): void => {
+    const release = releasePresentationOutput as unknown;
+    if (typeof release === 'function') release();
+  };
 
   // Feed PTY output to the controller's ring buffer for session-find / ui_hint.
   // Serialize xterm writes so each delivery observation sees the frame produced
@@ -793,6 +801,9 @@ export async function runCommand(
     capacityWatcher?.observe(chunk);
     const chunkGeneration = ++outputGeneration;
     outputRenderQueue = outputRenderQueue.then(async () => {
+      if (presentationCutoffGeneration !== null && chunkGeneration > presentationCutoffGeneration) {
+        await (presentationReleasePromise ?? Promise.resolve());
+      }
       controller.feedOutput(chunk);
       await controller.flushViewport();
       const freshWorkingSignal =
@@ -820,9 +831,31 @@ export async function runCommand(
             // The foreground terminal may close during runtime shutdown.
           }
         };
+        const revealViewport = createControllerReveal(
+          controller,
+          () => presentationCutoffQueue ?? outputRenderQueue,
+          writeForeground
+        );
         presentationGate = new ResumePresentationGate({
           writeForeground,
-          reveal: createControllerReveal(controller, () => outputRenderQueue, writeForeground),
+          reveal: revealViewport,
+          onAbsoluteMaxCutoff: () => {
+            // Resolve a failed prior attempt before replacing its barrier so
+            // already-queued render work cannot deadlock the next attempt.
+            releasePresentationOutputSafely();
+            presentationCutoffQueue = outputRenderQueue;
+            presentationCutoffGeneration = outputGeneration;
+            presentationReleasePromise = new Promise<void>((resolve) => {
+              releasePresentationOutput = resolve;
+            });
+          },
+          onAbsoluteMaxRevealReady: () => {
+            releasePresentationOutputSafely();
+            releasePresentationOutput = null;
+            presentationReleasePromise = null;
+            presentationCutoffQueue = null;
+            presentationCutoffGeneration = null;
+          },
           onStarted: () => diagnostics?.recordPresentationGateStarted(),
           onRevealed: (info) =>
             diagnostics?.recordPresentationGateRevealed(
@@ -846,6 +879,11 @@ export async function runCommand(
         presentationGate?.dispose();
         presentationGate = null;
         spawnOpts.onForegroundOutput = undefined;
+        releasePresentationOutputSafely();
+        releasePresentationOutput = null;
+        presentationReleasePromise = null;
+        presentationCutoffQueue = null;
+        presentationCutoffGeneration = null;
         diagnostics?.recordRuntimeStop(generationOutcome);
         diagnostics?.close();
         spawnOpts.diagnostics = undefined;
