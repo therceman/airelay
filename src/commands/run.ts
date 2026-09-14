@@ -875,7 +875,9 @@ export async function runCommand(
               info.suppressedBytes,
               info.suppressedChunks,
               info.rows,
-              info.activeBuffer
+              info.activeBuffer,
+              info.terminalQueriesForwarded,
+              info.terminalQueryKinds
             ),
         });
         spawnOpts.onForegroundOutput = (chunk) => presentationGate?.write(chunk);

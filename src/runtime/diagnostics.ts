@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { getConfigDir } from '../config/load';
+import type { TerminalQueryKind } from './terminal-query';
 
 export const MAX_RUNTIME_DIAGNOSTIC_EVENTS = 256;
 export const MAX_RUNTIME_DIAGNOSTIC_FILES = 5;
@@ -39,6 +40,8 @@ export type RuntimeDiagnosticEvent =
       suppressedBytes: number;
       suppressedChunks: number;
       rows: number;
+      terminalQueriesForwarded: number;
+      terminalQueryKinds: Partial<Record<TerminalQueryKind, number>>;
     }
   | {
       ts: number;
@@ -280,7 +283,9 @@ export class RuntimeDiagnostics implements PtyDiagnostics {
     suppressedBytes: number,
     suppressedChunks: number,
     rows: number,
-    activeBuffer: 'normal' | 'alternate' = 'normal'
+    activeBuffer: 'normal' | 'alternate' = 'normal',
+    terminalQueriesForwarded = 0,
+    terminalQueryKinds: Partial<Record<TerminalQueryKind, number>> = {}
   ): void {
     this.record({
       ts: Date.now(),
@@ -290,6 +295,8 @@ export class RuntimeDiagnostics implements PtyDiagnostics {
       suppressedBytes,
       suppressedChunks,
       rows,
+      terminalQueriesForwarded,
+      terminalQueryKinds,
     });
   }
 

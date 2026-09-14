@@ -1,4 +1,5 @@
 import { SessionController } from '../controller';
+import { TerminalQueryExtractor, type TerminalQueryKind } from './terminal-query';
 
 export const RESUME_PRESENTATION_QUIET_MS = 1000;
 export const RESUME_PRESENTATION_MAX_MS = 10_000;
@@ -13,6 +14,8 @@ export interface ResumePresentationRevealInfo {
   suppressedBytes: number;
   suppressedChunks: number;
   rows: number;
+  terminalQueriesForwarded: number;
+  terminalQueryKinds: Partial<Record<TerminalQueryKind, number>>;
 }
 
 export interface ResumePresentationRevealDeferredInfo {
@@ -75,6 +78,9 @@ export class ResumePresentationGate {
   private postCutoffQueue: string[] = [];
   private postCutoffBytes = 0;
   private postCutoffOverflowed = false;
+  private readonly terminalQueryExtractor = new TerminalQueryExtractor();
+  private terminalQueriesForwarded = 0;
+  private terminalQueryKinds: Partial<Record<TerminalQueryKind, number>> = {};
   private quietTimer: ReturnType<typeof setTimeout> | null = null;
   private maxTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -100,8 +106,14 @@ export class ResumePresentationGate {
     this.generation += 1;
     this.lastOutputAt = Date.now();
 
+    const nonQueryChunk = this.terminalQueryExtractor.feed(chunk, (query) => {
+      this.terminalQueriesForwarded += 1;
+      this.terminalQueryKinds[query.kind] = (this.terminalQueryKinds[query.kind] ?? 0) + 1;
+      this.options.writeForeground(query.sequence);
+    });
+
     if (this.cutoffEstablished) {
-      this.queuePostCutoffChunk(chunk);
+      this.queuePostCutoffChunk(nonQueryChunk);
       return;
     }
 
@@ -118,10 +130,12 @@ export class ResumePresentationGate {
     this.generation += 1;
     this.postCutoffQueue = [];
     this.postCutoffBytes = 0;
+    this.terminalQueryExtractor.reset();
     this.clearTimers();
   }
 
   private queuePostCutoffChunk(chunk: string): void {
+    if (!chunk) return;
     const bytes = Buffer.byteLength(chunk, 'utf8');
     if (
       this.postCutoffQueue.length >= RESUME_PRESENTATION_MAX_POST_CUTOFF_CHUNKS ||
@@ -211,6 +225,7 @@ export class ResumePresentationGate {
             this.postCutoffBytes = 0;
             this.cutoffEstablished = false;
           }
+          this.terminalQueryExtractor.reset();
           this.state = 'open';
           this.clearTimers();
           this.options.onRevealed?.({
@@ -219,6 +234,8 @@ export class ResumePresentationGate {
             suppressedBytes: this.suppressedBytes,
             suppressedChunks: this.suppressedChunks,
             rows,
+            terminalQueriesForwarded: this.terminalQueriesForwarded,
+            terminalQueryKinds: { ...this.terminalQueryKinds },
           });
           return;
         }

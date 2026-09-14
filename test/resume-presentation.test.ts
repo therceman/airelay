@@ -4,6 +4,7 @@ import {
   RESUME_PRESENTATION_MAX_MS,
   RESUME_PRESENTATION_QUIET_MS,
   ResumePresentationGate,
+  type ResumePresentationRevealInfo,
 } from '../src/runtime/resume-presentation';
 import { RuntimeDiagnostics, readLatestRuntimeDiagnostic } from '../src/runtime/diagnostics';
 import { createPty } from '../src/runtime/pty';
@@ -234,6 +235,145 @@ describe('resume foreground presentation gate', () => {
     await pty.exitCode;
     expect(ingested.join('')).toContain('resume-output');
     expect(foreground.join('')).toContain('resume-output');
+  });
+
+  it('forwards only approved terminal queries while keeping the complete chunk gated', async () => {
+    const controller = new SessionController('resume_gate_terminal_queries');
+    try {
+      const foreground: string[] = [];
+      const ingested: string[] = [];
+      const gate = new ResumePresentationGate({
+        writeForeground: (chunk) => foreground.push(chunk),
+        reveal: async () => 3,
+      });
+      const query = '\x1b]11;?\x1b\\';
+      const chunk = `PAINT-BEFORE${query}PAINT-AFTER`;
+
+      ingested.push(chunk);
+      gate.write(chunk);
+      controller.feedOutput(chunk);
+      await controller.flushViewport();
+
+      expect(foreground).toEqual([query]);
+      expect(ingested).toEqual([chunk]);
+      expect(controller.getRenderedScrollbackLines().join('')).toContain('PAINT-BEFORE');
+      expect(controller.getRenderedScrollbackLines().join('')).toContain('PAINT-AFTER');
+      gate.dispose();
+    } finally {
+      await controller.stop();
+    }
+  });
+
+  it('reports forwarded terminal query counts when the gate reveals', async () => {
+    jest.useFakeTimers();
+    const revealed: ResumePresentationRevealInfo[] = [];
+    const gate = new ResumePresentationGate({
+      writeForeground: () => undefined,
+      reveal: async () => 3,
+      onRevealed: (info) => revealed.push(info),
+    });
+
+    gate.write('\x1b[6n\x1b]10;?\x1b\\');
+    jest.advanceTimersByTime(RESUME_PRESENTATION_QUIET_MS);
+    await flushMicrotasks();
+
+    expect(revealed).toEqual([
+      expect.objectContaining({
+        terminalQueriesForwarded: 2,
+        terminalQueryKinds: {
+          cursor_position: 1,
+          default_foreground: 1,
+        },
+      }),
+    ]);
+    gate.dispose();
+  });
+
+  it('returns a terminal probe reply through the existing PTY input path', async () => {
+    const query = '\x1b[6n';
+    const reply = '\x1b[7;11R';
+    const foreground: string[] = [];
+    const ingested: string[] = [];
+    let pty: ReturnType<typeof createPty> | null = null;
+    const gate = new ResumePresentationGate({
+      writeForeground: (chunk) => {
+        foreground.push(chunk);
+        if (chunk === query) pty?.write(reply);
+      },
+      reveal: async () => null,
+    });
+    const script = [
+      `const query = ${JSON.stringify(query)};`,
+      `const reply = ${JSON.stringify(reply)};`,
+      'if (process.stdin.isTTY) process.stdin.setRawMode(true);',
+      "process.stdin.on('data', (chunk) => {",
+      '  if (chunk.toString() === reply) {',
+      "    process.stdout.write('REPLY_RECEIVED');",
+      '    process.exit(0);',
+      '  }',
+      '});',
+      'process.stdout.write(query);',
+    ].join('\n');
+
+    try {
+      pty = createPty({
+        file: 'node',
+        args: ['-e', script],
+        onOutput: (chunk) => ingested.push(chunk),
+        onForegroundOutput: (chunk) => gate.write(chunk),
+      });
+      await pty.exitCode;
+
+      expect(foreground).toEqual([query]);
+      expect(ingested.join('')).toContain(query);
+      expect(ingested.join('')).toContain('REPLY_RECEIVED');
+    } finally {
+      gate.dispose();
+    }
+  });
+
+  it('does not replay a query already forwarded during absolute-max handoff', async () => {
+    jest.useFakeTimers();
+    const foreground: string[] = [];
+    const query = '\x1b]11;?\x1b\\';
+    let releaseReveal!: () => void;
+    const gate = new ResumePresentationGate({
+      quietMs: 100,
+      maxMs: 100,
+      writeForeground: (chunk) => foreground.push(chunk),
+      reveal: async () =>
+        new Promise<number>((resolve) => {
+          releaseReveal = () => {
+            foreground.push('FINAL-VIEWPORT');
+            resolve(3);
+          };
+        }),
+    });
+
+    gate.write('hydration');
+    jest.advanceTimersByTime(100);
+    await flushMicrotasks();
+    gate.write(`post-before${query}post-after`);
+    releaseReveal();
+    await flushMicrotasks();
+
+    expect(gate.isOpen()).toBe(true);
+    expect(foreground).toEqual([query, 'FINAL-VIEWPORT', 'post-beforepost-after']);
+    gate.dispose();
+  });
+
+  it('clears a partial terminal query when the gate is disposed', () => {
+    const foreground: string[] = [];
+    const gate = new ResumePresentationGate({
+      writeForeground: (chunk) => foreground.push(chunk),
+      reveal: async () => null,
+    });
+
+    gate.write('\x1b]11;');
+    gate.dispose();
+    gate.write('?\x1b\\');
+
+    expect(foreground).toEqual([]);
   });
 
   it('never replays suppressed chunks and passes through immediately after reveal', async () => {
