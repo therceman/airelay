@@ -322,6 +322,14 @@ export async function runCommand(
     });
   };
 
+  const resolveWakeReady = (): void => {
+    const resolve = wakeReadyResolve;
+    wakeReadyResolve = null;
+    wakeReadyReject = null;
+    wakeReady = null;
+    resolve?.();
+  };
+
   const requestWake = async (): Promise<void> => {
     if (!hibernated) return;
     wakeRequested = true;
@@ -777,10 +785,10 @@ export async function runCommand(
       }
       if (hibernated) {
         hibernated = false;
-        wakeReadyResolve?.();
-        wakeReadyResolve = null;
-        wakeReadyReject = null;
-        wakeReady = null;
+        // A foreground wake prompt must wait for the resume presentation gate
+        // to reveal the stabilized TUI. Detached runtimes have no foreground
+        // gate, so PTY readiness remains sufficient for them.
+        if (!resumePresentationEnabled) resolveWakeReady();
       }
       resetHibernateTimer();
     };
@@ -869,7 +877,7 @@ export async function runCommand(
               info.suppressedBytes,
               info.suppressedChunks
             ),
-          onRevealed: (info) =>
+          onRevealed: (info) => {
             diagnostics?.recordPresentationGateRevealed(
               info.reason,
               info.suppressedBytes,
@@ -878,7 +886,9 @@ export async function runCommand(
               info.activeBuffer,
               info.terminalQueriesForwarded,
               info.terminalQueryKinds
-            ),
+            );
+            resolveWakeReady();
+          },
         });
         spawnOpts.onForegroundOutput = (chunk) => presentationGate?.write(chunk);
       } else {

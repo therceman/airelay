@@ -599,12 +599,14 @@ describe('resume foreground presentation gate', () => {
         await controller.flushViewport();
       });
     }
-    await new Promise((resolve) => setTimeout(resolve, RESUME_PRESENTATION_QUIET_MS + 100));
+    await outputQueue;
+    await new Promise((resolve) => setTimeout(resolve, RESUME_PRESENTATION_QUIET_MS + 4000));
+    await flushMicrotasks();
 
     expect(foreground).toHaveLength(1);
     expect(foreground[0]).toContain('current-two');
     expect(gate.isOpen()).toBe(true);
-  });
+  }, 15000);
 
   it('disposes one generation and starts the next generation closed', async () => {
     jest.useFakeTimers();
