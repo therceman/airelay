@@ -1,6 +1,6 @@
 {
   "name": "airelay",
-  "version": "0.1.147",
+  "version": "0.1.148",
   "description": "Cross-platform CLI for launching profile-isolated AI harness instances",
   "main": "./dist/index.js",
   "bin": {
@@ -20,6 +20,7 @@
     "verify": "npm run build && npm run lint && npm run format:check && npm test && npm audit"
   },
   "dependencies": {
+    "@xterm/addon-serialize": "0.14.0",
     "@xterm/headless": "^6.0.0",
     "cross-spawn": "7.0.6",
     "enquirer": "^2.4.1",

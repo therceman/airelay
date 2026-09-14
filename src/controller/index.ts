@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { TextDecoder } from 'util';
 import { Terminal } from '@xterm/headless';
+import { SerializeAddon } from '@xterm/addon-serialize';
 import {
   IpcRequest,
   IpcResponse,
@@ -31,7 +32,6 @@ import {
   sameSocketIdentity,
   SocketIdentity,
 } from '../utils/unix-socket';
-import { serializeTerminalPresentation } from './presentation';
 
 const VIEWPORT_ROWS = 30;
 const VIEWPORT_COLS = 120;
@@ -82,6 +82,8 @@ export class SessionController {
   private readonly protocolVersion: number;
   /** Headless xterm terminal — maintains true visible screen state */
   private readonly terminal: Terminal;
+  /** Official xterm serializer for replayable current terminal presentation. */
+  private readonly serializeAddon: SerializeAddon;
   /** Rolling window of recently-visible viewport lines (snapshot history) */
   private snapshotWindow: string[] = [];
   private snapshotLineSet: Set<string> = new Set();
@@ -135,6 +137,8 @@ export class SessionController {
       allowProposedApi: true,
       scrollback: TERMINAL_SCROLLBACK,
     });
+    this.serializeAddon = new SerializeAddon();
+    this.terminal.loadAddon(this.serializeAddon);
   }
 
   get endpointPath(): string {
@@ -371,7 +375,7 @@ export class SessionController {
 
   /** Serialize the current visible terminal state for a foreground reveal. */
   serializeLivePresentation(): string {
-    return serializeTerminalPresentation(this.terminal, LIVE_PRESENTATION_RESET);
+    return `${LIVE_PRESENTATION_RESET}${this.serializeAddon.serialize({ scrollback: 0 })}`;
   }
 
   /** Return rolling snapshot window (which includes recent historical viewport + current). */
@@ -672,6 +676,7 @@ export class SessionController {
         this.snapshotLineSet.clear();
         this.lastTranscriptLines = null;
         this.pendingTranscriptLines = null;
+        this.serializeAddon.dispose();
         this.terminal.dispose();
         resolve();
       };
