@@ -9,22 +9,50 @@ export type ResumePresentationRevealReason = 'quiet_period' | 'absolute_max';
 
 export interface ResumePresentationRevealInfo {
   reason: ResumePresentationRevealReason;
+  activeBuffer: 'normal' | 'alternate';
   suppressedBytes: number;
   suppressedChunks: number;
   rows: number;
 }
+
+export interface ResumePresentationRevealDeferredInfo {
+  reason: 'alternate_buffer';
+  activeBuffer: 'alternate';
+  suppressedBytes: number;
+  suppressedChunks: number;
+}
+
+interface ResumePresentationRevealResult {
+  kind: 'revealed';
+  activeBuffer: 'normal' | 'alternate';
+  rows: number;
+}
+
+interface ResumePresentationDeferredResult {
+  kind: 'deferred';
+  activeBuffer: 'alternate';
+  reason: 'alternate_buffer';
+}
+
+type ResumePresentationRevealValue =
+  | number
+  | null
+  | ResumePresentationRevealResult
+  | ResumePresentationDeferredResult;
 
 export interface ResumePresentationGateOptions {
   writeForeground: (chunk: string) => void;
   reveal: (
     reason: ResumePresentationRevealReason,
     isCurrent: () => boolean
-  ) => Promise<number | null>;
+  ) => Promise<ResumePresentationRevealValue>;
   quietMs?: number;
   maxMs?: number;
   onStarted?: () => void;
   onAbsoluteMaxCutoff?: () => void;
   onAbsoluteMaxRevealReady?: () => void;
+  getActiveBufferType?: () => 'normal' | 'alternate';
+  onRevealDeferred?: (info: ResumePresentationRevealDeferredInfo) => void;
   onRevealed?: (info: ResumePresentationRevealInfo) => void;
 }
 
@@ -135,7 +163,31 @@ export class ResumePresentationGate {
 
     void this.options
       .reveal(reason, () => this.state === 'closed' && token === this.generation)
-      .then((rows) => {
+      .then((result) => {
+        if (result && typeof result === 'object' && result.kind === 'deferred') {
+          this.revealInFlight = false;
+          this.options.onRevealDeferred?.({
+            reason: result.reason,
+            activeBuffer: result.activeBuffer,
+            suppressedBytes: this.suppressedBytes,
+            suppressedChunks: this.suppressedChunks,
+          });
+          if (this.state === 'closed' && this.maxReached) {
+            this.beginAbsoluteMaxReveal();
+          }
+          return;
+        }
+
+        const rows =
+          typeof result === 'number'
+            ? result
+            : result && typeof result === 'object'
+              ? result.rows
+              : null;
+        const activeBuffer =
+          result && typeof result === 'object' && result.kind === 'revealed'
+            ? result.activeBuffer
+            : (this.options.getActiveBufferType?.() ?? 'normal');
         const isCurrent = token === this.generation && this.state === 'closed';
         if (rows !== null && (reason === 'absolute_max' || isCurrent)) {
           if (reason === 'absolute_max' && this.postCutoffOverflowed) {
@@ -163,6 +215,7 @@ export class ResumePresentationGate {
           this.clearTimers();
           this.options.onRevealed?.({
             reason,
+            activeBuffer,
             suppressedBytes: this.suppressedBytes,
             suppressedChunks: this.suppressedChunks,
             rows,
@@ -226,9 +279,20 @@ export function createControllerReveal(
         await controller.flushViewport();
       }
       if (!isCurrent()) return null;
+      if (controller.getActiveBufferType() === 'alternate') {
+        return {
+          kind: 'deferred',
+          reason: 'alternate_buffer',
+          activeBuffer: 'alternate',
+        };
+      }
     }
 
     writeForeground(controller.serializeLivePresentation());
-    return controller.getTerminalSize().rows;
+    return {
+      kind: 'revealed',
+      activeBuffer: controller.getActiveBufferType(),
+      rows: controller.getTerminalSize().rows,
+    };
   };
 }

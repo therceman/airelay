@@ -80,6 +80,147 @@ describe('resume foreground presentation gate', () => {
     expect(gate.isOpen()).toBe(true);
   });
 
+  it('defers quiet reveal in the alternate buffer and waits for the next output', async () => {
+    jest.useFakeTimers();
+    const controller = new SessionController('resume_gate_alternate_readiness');
+    controller.resize(40, 3);
+    const foreground: string[] = [];
+    const deferred: string[] = [];
+    const diagnostics = RuntimeDiagnostics.start('resume_gate_alternate_readiness');
+    let outputQueue: Promise<void> = Promise.resolve();
+    const sendOutput = (chunk: string): void => {
+      gate.write(chunk);
+      outputQueue = outputQueue.then(async () => {
+        controller.feedOutput(chunk);
+        await controller.flushViewport();
+      });
+    };
+    const flushOutputQueue = async (): Promise<void> => {
+      await flushMicrotasks();
+      jest.advanceTimersByTime(1);
+      await outputQueue;
+    };
+    const gate = new ResumePresentationGate({
+      writeForeground: (chunk) => foreground.push(chunk),
+      reveal: createControllerReveal(
+        controller,
+        () => outputQueue,
+        (chunk) => foreground.push(chunk)
+      ),
+      onRevealDeferred: (info) => {
+        deferred.push(info.reason);
+        diagnostics.recordPresentationGateRevealDeferred(
+          info.suppressedBytes,
+          info.suppressedChunks
+        );
+      },
+      onRevealed: (info) =>
+        diagnostics.recordPresentationGateRevealed(
+          info.reason,
+          info.suppressedBytes,
+          info.suppressedChunks,
+          info.rows,
+          info.activeBuffer
+        ),
+    });
+
+    try {
+      sendOutput('\x1b[?1049hTRANSITIONAL');
+      await flushOutputQueue();
+      jest.advanceTimersByTime(RESUME_PRESENTATION_QUIET_MS);
+      await flushMicrotasks();
+      jest.advanceTimersByTime(1);
+      await flushMicrotasks();
+
+      expect(controller.getActiveBufferType()).toBe('alternate');
+      expect(gate.isOpen()).toBe(false);
+      expect(foreground).toEqual([]);
+      expect(deferred).toEqual(['alternate_buffer']);
+
+      jest.advanceTimersByTime(RESUME_PRESENTATION_QUIET_MS * 3);
+      await flushMicrotasks();
+      expect(deferred).toHaveLength(1);
+
+      sendOutput('\x1b[?1049lREADY');
+      await flushOutputQueue();
+      jest.advanceTimersByTime(RESUME_PRESENTATION_QUIET_MS - 1);
+      await flushMicrotasks();
+      expect(gate.isOpen()).toBe(false);
+      jest.advanceTimersByTime(1);
+      await flushMicrotasks();
+      jest.advanceTimersByTime(1);
+      await flushMicrotasks();
+
+      expect(controller.getActiveBufferType()).toBe('normal');
+      expect(gate.isOpen()).toBe(true);
+      expect(foreground).toHaveLength(1);
+      diagnostics.close();
+      const trace = readLatestRuntimeDiagnostic('resume_gate_alternate_readiness')!;
+      expect(trace.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: 'presentation_gate_reveal_deferred',
+            reason: 'alternate_buffer',
+            activeBuffer: 'alternate',
+          }),
+          expect.objectContaining({
+            event: 'presentation_gate_revealed',
+            reason: 'quiet_period',
+            activeBuffer: 'normal',
+          }),
+        ])
+      );
+    } finally {
+      gate.dispose();
+      diagnostics.close();
+      await controller.stop();
+    }
+  });
+
+  it('records alternate active buffer on the bounded absolute-max cutover', async () => {
+    jest.useFakeTimers();
+    const controller = new SessionController('resume_gate_alternate_max');
+    controller.resize(40, 3);
+    const foreground: string[] = [];
+    const revealed: Array<{ reason: string; activeBuffer: string }> = [];
+    let outputQueue: Promise<void> = Promise.resolve();
+    const gate = new ResumePresentationGate({
+      quietMs: 10,
+      maxMs: 100,
+      writeForeground: (chunk) => foreground.push(chunk),
+      reveal: createControllerReveal(
+        controller,
+        () => outputQueue,
+        (chunk) => foreground.push(chunk)
+      ),
+      onRevealed: (info) => revealed.push({ reason: info.reason, activeBuffer: info.activeBuffer }),
+    });
+
+    try {
+      gate.write('\x1b[?1049hALTERNATE');
+      outputQueue = outputQueue.then(async () => {
+        controller.feedOutput('\x1b[?1049hALTERNATE');
+        await controller.flushViewport();
+      });
+      await flushMicrotasks();
+      jest.advanceTimersByTime(1);
+      await outputQueue;
+      jest.advanceTimersByTime(100);
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        await flushMicrotasks();
+        jest.advanceTimersByTime(1);
+      }
+      await flushMicrotasks();
+
+      expect(gate.isOpen()).toBe(true);
+      expect(revealed).toEqual([{ reason: 'absolute_max', activeBuffer: 'alternate' }]);
+      expect(foreground).toHaveLength(1);
+    } finally {
+      gate.dispose();
+      await controller.stop();
+    }
+  });
+
   it('keeps PTY ingestion independent from the caller-owned foreground writer', async () => {
     const foreground: string[] = [];
     const ingested: string[] = [];

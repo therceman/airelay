@@ -862,13 +862,20 @@ export async function runCommand(
             presentationCutoffQueue = null;
             presentationCutoffGeneration = null;
           },
+          getActiveBufferType: () => controller.getActiveBufferType(),
           onStarted: () => diagnostics?.recordPresentationGateStarted(),
+          onRevealDeferred: (info) =>
+            diagnostics?.recordPresentationGateRevealDeferred(
+              info.suppressedBytes,
+              info.suppressedChunks
+            ),
           onRevealed: (info) =>
             diagnostics?.recordPresentationGateRevealed(
               info.reason,
               info.suppressedBytes,
               info.suppressedChunks,
-              info.rows
+              info.rows,
+              info.activeBuffer
             ),
         });
         spawnOpts.onForegroundOutput = (chunk) => presentationGate?.write(chunk);

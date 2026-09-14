@@ -35,9 +35,18 @@ export type RuntimeDiagnosticEvent =
       ts: number;
       event: 'presentation_gate_revealed';
       reason: PresentationRevealReason;
+      activeBuffer: 'normal' | 'alternate';
       suppressedBytes: number;
       suppressedChunks: number;
       rows: number;
+    }
+  | {
+      ts: number;
+      event: 'presentation_gate_reveal_deferred';
+      reason: 'alternate_buffer';
+      activeBuffer: 'alternate';
+      suppressedBytes: number;
+      suppressedChunks: number;
     }
   | { ts: number; event: 'pty_exit'; code: number }
   | { ts: number; event: 'runtime_stop'; reason: RuntimeStopReason };
@@ -270,15 +279,28 @@ export class RuntimeDiagnostics implements PtyDiagnostics {
     reason: PresentationRevealReason,
     suppressedBytes: number,
     suppressedChunks: number,
-    rows: number
+    rows: number,
+    activeBuffer: 'normal' | 'alternate' = 'normal'
   ): void {
     this.record({
       ts: Date.now(),
       event: 'presentation_gate_revealed',
       reason,
+      activeBuffer,
       suppressedBytes,
       suppressedChunks,
       rows,
+    });
+  }
+
+  recordPresentationGateRevealDeferred(suppressedBytes: number, suppressedChunks: number): void {
+    this.record({
+      ts: Date.now(),
+      event: 'presentation_gate_reveal_deferred',
+      reason: 'alternate_buffer',
+      activeBuffer: 'alternate',
+      suppressedBytes,
+      suppressedChunks,
     });
   }
 

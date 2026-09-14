@@ -368,6 +368,21 @@ describe('controller resume presentation serialization', () => {
     }
   });
 
+  it('exposes the authoritative active buffer type after headless output is flushed', async () => {
+    const controller = new SessionController('presentation_buffer_authority');
+    try {
+      controller.feedOutput('\x1b[?1049h');
+      await controller.flushViewport();
+      expect(controller.getActiveBufferType()).toBe('alternate');
+
+      controller.feedOutput('\x1b[?1049l');
+      await controller.flushViewport();
+      expect(controller.getActiveBufferType()).toBe('normal');
+    } finally {
+      await controller.stop();
+    }
+  });
+
   it('keeps presentation reset ordering before the official snapshot', () => {
     expect(LIVE_PRESENTATION_RESET).toBe('\x1b[0m\x1b[H\x1b[2J\x1b[3J\x1b[H');
   });

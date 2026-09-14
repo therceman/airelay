@@ -120,6 +120,11 @@ export class SessionController {
     return { viewportY: buffer.viewportY, baseY: buffer.baseY };
   }
 
+  /** Return the authoritative active xterm buffer for presentation readiness. */
+  getActiveBufferType(): 'normal' | 'alternate' {
+    return this.terminal.buffer.active.type;
+  }
+
   /** Test accessor: scroll the headless terminal viewport (simulates a scrolled-up live view). */
   scrollViewportForTest(amount: number): void {
     this.terminal.scrollLines(amount);
