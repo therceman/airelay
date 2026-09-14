@@ -12,6 +12,7 @@ import {
   LaunchHistoryEntry,
   markLaunchHistoryUsed,
   removeLaunchHistoryEntry,
+  updateLaunchHistorySession,
 } from './history';
 import Enquirer from 'enquirer';
 import path from 'path';
@@ -113,10 +114,16 @@ export function getSameHarnessProfiles(profile: string): string[] {
     .sort((a, b) => a.localeCompare(b));
 }
 
+interface ResumeSelection {
+  profile: string;
+  sessionId?: string;
+}
+
 async function chooseResumeProfile(
   entry: LaunchHistoryEntry | undefined,
-  profile: string
-): Promise<string | undefined> {
+  profile: string,
+  profileSessionId?: string
+): Promise<ResumeSelection | undefined> {
   const alternativeProfiles = getSameHarnessProfiles(profile);
 
   const actionResult = (await Enquirer.prompt(
@@ -128,6 +135,9 @@ async function chooseResumeProfile(
         { name: 'launch', message: 'Launch' },
         ...(alternativeProfiles.length > 0
           ? [{ name: 'switchProfile', message: 'Use another profile (same harness)' }]
+          : []),
+        ...(entry && profileSessionId
+          ? [{ name: 'changeSession', message: 'Change Session' }]
           : []),
         ...(entry ? [{ name: 'remove', message: 'Remove history entry' }] : []),
       ],
@@ -144,8 +154,32 @@ async function chooseResumeProfile(
     return undefined;
   }
 
+  if (actionResult.resumeAction === 'changeSession' && entry && profileSessionId) {
+    const sessionResult = (await Enquirer.prompt(
+      withAirelayPromptSymbols({
+        type: 'input',
+        name: 'sessionId',
+        message: 'New session ID',
+        initial: profileSessionId,
+      })
+    )) as { sessionId: string };
+    const sessionId = sessionResult.sessionId.trim();
+    if (!sessionId) {
+      console.error('Error: Session ID cannot be empty.');
+      return undefined;
+    }
+
+    if (!updateLaunchHistorySession(entry.id, entry.invocationCwd, sessionId)) {
+      console.error('Error: Could not update the selected history entry.');
+      return undefined;
+    }
+
+    console.log(`Changed session for key "${entry.sessionKey}" to "${sessionId}".`);
+    return { profile, sessionId };
+  }
+
   if (actionResult.resumeAction !== 'switchProfile') {
-    return profile;
+    return { profile };
   }
 
   const profileResult = (await Enquirer.prompt(
@@ -161,10 +195,10 @@ async function chooseResumeProfile(
   if (!alternativeProfiles.includes(profileResult.profile)) {
     console.error('Error: Selected profile is not available for this session.');
     process.exit(1);
-    return profile;
+    return { profile };
   }
 
-  return profileResult.profile;
+  return { profile: profileResult.profile };
 }
 
 function getHarnessArgs(entry: LaunchHistoryEntry): string[] {
@@ -203,6 +237,18 @@ export function getResumeSessionId(args: string[]): string | undefined {
     }
   }
   return undefined;
+}
+
+function replaceResumeSessionId(args: string[], sessionId: string): string[] {
+  const resumeFlags = new Set(['resume', '-r', '-s', '--resume']);
+  const updated = [...args];
+  const resumeIndex = updated.findIndex(
+    (argument, index) => index + 1 < updated.length && resumeFlags.has(argument)
+  );
+  if (resumeIndex !== -1) {
+    updated[resumeIndex + 1] = sessionId;
+  }
+  return updated;
 }
 
 export function formatAge(timestamp: number, now = Date.now()): string {
@@ -364,27 +410,31 @@ async function resumeFromFolder(targetCwd = process.cwd()): Promise<void> {
     return;
   }
 
-  const launchProfile = await chooseResumeProfile(selected, selected.profile);
-  if (!launchProfile) {
+  const resumeSelection = await chooseResumeProfile(selected, selected.profile, profileSessionId);
+  if (!resumeSelection) {
     return;
   }
+  const launchProfile = resumeSelection.profile;
+  const launchSessionId = resumeSelection.sessionId ?? profileSessionId;
   if (
-    (await rejectActiveSession(selected.profile, profileSessionId)) ||
+    (await rejectActiveSession(selected.profile, launchSessionId)) ||
     (launchProfile !== selected.profile &&
-      (await rejectActiveSession(launchProfile, profileSessionId)))
+      (await rejectActiveSession(launchProfile, launchSessionId)))
   ) {
     process.exit(1);
     return;
   }
 
   const exitCode = await resumeSession(launchProfile, {
-    id: profileSessionId,
+    id: launchSessionId,
     profile: selected.profile,
     lastUsed: getLastUsed(selected),
     cwd: selected.invocationCwd,
     sessionKey: selected.sessionKey,
-    profileSessionId,
-    profileArgs,
+    profileSessionId: launchSessionId,
+    profileArgs: resumeSelection.sessionId
+      ? replaceResumeSessionId(profileArgs, launchSessionId)
+      : profileArgs,
   });
   markResumeHistoryUsed(selected, launchProfile);
   process.exit(exitCode);
@@ -547,10 +597,11 @@ export async function resumeCommand(
     return;
   }
 
-  const launchProfile = await chooseResumeProfile(undefined, profileOrSessionKey);
-  if (!launchProfile) {
+  const resumeSelection = await chooseResumeProfile(undefined, profileOrSessionKey);
+  if (!resumeSelection) {
     return;
   }
+  const launchProfile = resumeSelection.profile;
   if (
     (selectedSession.profileSessionId &&
       (await rejectActiveSession(profileOrSessionKey, selectedSession.profileSessionId))) ||

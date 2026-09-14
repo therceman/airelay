@@ -162,6 +162,43 @@ export function markLaunchHistoryUsed(
   return true;
 }
 
+/** Update the native resume ID while preserving the rest of a launch row. */
+export function updateLaunchHistorySession(
+  id: string,
+  invocationCwd: string,
+  sessionId: string
+): boolean {
+  if (!sessionId.trim()) {
+    return false;
+  }
+
+  const currentCwd = path.resolve(invocationCwd);
+  const history = loadHistory();
+  const entry = history.find(
+    (candidate) => candidate.id === id && path.resolve(candidate.invocationCwd) === currentCwd
+  );
+  if (!entry) {
+    return false;
+  }
+
+  const resumeFlags = new Set(['resume', '-r', '-s', '--resume']);
+  const separatorIndex = entry.argv.indexOf('--');
+  const argsStart = separatorIndex === -1 ? 2 : separatorIndex + 1;
+  const resumeIndex = entry.argv.findIndex(
+    (argument, index) =>
+      index >= argsStart && resumeFlags.has(argument) && index + 1 < entry.argv.length
+  );
+  if (resumeIndex === -1) {
+    return false;
+  }
+
+  entry.argv = [...entry.argv];
+  entry.argv[resumeIndex + 1] = sessionId;
+  entry.command = renderLaunchCommand(entry.argv);
+  store.save(history);
+  return true;
+}
+
 export function removeLaunchHistory(sessionKey: string, invocationCwd = process.cwd()): number {
   const currentCwd = path.resolve(invocationCwd);
   const history = loadHistory();

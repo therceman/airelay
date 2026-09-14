@@ -10,6 +10,7 @@ import {
   renderLaunchCommand,
   markLaunchHistoryUsed,
   finalizeLaunchHistoryEntry,
+  updateLaunchHistorySession,
 } from '../src/commands/history';
 import { runCommand } from '../src/commands/run';
 import { createTestConfig, useTestEnv } from './test-utils';
@@ -207,6 +208,37 @@ describe('launch history', () => {
       invocationCwd: '/tmp/second-project',
       argv: ['start', 'worker', '--key', 'unique_key', '--', '--new'],
     });
+  });
+
+  it('updates only the native resume ID and preserves the launch row', () => {
+    const entry = recordLaunchHistory({
+      profile: 'devin',
+      sessionKey: 'repodex_master',
+      invocationCwd: process.cwd(),
+      argv: ['start', 'devin', '--key', 'repodex_master', '--', '--resume', 'beautiful-receipt'],
+      startedAt: 100,
+    });
+
+    expect(updateLaunchHistorySession(entry.id, process.cwd(), 'quickest-psychology')).toBe(true);
+
+    expect(getLaunchHistory()).toEqual([
+      expect.objectContaining({
+        id: entry.id,
+        profile: 'devin',
+        sessionKey: 'repodex_master',
+        invocationCwd: process.cwd(),
+        argv: [
+          'start',
+          'devin',
+          '--key',
+          'repodex_master',
+          '--',
+          '--resume',
+          'quickest-psychology',
+        ],
+        command: 'airelay start devin --key repodex_master -- --resume quickest-psychology',
+      }),
+    ]);
   });
 
   it('removes exact duplicate launches and keeps the freshest row', () => {

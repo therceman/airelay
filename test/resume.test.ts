@@ -24,6 +24,7 @@ jest.mock('../src/commands/history', () => ({
   getLaunchHistory: jest.fn(),
   markLaunchHistoryUsed: jest.fn(),
   removeLaunchHistoryEntry: jest.fn().mockReturnValue(true),
+  updateLaunchHistorySession: jest.fn().mockReturnValue(true),
 }));
 
 jest.mock('../src/config/load', () => ({
@@ -44,6 +45,7 @@ import {
   getLaunchHistory,
   markLaunchHistoryUsed,
   removeLaunchHistoryEntry,
+  updateLaunchHistorySession,
 } from '../src/commands/history';
 import { loadConfig } from '../src/config/load';
 import Enquirer from 'enquirer';
@@ -421,6 +423,7 @@ describe('resumeCommand', () => {
     expect((Enquirer.prompt as jest.Mock).mock.calls[1][0].choices).toEqual([
       { name: 'launch', message: 'Launch' },
       { name: 'switchProfile', message: 'Use another profile (same harness)' },
+      { name: 'changeSession', message: 'Change Session' },
       { name: 'remove', message: 'Remove history entry' },
     ]);
     expect(console.error).toHaveBeenCalledWith(
@@ -541,6 +544,7 @@ describe('resumeCommand', () => {
     expect(actionPrompt.choices).toEqual([
       { name: 'launch', message: 'Launch' },
       { name: 'switchProfile', message: 'Use another profile (same harness)' },
+      { name: 'changeSession', message: 'Change Session' },
       { name: 'remove', message: 'Remove history entry' },
     ]);
     const profilePrompt = (Enquirer.prompt as jest.Mock).mock.calls[2][0];
@@ -566,6 +570,91 @@ describe('resumeCommand', () => {
     );
     expect(markLaunchHistoryUsed).toHaveBeenCalledWith('codex-row', expect.any(Number), 'codex2');
     jest.restoreAllMocks();
+  });
+
+  it('changes the selected history session and launches the replacement', async () => {
+    const currentCwd = process.cwd();
+    const oldSessionId = 'beautiful-receipt';
+    const newSessionId = 'quickest-psychology';
+    (loadConfig as jest.Mock).mockReturnValue({
+      profiles: {
+        devin: { executable: 'devin' },
+      },
+    });
+    (getLaunchHistory as jest.Mock).mockReturnValue([
+      {
+        id: 'devin-row',
+        profile: 'devin',
+        sessionKey: 'repodex_master',
+        invocationCwd: currentCwd,
+        startedAt: 100,
+        argv: ['start', 'devin', '--key', 'repodex_master', '--', '--resume', oldSessionId],
+      },
+    ]);
+    (Enquirer.prompt as jest.Mock)
+      .mockResolvedValueOnce({
+        historyEntry: 'devin (key: repodex_master, session: beautiful-receipt)',
+      })
+      .mockResolvedValueOnce({ resumeAction: 'changeSession' })
+      .mockResolvedValueOnce({ sessionId: newSessionId });
+
+    await resumeCommand();
+
+    expect((Enquirer.prompt as jest.Mock).mock.calls[1][0].choices).toEqual([
+      { name: 'launch', message: 'Launch' },
+      { name: 'changeSession', message: 'Change Session' },
+      { name: 'remove', message: 'Remove history entry' },
+    ]);
+    expect((Enquirer.prompt as jest.Mock).mock.calls[2][0]).toEqual(
+      expect.objectContaining({
+        type: 'input',
+        name: 'sessionId',
+        message: 'New session ID',
+        initial: oldSessionId,
+      })
+    );
+    expect(updateLaunchHistorySession).toHaveBeenCalledWith('devin-row', currentCwd, newSessionId);
+    expect(runCommand).toHaveBeenCalledWith(
+      'devin',
+      ['--resume', newSessionId],
+      expect.objectContaining({
+        cwd: currentCwd,
+        sessionKey: 'repodex_master',
+        profileSessionId: newSessionId,
+        profileArgs: ['--resume', newSessionId],
+        usePty: true,
+      })
+    );
+    expect(markLaunchHistoryUsed).toHaveBeenCalledWith('devin-row');
+    expect(console.log).toHaveBeenCalledWith(
+      `Changed session for key "repodex_master" to "${newSessionId}".`
+    );
+  });
+
+  it('does not change or launch a history entry when the replacement ID is empty', async () => {
+    const currentCwd = process.cwd();
+    (getLaunchHistory as jest.Mock).mockReturnValue([
+      {
+        id: 'empty-session-row',
+        profile: 'devin',
+        sessionKey: 'repodex_master',
+        invocationCwd: currentCwd,
+        startedAt: 100,
+        argv: ['start', 'devin', '--key', 'repodex_master', '--', '--resume', 'old-session'],
+      },
+    ]);
+    (Enquirer.prompt as jest.Mock)
+      .mockResolvedValueOnce({
+        historyEntry: 'devin (key: repodex_master, session: old-session)',
+      })
+      .mockResolvedValueOnce({ resumeAction: 'changeSession' })
+      .mockResolvedValueOnce({ sessionId: '   ' });
+
+    await resumeCommand();
+
+    expect(updateLaunchHistorySession).not.toHaveBeenCalled();
+    expect(runCommand).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith('Error: Session ID cannot be empty.');
   });
 
   it('switches the latest session with alternatives first and marks the current profile', async () => {
