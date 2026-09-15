@@ -79,6 +79,15 @@ export interface HarnessCapabilities {
    */
   uiWorkingHint: string;
 
+  /**
+   * Footer pattern that only appears once the harness TUI has fully loaded and
+   * accepts input — typically the context-usage indicator in the status line.
+   * Matched against the bottom viewport rows of the controller's headless
+   * terminal. Harnesses without a pattern keep the legacy reveal/PTY readiness
+   * signal.
+   */
+  readyPattern?: RegExp;
+
   /** Visible active-editor prompt marker used when paste content is collapsed. */
   inputPromptMarker?: string;
 
@@ -120,6 +129,7 @@ const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
     submitValue: '\r',
     submitDelayMs: 0,
     uiWorkingHint: 'esc interrupt',
+    readyPattern: /\d+(?:\.\d+)?K\s*\(\d+%\)/,
     selfUpdateDisabled: {
       env: { OPENCODE_DISABLE_AUTOUPDATE: 'true' },
     },
@@ -129,6 +139,7 @@ const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
     submitValue: '\r',
     submitDelayMs: 0,
     uiWorkingHint: 'esc to interrupt',
+    readyPattern: /Context\s+\d+%\s+left/i,
     capacityContinuation: {
       message: 'Selected model is at capacity. Please try a different model.',
       text: 'continue',
@@ -151,6 +162,7 @@ const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
     submitValue: '\r',
     submitDelayMs: 0,
     uiWorkingHint: '',
+    readyPattern: /Context:\s*[\d.]+\s*k\s*\/\s*[\d.]+\s*k\s*tokens/i,
     inputPromptMarker: '❭',
     inputSubmitRetry: {
       retryDelayMs: 2500,

@@ -31,6 +31,8 @@ export interface SpawnOptions {
   onOutput?: (chunk: string) => void;
   /** Optional foreground PTY writer; detached runtimes never use it. */
   onForegroundOutput?: (chunk: string) => void;
+  /** Strip harness mouse-tracking sequences from foreground-bound output. */
+  stripMouseTracking?: boolean;
   diagnostics?: PtyDiagnostics;
 }
 
@@ -120,6 +122,7 @@ async function spawnAndWaitPty(options: SpawnOptions): Promise<number> {
     onInput: options.onInput,
     diagnostics: options.diagnostics,
     detached: options.detached === true,
+    stripMouseTracking: options.stripMouseTracking === true,
   });
 
   if (options.trackPID) {

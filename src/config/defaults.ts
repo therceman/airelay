@@ -10,6 +10,7 @@ settings:
   promptMaxLength: -1
   hibernateAfter: 30m
   harnessSelfUpdate: false
+  mousePassthrough: false
 
 profiles:
   opencode-work:

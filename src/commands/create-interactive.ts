@@ -6,6 +6,7 @@ import { getConfigPath, loadConfig } from '../config/load';
 import {
   DEFAULT_HIBERNATE_AFTER,
   DEFAULT_HARNESS_SELF_UPDATE,
+  DEFAULT_MOUSE_PASSTHROUGH,
   DEFAULT_PROMPT_MAX_LENGTH,
   Profile,
   ProfileSchema,
@@ -60,6 +61,7 @@ export async function createCommandInteractive(opts: CreateOptions = {}): Promis
   let promptMaxLength: PromptMaxLength = DEFAULT_PROMPT_MAX_LENGTH;
   let hibernateAfter = DEFAULT_HIBERNATE_AFTER;
   let harnessSelfUpdate = DEFAULT_HARNESS_SELF_UPDATE;
+  let mousePassthrough = DEFAULT_MOUSE_PASSTHROUGH;
 
   try {
     const existingConfig = loadConfig();
@@ -67,6 +69,7 @@ export async function createCommandInteractive(opts: CreateOptions = {}): Promis
     promptMaxLength = existingConfig.settings?.promptMaxLength ?? DEFAULT_PROMPT_MAX_LENGTH;
     hibernateAfter = existingConfig.settings.hibernateAfter;
     harnessSelfUpdate = existingConfig.settings.harnessSelfUpdate;
+    mousePassthrough = existingConfig.settings.mousePassthrough;
   } catch {
     configProfiles = {};
   }
@@ -205,7 +208,7 @@ export async function createCommandInteractive(opts: CreateOptions = {}): Promis
   const profileYaml = Object.entries(typedProfiles)
     .map(([n, p]) => profileToYaml(n, p))
     .join('\n\n');
-  const yamlContent = `version: 1\n\nsettings:\n  promptMaxLength: ${promptMaxLength}\n  hibernateAfter: ${hibernateAfter}\n  harnessSelfUpdate: ${harnessSelfUpdate}\n\nprofiles:\n${profileYaml}\n`;
+  const yamlContent = `version: 1\n\nsettings:\n  promptMaxLength: ${promptMaxLength}\n  hibernateAfter: ${hibernateAfter}\n  harnessSelfUpdate: ${harnessSelfUpdate}\n  mousePassthrough: ${mousePassthrough}\n\nprofiles:\n${profileYaml}\n`;
 
   fs.writeFileSync(configPath, yamlContent, 'utf-8');
 

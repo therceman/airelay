@@ -55,6 +55,9 @@ describe('command-driven input after resume', () => {
       harnessPath,
       `#!/usr/bin/env node
 const fs = require('fs');
+// The codex ready footer is a bottom-row status line; prompt delivery waits
+// for it, so the fake renders one before accepting input.
+process.stdout.write('\\x1b[30;1Htest-model · Context 99% left');
 if (process.stdin.isTTY && process.stdin.setRawMode) process.stdin.setRawMode(true);
 process.stdin.on('data', (chunk) => {
   fs.appendFileSync(${JSON.stringify(inputLogPath)}, JSON.stringify(chunk.toString()) + '\\n');

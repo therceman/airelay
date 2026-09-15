@@ -23,6 +23,7 @@ import { getIpcEndpointPath } from '../utils/ipc-path';
 import { getAirelayVersion, CONTROLLER_PROTOCOL_VERSION } from '../utils/version';
 import { appendTranscriptSnapshot } from '../utils/transcript';
 import { serializeStreamFrame } from './protocol';
+import { MouseTrackingFilter } from '../runtime/mouse-filter';
 import type { DeliveryStatus } from '../runtime/delivery';
 import type { ActivitySnapshot } from '../runtime/activity';
 import type { RuntimeBuffers, RuntimeIdentity, RuntimeMemory } from '../runtime/identity';
@@ -99,6 +100,17 @@ export class SessionController {
   /** Open sockets that are attached viewport clients (tracked for session.info / registry). */
   private attachedClients: Set<net.Socket> = new Set();
   private onAttachedChangeCb: ((count: number) => void) | null = null;
+  /**
+   * Per-socket mouse-mode strippers. Attached clients receive PTY output with
+   * harness mouse-tracking enables removed so their terminal keeps native
+   * text selection. Disabled when settings.mousePassthrough is true.
+   */
+  private streamMouseFilters = new Map<net.Socket, MouseTrackingFilter>();
+  private stripMouseTracking = false;
+
+  setStripMouseTracking(enabled: boolean): void {
+    this.stripMouseTracking = enabled;
+  }
 
   /**
    * Register a callback fired whenever the number of attached viewport
@@ -229,8 +241,10 @@ export class SessionController {
       socket.destroy();
       return;
     }
+    const filtered = this.streamMouseFilters.get(socket)?.feed(chunk) ?? chunk;
+    if (!filtered) return;
     try {
-      socket.write(serializeStreamFrame(chunk));
+      socket.write(serializeStreamFrame(filtered));
     } catch {
       socket.destroy();
     }
@@ -494,6 +508,7 @@ export class SessionController {
           if (this.attachedClients.delete(socket)) {
             this.onAttachedChangeCb?.(this.attachedClients.size);
           }
+          this.streamMouseFilters.delete(socket);
         });
 
         socket.on('error', () => {
@@ -521,6 +536,9 @@ export class SessionController {
         response = createSuccessResponse(request.id, { pong: true });
       } else if (request.method === 'session.attach') {
         this.attachedClients.add(socket);
+        if (this.stripMouseTracking) {
+          this.streamMouseFilters.set(socket, new MouseTrackingFilter());
+        }
         this.onAttachedChangeCb?.(this.attachedClients.size);
         // Bounded lossless bootstrap. This block runs synchronously (no await):
         // the client is registered, the raw-output ring is replayed, and the
@@ -535,6 +553,7 @@ export class SessionController {
         response = createSuccessResponse(request.id, { attached: this.attachedClients.size });
       } else if (request.method === 'session.detach') {
         if (this.attachedClients.delete(socket)) {
+          this.streamMouseFilters.delete(socket);
           this.onAttachedChangeCb?.(this.attachedClients.size);
         }
         response = createSuccessResponse(request.id, { attached: this.attachedClients.size });
@@ -698,6 +717,7 @@ export class SessionController {
         sock.destroy();
       }
       this.attachedClients.clear();
+      this.streamMouseFilters.clear();
       this.onAttachedChangeCb?.(0);
       // Bounded fallback: never allow shutdown to hang on a stuck connection.
       const timer = setTimeout(() => {

@@ -1,4 +1,5 @@
 import * as pty from 'node-pty';
+import { MouseTrackingFilter } from './mouse-filter';
 import type { PtyDiagnostics, StartupReleaseReason } from './diagnostics';
 
 export interface PtyOptions {
@@ -35,6 +36,12 @@ export interface PtyOptions {
    * the parent stdout), and no stdin/resize listeners are attached.
    */
   detached?: boolean;
+  /**
+   * Strip harness mouse-tracking DECSET/DECRST sequences from foreground-bound
+   * output so the user's terminal keeps native text selection. The raw onOutput
+   * stream (controller/viewport ingest) stays unmodified.
+   */
+  stripMouseTracking?: boolean;
 }
 
 export interface PtyResizeSource {
@@ -184,13 +191,19 @@ export function createPty(options: PtyOptions): PtyInstance {
   // Forward PTY output to parent's stdout and optional onOutput callback.
   // In detached mode, output is only fed to onOutput (the controller's ring
   // buffer / viewport); it must not leak to the launcher's stdio.
+  const foregroundMouseFilter = options.stripMouseTracking ? new MouseTrackingFilter() : null;
   term.onData((data: string) => {
     hasOutput = true;
     lastOutputAt = Date.now();
     options.diagnostics?.recordPtyOutput(Buffer.byteLength(data, 'utf8'));
     if (!startupResizeSettled && pendingResize) scheduleResizeEvaluation();
     if (!options.detached) {
-      (options.onForegroundOutput ?? ((chunk: string) => process.stdout.write(chunk)))(data);
+      const foreground = foregroundMouseFilter ? foregroundMouseFilter.feed(data) : data;
+      if (foreground) {
+        (options.onForegroundOutput ?? ((chunk: string) => process.stdout.write(chunk)))(
+          foreground
+        );
+      }
     }
     options.onOutput?.(data);
   });

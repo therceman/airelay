@@ -229,12 +229,14 @@ describe('detached lifecycle, attach, prompt routing (E2E)', () => {
     const renderTimes: number[] = [];
     const attach = attachFor(runtime, stdin, res, {
       renderOverride: (chunk) => {
-        renderTimes.push(Date.now());
+        // Monotonic clock: Date.now() can step (VM clock resync) and would
+        // falsely place an on-time render after settlesAt.
+        renderTimes.push(performance.now());
         return chunk.length < 10000;
       },
     });
     await sleep(700);
-    const settlesAt = Date.now();
+    const settlesAt = performance.now();
     stdin.emit(Buffer.from([0x04]));
     expect(await attach).toBe(0);
 

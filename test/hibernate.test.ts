@@ -321,9 +321,19 @@ const inputPath = ${JSON.stringify(inputPath)};
 const generation = Number(fs.existsSync(generationPath) ? fs.readFileSync(generationPath, 'utf8') : 0) + 1;
 fs.writeFileSync(generationPath, String(generation));
 if (generation > 1) process.stdout.write('resume-hydration\\r\\n');
+// The devin ready footer is a bottom-row status line rendered only once the
+// TUI accepts input. Prompt delivery waits for it, so the fake draws it on
+// the last viewport row after a fixed hydration delay. The hydrated flag is
+// program-order evidence (immune to wall-clock skew) that input arrived only
+// after the ready footer was rendered.
+let hydrated = false;
+setTimeout(() => {
+  hydrated = true;
+  process.stdout.write('\\x1b[30;1H' + 'SWE-2 Max   Context: 100k / 262k tokens (38%)');
+}, 800);
 if (process.stdin.isTTY && process.stdin.setRawMode) process.stdin.setRawMode(true);
 process.stdin.on('data', (chunk) => {
-  fs.appendFileSync(inputPath, JSON.stringify({ at: Date.now(), data: chunk.toString() }) + '\\n');
+  fs.appendFileSync(inputPath, JSON.stringify({ hydrated, data: chunk.toString() }) + '\\n');
   if (chunk.includes('\\r') || chunk.includes('\\u0003')) process.exit(0);
 });
 setInterval(() => {}, 50);
@@ -374,7 +384,6 @@ setInterval(() => {}, 50);
       const hibernatedScreen = await request(endpoint, 'session.viewport');
       expect(hibernatedScreen.data?.lines?.join(' ')).toContain('Agent hibernated');
 
-      const requestStartedAt = Date.now();
       const promptPromise = sendPrompt(endpoint, 'wake prompt body');
       await new Promise((resolve) => setTimeout(resolve, 300));
       expect(fs.existsSync(inputPath)).toBe(false);
@@ -385,9 +394,11 @@ setInterval(() => {}, 50);
         .readFileSync(inputPath, 'utf8')
         .trim()
         .split('\n')
-        .map((line) => JSON.parse(line) as { at: number; data: string });
+        .map((line) => JSON.parse(line) as { hydrated: boolean; data: string });
       expect(inputEvents.map((event) => event.data).join('')).toContain('wake prompt body');
-      expect(inputEvents[0].at - requestStartedAt).toBeGreaterThanOrEqual(700);
+      // Program-order assertion: the prompt may only reach the PTY after the
+      // harness rendered its ready footer (hydrated flips before the draw).
+      expect(inputEvents.every((event) => event.hydrated)).toBe(true);
     } finally {
       if (runPromise && !runCompleted && endpoint) {
         await sendRaw(endpoint, ' ').catch(() => undefined);

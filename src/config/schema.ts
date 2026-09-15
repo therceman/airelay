@@ -6,6 +6,7 @@ export const DEFAULT_PROMPT_MAX_LENGTH = UNLIMITED_PROMPT_MAX_LENGTH;
 export const MAX_PROMPT_MAX_LENGTH = 256 * 1024;
 export const DEFAULT_HIBERNATE_AFTER = '30m';
 export const DEFAULT_HARNESS_SELF_UPDATE = false;
+export const DEFAULT_MOUSE_PASSTHROUGH = false;
 export const HIBERNATE_AFTER_PATTERN = /^(off|\d+(ms|s|m|h|d))$/;
 
 export const PromptMaxLengthSchema = z.union([
@@ -24,6 +25,7 @@ export const SettingsSchema = z.object({
   promptMaxLength: PromptMaxLengthSchema.default(DEFAULT_PROMPT_MAX_LENGTH),
   hibernateAfter: HibernateAfterSchema.default(DEFAULT_HIBERNATE_AFTER),
   harnessSelfUpdate: z.boolean().default(DEFAULT_HARNESS_SELF_UPDATE),
+  mousePassthrough: z.boolean().default(DEFAULT_MOUSE_PASSTHROUGH),
 });
 
 export const ProfileSchema = z.object({
@@ -42,6 +44,7 @@ export const ConfigSchema = z
       promptMaxLength: DEFAULT_PROMPT_MAX_LENGTH,
       hibernateAfter: DEFAULT_HIBERNATE_AFTER,
       harnessSelfUpdate: DEFAULT_HARNESS_SELF_UPDATE,
+      mousePassthrough: DEFAULT_MOUSE_PASSTHROUGH,
     }),
     profiles: z.record(z.string(), ProfileSchema),
   })

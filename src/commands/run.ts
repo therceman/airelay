@@ -37,11 +37,18 @@ import {
 import { writeCommandInput } from '../runtime/delivery-sequence';
 import { PostSubmitWorkingDetector } from '../runtime/post-submit-working';
 import { ActivityTracker } from '../runtime/activity';
-import { RuntimeDiagnostics } from '../runtime/diagnostics';
+import { RuntimeDiagnostics, type HarnessReadyReason } from '../runtime/diagnostics';
 import { createControllerReveal, ResumePresentationGate } from '../runtime/resume-presentation';
+import { viewportShowsReady } from '../runtime/harness-ready';
 
 const WAKE_PROMPT_RETRY_WINDOW_MS = 60_000;
 const WAKE_PROMPT_RETRY_INTERVAL_MS = 5_000;
+/**
+ * Bounded wait for the harness ready footer before a prompt is delivered
+ * anyway. Large harness restores (codex/devin resume) can take ~30s, so the
+ * fail-open bound must stay comfortably above a slow-but-successful load.
+ */
+export const READY_INPUT_FAIL_OPEN_MS = 60_000;
 
 function generateSessionKey(profileName: string): string {
   const suffix = Math.random().toString(36).slice(2, 6);
@@ -89,6 +96,7 @@ export function buildProfileEnv(
   env: Record<string, string>;
   args: string[];
   hibernateAfterMs: number;
+  mousePassthrough: boolean;
 } {
   const config = loadConfig();
   const configPath = getConfigPath();
@@ -125,6 +133,7 @@ export function buildProfileEnv(
     env,
     args: [...(profile.args || []), ...selfUpdateOverrides.args, ...extraArgs],
     hibernateAfterMs: parseDurationMs(config.settings.hibernateAfter) ?? -1,
+    mousePassthrough: config.settings.mousePassthrough,
   };
 }
 
@@ -137,7 +146,8 @@ function setupController(
   onInterrupt?: () => Promise<InterruptResult>,
   onWakeRequested?: () => Promise<void>,
   onActivity?: () => void,
-  onInputPrepared?: (deliveryId: string, marker: string, submitValue: string) => void
+  onInputPrepared?: (deliveryId: string, marker: string, submitValue: string) => void,
+  waitForHarnessReady?: () => Promise<void>
 ) {
   const controller = new SessionController(sessionKey);
   controller.setDeliveryStatusProvider(() => deliveryTracker.get());
@@ -178,6 +188,13 @@ function setupController(
         if (onWakeRequested) {
           await onWakeRequested();
         }
+      }
+      // Prompts wait for the harness to finish loading (ready footer, legacy
+      // reveal signal, or fail-open bound) so input never lands in a
+      // half-hydrated TUI. Resolves immediately for non-PTY runtimes and for
+      // generations that already became ready.
+      if (waitForHarnessReady) {
+        await waitForHarnessReady();
       }
       if (!ptyWrite.current) {
         throw new IpcError(
@@ -268,9 +285,11 @@ export async function runCommand(
     detached?: boolean;
     harnessSelfUpdate?: boolean;
     onDetachedReady?: (info: DetachedReadyInfo) => void;
+    /** Test override for the prompt-delivery fail-open bound while a harness loads. */
+    readyTimeoutMs?: number;
   }
 ): Promise<number> {
-  const { profile, cwd, env, args, hibernateAfterMs } = buildProfileEnv(
+  const { profile, cwd, env, args, hibernateAfterMs, mousePassthrough } = buildProfileEnv(
     profileName,
     extraArgs,
     options?.cwd,
@@ -303,31 +322,69 @@ export async function runCommand(
   let wakeRequested = false;
   let wakeSignal: Promise<void> | null = null;
   let wakeSignalResolve: (() => void) | null = null;
-  let wakeReady: Promise<void> | null = null;
-  let wakeReadyResolve: (() => void) | null = null;
-  let wakeReadyReject: ((error: Error) => void) | null = null;
+  /**
+   * Per-generation readiness gate. A pending signal means the current (or
+   * upcoming, while hibernated) harness generation has not proven it accepts
+   * input yet. Pattern harnesses resolve on the ready footer; harnesses
+   * without a footer pattern resolve on the legacy reveal/PTY signals. Every
+   * pattern-gated generation is also bounded by a fail-open timer.
+   */
+  let readySignal: Promise<void> | null = null;
+  let readyResolve: (() => void) | null = null;
+  let readyReject: ((error: Error) => void) | null = null;
+  let readyTimer: ReturnType<typeof setTimeout> | null = null;
   let foregroundWakeCleanup: (() => void) | null = null;
   let wakePromptPending = false;
   let hibernateTimer: ReturnType<typeof setTimeout> | null = null;
   let resetHibernateTimer: () => void = () => undefined;
+  let activeDiagnostics: RuntimeDiagnostics | null = null;
+  const readyPattern = harnessCapabilities.readyPattern;
+  const readyTimeoutMs = options?.readyTimeoutMs ?? READY_INPUT_FAIL_OPEN_MS;
+
+  const beginReadyGate = (): void => {
+    if (readySignal) return;
+    readySignal = new Promise<void>((resolve, reject) => {
+      readyResolve = resolve;
+      readyReject = reject;
+    });
+    // A gate is commonly abandoned with no prompt waiting on it (hibernation,
+    // teardown); keep that rejection from surfacing as unhandled while real
+    // awaiters still observe it.
+    readySignal.catch(() => {});
+  };
+
+  const markReady = (reason: HarnessReadyReason): void => {
+    const resolve = readyResolve;
+    if (!resolve) return;
+    readyResolve = null;
+    readyReject = null;
+    readySignal = null;
+    if (readyTimer) {
+      clearTimeout(readyTimer);
+      readyTimer = null;
+    }
+    activeDiagnostics?.recordHarnessReady(reason);
+    resolve();
+  };
+
+  /** Await the current generation's readiness signal, if one is pending. */
+  const waitForHarnessReady = async (): Promise<void> => {
+    if (usePty && readySignal) await readySignal;
+  };
 
   const prepareWake = (): void => {
     wakeRequested = false;
     wakeSignal = new Promise<void>((resolve) => {
       wakeSignalResolve = resolve;
     });
-    wakeReady = new Promise<void>((resolve, reject) => {
-      wakeReadyResolve = resolve;
-      wakeReadyReject = reject;
-    });
-  };
-
-  const resolveWakeReady = (): void => {
-    const resolve = wakeReadyResolve;
-    wakeReadyResolve = null;
-    wakeReadyReject = null;
-    wakeReady = null;
-    resolve?.();
+    // The dead generation's fail-open bound must not fire mid-hibernation.
+    // A still-pending gate is kept (it now describes the next generation), or
+    // a fresh pending gate is created so early wake prompts wait correctly.
+    if (readyTimer) {
+      clearTimeout(readyTimer);
+      readyTimer = null;
+    }
+    beginReadyGate();
   };
 
   const requestWake = async (): Promise<void> => {
@@ -335,7 +392,6 @@ export async function runCommand(
     wakeRequested = true;
     wakePromptPending = true;
     wakeSignalResolve?.();
-    if (wakeReady) await wakeReady;
   };
 
   const waitForWake = async (): Promise<void> => {
@@ -496,9 +552,11 @@ export async function runCommand(
       const overrides = getWakeRetryOverrides();
       wakePromptPending = false;
       if (marker) inputWatcher?.track(marker, submitValue, deliveryId, overrides);
-    }
+    },
+    waitForHarnessReady
   );
   controllerRef = controller;
+  controller.setStripMouseTracking(!mousePassthrough);
   controller.setRuntimeInfoProvider(() => ({ ...runtime }));
 
   if (options?.detached === true) {
@@ -732,6 +790,7 @@ export async function runCommand(
       process.stdout.isTTY
         ? { cols: process.stdout.columns, rows: process.stdout.rows }
         : controller.getTerminalSize(),
+    stripMouseTracking: !mousePassthrough,
   };
   const diagnosticsEnabled = usePty && !!detectedProfileSessionId;
   const resumePresentationEnabled =
@@ -783,13 +842,21 @@ export async function runCommand(
         });
         options.onDetachedReady?.(info);
       }
-      if (hibernated) {
-        hibernated = false;
-        // A foreground wake prompt must wait for the resume presentation gate
-        // to reveal the stabilized TUI. Detached runtimes have no foreground
-        // gate, so PTY readiness remains sufficient for them.
-        if (!resumePresentationEnabled) resolveWakeReady();
+      if (readySignal && readyPattern) {
+        // Bound the wait for a ready footer so a changed harness footer or a
+        // non-TUI invocation can never wedge prompt delivery permanently.
+        readyTimer = setTimeout(() => {
+          readyTimer = null;
+          markReady('timeout');
+        }, readyTimeoutMs);
       }
+      if (hibernated) hibernated = false;
+      // Harnesses without a ready footer keep the legacy semantics: PTY
+      // readiness is enough when no presentation gate will reveal a stable
+      // TUI, otherwise the gate reveal marks readiness. Footer-pattern
+      // harnesses resolve on the footer, an absolute-max reveal, or the
+      // fail-open bound instead.
+      if (!readyPattern && !resumePresentationEnabled) markReady('pty');
       resetHibernateTimer();
     };
   }
@@ -820,6 +887,10 @@ export async function runCommand(
       }
       controller.feedOutput(chunk);
       await controller.flushViewport();
+      if (readySignal && readyPattern) {
+        const viewport = controller.getLiveViewportState();
+        if (viewportShowsReady(viewport.lines, readyPattern)) markReady('pattern');
+      }
       const freshWorkingSignal =
         chunkGeneration > submitOutputGeneration && postSubmitWorking.observe(chunk);
       observeDeliveryState(freshWorkingSignal);
@@ -836,6 +907,8 @@ export async function runCommand(
     let exitCode = 0;
     while (keepRunning) {
       const diagnostics = diagnosticsEnabled ? RuntimeDiagnostics.start(sessionKey) : null;
+      activeDiagnostics = diagnostics;
+      if (usePty) beginReadyGate();
       let presentationGate: ResumePresentationGate | null = null;
       if (resumePresentationEnabled) {
         const writeForeground = (chunk: string): void => {
@@ -887,7 +960,11 @@ export async function runCommand(
               info.terminalQueriesForwarded,
               info.terminalQueryKinds
             );
-            resolveWakeReady();
+            // Footer-pattern harnesses treat a quiet reveal as display-only:
+            // readiness requires the ready footer. An absolute-max reveal is
+            // already a give-up signal, so it also ungates pending prompts.
+            if (!readyPattern) markReady('reveal');
+            else if (info.reason === 'absolute_max') markReady('absolute_max');
           },
         });
         spawnOpts.onForegroundOutput = (chunk) => presentationGate?.write(chunk);
@@ -911,6 +988,7 @@ export async function runCommand(
         presentationCutoffGeneration = null;
         diagnostics?.recordRuntimeStop(generationOutcome);
         diagnostics?.close();
+        activeDiagnostics = null;
         spawnOpts.diagnostics = undefined;
       }
       runtime.harnessPid = null;
@@ -959,9 +1037,15 @@ export async function runCommand(
     const cleanupWake = foregroundWakeCleanup as (() => void) | null;
     foregroundWakeCleanup = null;
     cleanupWake?.();
-    const rejectWake = wakeReadyReject as ((error: Error) => void) | null;
-    wakeReadyReject = null;
-    rejectWake?.(new Error('Session stopped before wake-up completed.'));
+    if (readyTimer) {
+      clearTimeout(readyTimer);
+      readyTimer = null;
+    }
+    const rejectReady = readyReject as ((error: Error) => void) | null;
+    readyReject = null;
+    readyResolve = null;
+    readySignal = null;
+    rejectReady?.(new Error('Session stopped before the harness became ready.'));
     if (completionTimer) clearTimeout(completionTimer);
     capacityWatcher?.dispose();
     inputWatcher?.dispose();

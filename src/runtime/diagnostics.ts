@@ -10,6 +10,8 @@ export const PTY_OUTPUT_AGGREGATION_MS = 150;
 export type StartupReleaseReason = 'quiet_period' | 'absolute_max';
 export type RuntimeStopReason = 'exited' | 'hibernated' | 'failed';
 export type PresentationRevealReason = 'quiet_period' | 'absolute_max';
+/** How the runtime decided a harness generation became ready for input. */
+export type HarnessReadyReason = 'pattern' | 'reveal' | 'absolute_max' | 'pty' | 'timeout';
 
 export type RuntimeDiagnosticEvent =
   | { ts: number; event: 'runtime_start' }
@@ -51,6 +53,7 @@ export type RuntimeDiagnosticEvent =
       suppressedBytes: number;
       suppressedChunks: number;
     }
+  | { ts: number; event: 'harness_ready'; reason: HarnessReadyReason }
   | { ts: number; event: 'pty_exit'; code: number }
   | { ts: number; event: 'runtime_stop'; reason: RuntimeStopReason };
 
@@ -309,6 +312,10 @@ export class RuntimeDiagnostics implements PtyDiagnostics {
       suppressedBytes,
       suppressedChunks,
     });
+  }
+
+  recordHarnessReady(reason: HarnessReadyReason): void {
+    this.record({ ts: Date.now(), event: 'harness_ready', reason });
   }
 
   recordPtyExit(code: number): void {

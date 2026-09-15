@@ -8,6 +8,7 @@ import {
   ConfigSchema,
   DEFAULT_HARNESS_SELF_UPDATE,
   DEFAULT_HIBERNATE_AFTER,
+  DEFAULT_MOUSE_PASSTHROUGH,
   DEFAULT_PROMPT_MAX_LENGTH,
   MAX_PROMPT_MAX_LENGTH,
   ProfileSchema,
@@ -18,12 +19,15 @@ import { isValidDuration } from '../utils/duration';
 const PROMPT_MAX_LENGTH_KEY = 'settings.promptMaxLength';
 const HIBERNATE_AFTER_KEY = 'settings.hibernateAfter';
 const HARNESS_SELF_UPDATE_KEY = 'settings.harnessSelfUpdate';
+const MOUSE_PASSTHROUGH_KEY = 'settings.mousePassthrough';
 const PROMPT_MAX_LENGTH_DESCRIPTION =
   'Maximum prompt length in Unicode code points before airelay sends the text to a session.';
 const HIBERNATE_AFTER_DESCRIPTION =
   'Time without observed session activity before an idle resumable session is hibernated.';
 const HARNESS_SELF_UPDATE_DESCRIPTION =
   'Allow harnesses to check for self-updates on startup and wake; disabled by default for reliable automation.';
+const MOUSE_PASSTHROUGH_DESCRIPTION =
+  'Forward harness mouse-tracking modes to the terminal; disabled by default so native text selection keeps working.';
 const PROFILE_FIELDS = new Set(['executable', 'cwd', 'args', 'env', 'description', 'createDirs']);
 const ARRAY_PROFILE_FIELDS = new Set(['args', 'createDirs']);
 
@@ -81,6 +85,13 @@ function parseHibernateAfter(value: string): string {
     );
   }
   return value;
+}
+
+function parseBooleanSetting(key: string, value: string): boolean {
+  if (value !== 'true' && value !== 'false') {
+    throw new Error(`${key} must be true or false.`);
+  }
+  return value === 'true';
 }
 
 function parseYamlValue(value: string, key: string): unknown {
@@ -222,14 +233,22 @@ function setConfigValue(
 
   if (key === HARNESS_SELF_UPDATE_KEY) {
     const settings = isRecord(raw.settings) ? raw.settings : {};
-    if (value !== 'true' && value !== 'false') {
-      throw new Error(`${HARNESS_SELF_UPDATE_KEY} must be true or false.`);
-    }
     return {
       ...raw,
       settings: {
         ...settings,
-        harnessSelfUpdate: value === 'true',
+        harnessSelfUpdate: parseBooleanSetting(key, value),
+      },
+    };
+  }
+
+  if (key === MOUSE_PASSTHROUGH_KEY) {
+    const settings = isRecord(raw.settings) ? raw.settings : {};
+    return {
+      ...raw,
+      settings: {
+        ...settings,
+        mousePassthrough: parseBooleanSetting(key, value),
       },
     };
   }
@@ -244,7 +263,7 @@ function setConfigValue(
   }
 
   throw new Error(
-    `Unknown config key "${key}". Supported keys: ${PROMPT_MAX_LENGTH_KEY}, ${HIBERNATE_AFTER_KEY}, ${HARNESS_SELF_UPDATE_KEY} and profiles.<profile>.<field>.`
+    `Unknown config key "${key}". Supported keys: ${PROMPT_MAX_LENGTH_KEY}, ${HIBERNATE_AFTER_KEY}, ${HARNESS_SELF_UPDATE_KEY}, ${MOUSE_PASSTHROUGH_KEY} and profiles.<profile>.<field>.`
   );
 }
 
@@ -336,6 +355,9 @@ export function configHelpCommand(): void {
       `  ${HARNESS_SELF_UPDATE_KEY}`,
       `    ${HARNESS_SELF_UPDATE_DESCRIPTION}`,
       `    Default: ${DEFAULT_HARNESS_SELF_UPDATE}; value: true or false.`,
+      `  ${MOUSE_PASSTHROUGH_KEY}`,
+      `    ${MOUSE_PASSTHROUGH_DESCRIPTION}`,
+      `    Default: ${DEFAULT_MOUSE_PASSTHROUGH}; value: true or false.`,
       '  profiles.<profile>.executable     Harness executable command.',
       '  profiles.<profile>.cwd            Working directory for the profile.',
       '  profiles.<profile>.args           Default harness arguments as a YAML/JSON array.',
