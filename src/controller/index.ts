@@ -23,7 +23,7 @@ import { getIpcEndpointPath } from '../utils/ipc-path';
 import { getAirelayVersion, CONTROLLER_PROTOCOL_VERSION } from '../utils/version';
 import { appendTranscriptSnapshot } from '../utils/transcript';
 import { serializeStreamFrame } from './protocol';
-import { MouseTrackingFilter } from '../runtime/mouse-filter';
+import { MOUSE_TRACKING_RESET, MouseTrackingFilter } from '../runtime/mouse-filter';
 import type { DeliveryStatus } from '../runtime/delivery';
 import type { ActivitySnapshot } from '../runtime/activity';
 import type { RuntimeBuffers, RuntimeIdentity, RuntimeMemory } from '../runtime/identity';
@@ -538,6 +538,15 @@ export class SessionController {
         this.attachedClients.add(socket);
         if (this.stripMouseTracking) {
           this.streamMouseFilters.set(socket, new MouseTrackingFilter());
+          // Explicitly disable mouse tracking in the attaching terminal: the
+          // filter also strips DECRST, so a mode leaked by an earlier or
+          // crashed session would otherwise stay enabled for this attach.
+          // Written as a raw frame to bypass that same filter.
+          try {
+            socket.write(serializeStreamFrame(MOUSE_TRACKING_RESET));
+          } catch {
+            socket.destroy();
+          }
         }
         this.onAttachedChangeCb?.(this.attachedClients.size);
         // Bounded lossless bootstrap. This block runs synchronously (no await):

@@ -40,6 +40,7 @@ import { ActivityTracker } from '../runtime/activity';
 import { RuntimeDiagnostics, type HarnessReadyReason } from '../runtime/diagnostics';
 import { createControllerReveal, ResumePresentationGate } from '../runtime/resume-presentation';
 import { viewportShowsReady } from '../runtime/harness-ready';
+import { MOUSE_TRACKING_RESET, stripMouseTrackingSequences } from '../runtime/mouse-filter';
 
 const WAKE_PROMPT_RETRY_WINDOW_MS = 60_000;
 const WAKE_PROMPT_RETRY_INTERVAL_MS = 5_000;
@@ -902,6 +903,20 @@ export async function runCommand(
     resetHibernateTimer();
   };
 
+  // With tracking sequences stripped, a real terminal could only still be in
+  // mouse-report mode if state leaked from an earlier or crashed session —
+  // nothing valid ever re-enables it, so reset it up front (and once more on
+  // exit for symmetry). Skipped when passthrough is on or no TTY is driven.
+  const resetTerminalMouseTracking = (): void => {
+    if (!usePty || mousePassthrough || options?.detached || !process.stdout.isTTY) return;
+    try {
+      process.stdout.write(MOUSE_TRACKING_RESET);
+    } catch {
+      // The terminal may already be closed.
+    }
+  };
+  resetTerminalMouseTracking();
+
   try {
     let keepRunning = true;
     let exitCode = 0;
@@ -921,7 +936,10 @@ export async function runCommand(
         const revealViewport = createControllerReveal(
           controller,
           () => presentationCutoffQueue ?? outputRenderQueue,
-          writeForeground
+          // The screen serializer replays the harness's DECSET modes (xterm
+          // tracks them from unfiltered output), so mouse tracking would leak
+          // to the terminal here unless it is stripped again.
+          (chunk) => writeForeground(mousePassthrough ? chunk : stripMouseTrackingSequences(chunk))
         );
         presentationGate = new ResumePresentationGate({
           writeForeground,
@@ -1050,6 +1068,7 @@ export async function runCommand(
     capacityWatcher?.dispose();
     inputWatcher?.dispose();
     await controller.stop();
+    resetTerminalMouseTracking();
     deleteSession(profileName, runtimeId);
     if (options?.detached === true) {
       removeDetachedEntry(runtimeId);

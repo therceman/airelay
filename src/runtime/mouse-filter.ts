@@ -1,10 +1,22 @@
 /**
  * DEC private modes that hand pointer events to the application instead of the
- * terminal's native selection. Stripping only these keeps every other mode —
- * alternate buffer (1049), bracketed paste (2004), focus events (1004),
- * synchronized output (2026) — untouched.
+ * terminal's native selection: x10 (9), click/drag/motion tracking (1000/1002/
+ * 1003), mouse report encodings (1005/1006/1015/1016) and alternate scroll
+ * (1007). Stripping only these keeps every other mode — alternate buffer
+ * (1049), bracketed paste (2004), focus events (1004), synchronized output
+ * (2026) — untouched.
  */
-const MOUSE_TRACKING_MODES = new Set(['1000', '1002', '1003', '1006', '1007', '1015']);
+const MOUSE_TRACKING_MODES = new Set([
+  '9',
+  '1000',
+  '1002',
+  '1003',
+  '1005',
+  '1006',
+  '1007',
+  '1015',
+  '1016',
+]);
 
 const ESC = String.fromCharCode(0x1b);
 const MOUSE_DECSET_PATTERN = new RegExp(`${ESC}\\[\\?([0-9;]*)([hl])`, 'g');
@@ -12,6 +24,21 @@ const MOUSE_DECSET_PATTERN = new RegExp(`${ESC}\\[\\?([0-9;]*)([hl])`, 'g');
 const PENDING_PREFIX_PATTERN = new RegExp(`${ESC}(?:\\[\\??[0-9;]*)?$`);
 /** A complete candidate is at most ESC [ ? <six 4-digit modes + separators> h. */
 const MAX_PENDING_BYTES = 64;
+
+/** Disables every mouse-tracking mode the filter removes. */
+export const MOUSE_TRACKING_RESET = [...MOUSE_TRACKING_MODES]
+  .map((mode) => `${ESC}[?${mode}l`)
+  .join('');
+
+/**
+ * One-shot removal for complete strings (screen serializations, reveal dumps)
+ * where no chunk-split sequences can exist.
+ */
+export function stripMouseTrackingSequences(text: string): string {
+  return text.replace(MOUSE_DECSET_PATTERN, (sequence, params: string) =>
+    isMouseModeSequence(params) ? '' : sequence
+  );
+}
 
 function isMouseModeSequence(params: string): boolean {
   const modes = params.split(';').filter((mode) => mode.length > 0);
@@ -44,9 +71,7 @@ export class MouseTrackingFilter {
       }
     }
 
-    return body.replace(MOUSE_DECSET_PATTERN, (sequence, params: string) =>
-      isMouseModeSequence(params) ? '' : sequence
-    );
+    return stripMouseTrackingSequences(body);
   }
 
   /** Emit any retained partial sequence verbatim at end of stream. */

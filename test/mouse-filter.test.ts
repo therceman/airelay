@@ -1,14 +1,18 @@
 import fs from 'fs';
 import net from 'net';
 import path from 'path';
-import { MouseTrackingFilter } from '../src/runtime/mouse-filter';
+import {
+  MOUSE_TRACKING_RESET,
+  MouseTrackingFilter,
+  stripMouseTrackingSequences,
+} from '../src/runtime/mouse-filter';
 import { runCommand } from '../src/commands/run';
 import { readLines } from '../src/controller/protocol';
 import { useTestEnv } from './test-utils';
 
 const testEnv = useTestEnv();
 
-const MOUSE_MODES = ['1000', '1002', '1003', '1006', '1007', '1015'];
+const MOUSE_MODES = ['9', '1000', '1002', '1003', '1005', '1006', '1007', '1015', '1016'];
 
 describe('MouseTrackingFilter', () => {
   it('strips every mouse-tracking DECSET/DECRST mode', () => {
@@ -61,6 +65,29 @@ describe('MouseTrackingFilter', () => {
   });
 });
 
+describe('stripMouseTrackingSequences', () => {
+  it('strips mouse modes replayed by a screen serialization in one shot', () => {
+    // The xterm serializer re-emits the harness's DECSET modes, e.g.
+    // "...text\x1b[?2004h\x1b[?1003h" — the mouse mode must go, the rest stay.
+    const serialized = 'row\x1b[?2004h\x1b[?1003h\x1b[?1h';
+    expect(stripMouseTrackingSequences(serialized)).toBe('row\x1b[?2004h\x1b[?1h');
+  });
+
+  it('handles combined mode lists and disables', () => {
+    expect(stripMouseTrackingSequences('a\x1b[?9;1003lb')).toBe('ab');
+    expect(stripMouseTrackingSequences('a\x1b[?1003;1049lb')).toBe('a\x1b[?1003;1049lb');
+  });
+});
+
+describe('MOUSE_TRACKING_RESET', () => {
+  it('disables every tracked mouse mode', () => {
+    for (const mode of MOUSE_MODES) {
+      expect(MOUSE_TRACKING_RESET).toContain(`\x1b[?${mode}l`);
+    }
+    expect(MOUSE_TRACKING_RESET).not.toMatch(/\?10[04][49]l|\?1049l|\?2004l/);
+  });
+});
+
 function writeHarness(name: string, body: string): string {
   const harnessPath = path.join(testEnv.testDir, name);
   fs.writeFileSync(harnessPath, `#!/usr/bin/env node\n${body}\n`);
@@ -79,7 +106,9 @@ function writeConfig(profileName: string, executable: string, mousePassthrough =
   );
 }
 
-const MOUSE_BURST = 'X\\x1b[?1000h\\x1b[?1002h\\x1b[?1003h\\x1b[?1006hY';
+const MOUSE_BURST =
+  'X\\x1b[?9h\\x1b[?1000h\\x1b[?1002h\\x1b[?1003h\\x1b[?1005h\\x1b[?1006h\\x1b[?1007h\\x1b[?1015h\\x1b[?1016hY';
+const MOUSE_ENABLE_PATTERN = /\?10(?:00|02|03|05|06|07|15|16)h|\?9h/;
 
 async function waitForEndpoint(get: () => string): Promise<string> {
   const deadline = Date.now() + 3000;
@@ -113,7 +142,7 @@ setTimeout(() => process.exit(0), 300);`
     }
     const foreground = chunks.join('');
     expect(foreground).toContain('XY');
-    expect(foreground).not.toMatch(/\?100[0236][hl]/);
+    expect(foreground).not.toMatch(MOUSE_ENABLE_PATTERN);
   }, 15000);
 
   it('passes mouse modes through when settings.mousePassthrough is true', async () => {
@@ -157,13 +186,17 @@ setTimeout(() => process.exit(0), 1500);`
     });
 
     const socketEndpoint = await waitForEndpoint(() => endpoint);
-    const streamed = await new Promise<string>((resolve) => {
+    const { streamed, firstChunk } = await new Promise<{
+      streamed: string;
+      firstChunk: string;
+    }>((resolve) => {
       const socket = net.createConnection(socketEndpoint);
       let buffer = '';
       let collected = '';
+      let first = '';
       const finish = setTimeout(() => {
         socket.destroy();
-        resolve(collected);
+        resolve({ streamed: collected, firstChunk: first });
       }, 700);
       socket.on('connect', () => {
         socket.write(JSON.stringify({ id: 'a1', method: 'session.attach' }) + '\n');
@@ -173,6 +206,7 @@ setTimeout(() => process.exit(0), 1500);`
           try {
             const msg = JSON.parse(line) as { type?: string; data?: { chunk?: string } };
             if (msg.type === 'stream' && typeof msg.data?.chunk === 'string') {
+              if (!first) first = msg.data.chunk;
               collected += msg.data.chunk;
             }
           } catch {
@@ -182,12 +216,16 @@ setTimeout(() => process.exit(0), 1500);`
       });
       socket.on('error', () => {
         clearTimeout(finish);
-        resolve(collected);
+        resolve({ streamed: collected, firstChunk: first });
       });
     });
 
+    // The attach stream opens with an explicit tracking reset so a terminal
+    // still in mouse-report mode (leaked by an earlier/crashed session) is
+    // cleared before any replayed content arrives.
+    expect(firstChunk).toBe(MOUSE_TRACKING_RESET);
     expect(streamed).toContain('XYDONE');
-    expect(streamed).not.toMatch(/\?100[0236][hl]/);
+    expect(streamed).not.toMatch(MOUSE_ENABLE_PATTERN);
     await expect(runPromise).resolves.toBe(0);
   }, 15000);
 });
