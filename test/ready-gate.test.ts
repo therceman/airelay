@@ -2,6 +2,12 @@ import fs from 'fs';
 import net from 'net';
 import path from 'path';
 import { runCommand } from '../src/commands/run';
+import { stopCommand } from '../src/commands/stop';
+import { findDetachedBySessionKey } from '../src/runtime/detached-registry';
+import {
+  READY_INPUT_FAIL_OPEN_MS,
+  READY_PROMPT_IPC_TIMEOUT_MS,
+} from '../src/runtime/harness-ready';
 import { readLines } from '../src/controller/protocol';
 import { useTestEnv } from './test-utils';
 
@@ -86,6 +92,50 @@ function readInputEvents(inputLogPath: string): InputEvent[] {
 }
 
 describe('harness readiness gate for session.input', () => {
+  it('accepts the current Devin M-capacity footer before command prompt delivery', async () => {
+    const inputLogPath = path.join(testEnv.testDir, 'devin-ready-input.log');
+    const harnessPath = writeHarness(
+      'devin-ready-harness',
+      `const fs = require('fs');
+process.stdout.write('Trust already resolved\\r\\n');
+setTimeout(() => process.stdout.write('\\x1b[30;1HContext: 11k / 1.0M tokens (1%)'), 600);
+if (process.stdin.isTTY && process.stdin.setRawMode) process.stdin.setRawMode(true);
+process.stdin.on('data', (chunk) => {
+  fs.appendFileSync(${JSON.stringify(inputLogPath)}, chunk.toString());
+  if (chunk.includes('\\r')) process.exit(0);
+});
+setInterval(() => {}, 50);`
+    );
+    writeConfig('devinready', harnessPath);
+
+    let endpoint = '';
+    const runPromise = runCommand('devinready', [], {
+      usePty: true,
+      detached: true,
+      sessionKey: 'devin_ready_gate',
+      readyTimeoutMs: 3000,
+      onSessionStart: (info) => {
+        endpoint = info.controllerEndpoint;
+      },
+    });
+
+    try {
+      const socket = await waitForEndpoint(() => endpoint);
+      const sentAt = performance.now();
+      const response = await sendInput(socket, 'ready-gated Devin prompt', 'devin-ready-1');
+      expect(performance.now() - sentAt).toBeLessThan(2000);
+      expect(response.type).toBe('success');
+      await expect(runPromise).resolves.toBe(0);
+      expect(fs.readFileSync(inputLogPath, 'utf8')).toContain('ready-gated Devin prompt');
+      expect(READY_PROMPT_IPC_TIMEOUT_MS).toBeGreaterThan(READY_INPUT_FAIL_OPEN_MS);
+    } finally {
+      if (findDetachedBySessionKey('devin_ready_gate')) {
+        await stopCommand('devin_ready_gate');
+      }
+      await runPromise;
+    }
+  }, 15000);
+
   it('holds prompt delivery until the ready footer appears in the viewport', async () => {
     const inputLogPath = path.join(testEnv.testDir, 'ready-input.log');
     const harnessPath = writeHarness(

@@ -71,7 +71,7 @@ function session(
 function info(overrides: Partial<ControllerInfo> = {}): ControllerInfo {
   return {
     airelayVersion: '0.1.146',
-    controllerProtocolVersion: 2,
+    controllerProtocolVersion: 3,
     startedAt: 1000,
     state: 'busy',
     activityReason: 'recent_io',

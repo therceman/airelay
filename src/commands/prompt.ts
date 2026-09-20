@@ -7,8 +7,9 @@ import { detectHarness, getHarnessCapabilities } from '../utils/harness';
 import { loadConfig } from '../config/load';
 import { DEFAULT_PROMPT_MAX_LENGTH, UNLIMITED_PROMPT_MAX_LENGTH } from '../config/schema';
 import { preflightVersionCheck } from './session-ipc';
+import { READY_PROMPT_IPC_TIMEOUT_MS } from '../runtime/harness-ready';
 
-const IPC_TIMEOUT = 5000;
+const IPC_TIMEOUT = READY_PROMPT_IPC_TIMEOUT_MS;
 
 function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -107,7 +108,6 @@ function isRetryableTransportError(error: unknown): boolean {
     candidate.code === 'ENOENT' ||
     candidate.code === 'ECONNREFUSED' ||
     candidate.code === 'ENOTCONN' ||
-    candidate.message?.includes('timed out') === true ||
     candidate.message?.includes('Connection closed') === true
   );
 }

@@ -91,7 +91,7 @@ profiles:
 ## Commands
 
 ```bash
-airelay start <profile> [--harness-self-update true|false] [args...]  # Launch profile (PTY-backed, always promptable)
+airelay start <profile> [--bypass] [--harness-self-update true|false] [args...]  # Launch profile (PTY-backed, always promptable)
 airelay run <profile> [-- ...args] # Run profile with inherited terminal
 airelay list                       # List all profiles
 airelay which <profile>            # Show resolved runtime details
@@ -130,14 +130,24 @@ airelay start opencode-work -- resume ses_abc123  # Resume with harness-native a
 # Devin uses its native long-form resume option
 airelay start devin -- --resume ritzy-whitefish
 
-# Optional Devin permission mode for a new session
-airelay config set profiles.devin.args '["--permission-mode", "bypass"]'
+# Explicit, high-risk permission bypass (Codex/Devin only); exact workspace trust prompts are auto-confirmed
+airelay start codex --bypass --key worker --detached
+airelay start devin --bypass --key dev-worker
+
 airelay start codex-personal --sandbox workspace-write
 airelay prompt myprofile_abcd "write a unit test"
 airelay sessions --active
 airelay which opencode-work
 airelay doctor
 ```
+
+`--bypass` is never enabled by default. It disables the harness's normal
+permission safeguards (Codex runs without its sandbox; Devin enables its
+bypass permission mode) and automatically presses Enter only when the live
+terminal viewport matches the harness's affirmative workspace-trust screen.
+This can load project-local configuration/hooks. Use it only for repositories
+you trust; omit the flag to retain normal permission and trust prompts. The
+flag applies to that `airelay start` invocation only.
 
 ## New Machine: Two Profiles
 

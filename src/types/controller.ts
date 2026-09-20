@@ -10,6 +10,7 @@ export type IpcMethod =
   | 'session.scrollback'
   | 'session.viewport'
   | 'session.interrupt'
+  | 'session.stop'
   | 'session.attach'
   | 'session.detach'
   | 'session.input.raw'

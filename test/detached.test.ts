@@ -647,4 +647,22 @@ describe('start flag parsing and registry helpers', () => {
     expect(parsed.flags.key).toBe('k1');
     expect(parsed.extraArgs).toEqual(['-a']);
   });
+
+  it('parses the detached-runtime bypass flag as Airelay-owned', () => {
+    const parsed = parseArgs([
+      'node',
+      'airelay',
+      '__detach-run',
+      'devin',
+      '--bypass',
+      '--key',
+      'worker',
+      '--',
+      '--resume',
+      'session-id',
+    ]);
+    expect(parsed.flags.bypass).toBe(true);
+    expect(parsed.flags.key).toBe('worker');
+    expect(parsed.extraArgs).toEqual(['--resume', 'session-id']);
+  });
 });

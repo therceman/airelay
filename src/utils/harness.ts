@@ -121,6 +121,20 @@ export interface HarnessCapabilities {
     args?: string[];
     env?: Record<string, string>;
   };
+
+  /** Explicit high-risk permission mode exposed through `airelay start --bypass`. */
+  bypassArgs?: string[];
+
+  /** Exact visible markers required before Airelay auto-confirms workspace trust. */
+  workspaceTrustPrompt?: {
+    question: RegExp;
+    affirmativeSelection: RegExp;
+    negativeSelection: RegExp;
+    instructions: RegExp[];
+  };
+
+  /** Option families overridden by an explicit Airelay bypass request. */
+  bypassOverrides?: string[];
 }
 
 const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
@@ -156,18 +170,34 @@ const HARNESS_CAPABILITIES: Record<HarnessType, HarnessCapabilities> = {
     selfUpdateDisabled: {
       args: ['-c', 'check_for_update_on_startup=false'],
     },
+    bypassArgs: ['--dangerously-bypass-approvals-and-sandbox'],
+    bypassOverrides: ['--dangerously-bypass-approvals-and-sandbox'],
+    workspaceTrustPrompt: {
+      question: /Do you trust the contents of this directory\?/i,
+      affirmativeSelection: /^[›❯❭]\s*1\.\s*Yes,\s*continue\s*$/i,
+      negativeSelection: /^2\.\s*No,\s*quit\s*$/i,
+      instructions: [/^Press enter to continue\s*$/i],
+    },
   },
   devin: {
     submitMode: 'byte',
     submitValue: '\r',
     submitDelayMs: 0,
     uiWorkingHint: '',
-    readyPattern: /Context:\s*[\d.]+\s*k\s*\/\s*[\d.]+\s*k\s*tokens/i,
+    readyPattern: /Context:\s*[\d.]+\s*[km]\s*\/\s*[\d.]+\s*[km]\s*tokens/i,
     inputPromptMarker: '❭',
     inputSubmitRetry: {
       retryDelayMs: 2500,
       maxRetries: 3,
       maxWindowMs: 10000,
+    },
+    bypassArgs: ['--permission-mode', 'bypass'],
+    bypassOverrides: ['--permission-mode'],
+    workspaceTrustPrompt: {
+      question: /Do you trust the authors of this directory\?/i,
+      affirmativeSelection: /^[›❯❭]\s*1\s+Yes,\s*trust\s*$/i,
+      negativeSelection: /^(?:·|•)\s*2\s+No,\s*exit\s*$/i,
+      instructions: [/↓↑\s*to select/i, /↵\s*to choose/i],
     },
   },
   unknown: {
@@ -214,6 +244,48 @@ export function getHarnessSelfUpdateOverrides(
     args: policy?.args ? [...policy.args] : [],
     env: policy?.env ? { ...policy.env } : {},
   };
+}
+
+/** Build provider-native permission arguments for an explicit Airelay bypass. */
+export function applyHarnessBypass(harness: HarnessType, args: string[]): string[] | undefined {
+  const capabilities = HARNESS_CAPABILITIES[harness];
+  if (!capabilities?.bypassArgs) return undefined;
+
+  const overrides = new Set(capabilities.bypassOverrides || []);
+  const remaining: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const matched = [...overrides].find((option) => arg === option || arg.startsWith(`${option}=`));
+    if (!matched) {
+      remaining.push(arg);
+      continue;
+    }
+    if (
+      arg === matched &&
+      matched !== '--dangerously-bypass-approvals-and-sandbox' &&
+      index + 1 < args.length &&
+      !args[index + 1].startsWith('-')
+    ) {
+      index += 1;
+    }
+  }
+
+  return [...capabilities.bypassArgs, ...remaining];
+}
+
+/** Only confirm a trust screen when its question, selected Yes, No option and instructions agree. */
+export function isWorkspaceTrustPromptVisible(harness: HarnessType, lines: string[]): boolean {
+  const prompt = HARNESS_CAPABILITIES[harness]?.workspaceTrustPrompt;
+  if (!prompt) return false;
+
+  const visibleLines = lines.map((line) => line.trim()).filter(Boolean);
+  const screen = visibleLines.join('\n');
+  return (
+    prompt.question.test(screen) &&
+    visibleLines.some((line) => prompt.affirmativeSelection.test(line)) &&
+    visibleLines.some((line) => prompt.negativeSelection.test(line)) &&
+    prompt.instructions.every((instruction) => visibleLines.some((line) => instruction.test(line)))
+  );
 }
 
 export function getArgsHelpMessage(harness: HarnessType, hasSession: boolean): string {

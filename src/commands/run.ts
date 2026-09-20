@@ -12,6 +12,8 @@ import {
   detectHarness,
   getHarnessCapabilities,
   getHarnessSelfUpdateOverrides,
+  applyHarnessBypass,
+  isWorkspaceTrustPromptVisible,
 } from '../utils/harness';
 import { CapacityContinuationWatcher } from '../runtime/capacity-watcher';
 import { InputSubmitWatcher } from '../runtime/input-submit-watcher';
@@ -39,18 +41,13 @@ import { PostSubmitWorkingDetector } from '../runtime/post-submit-working';
 import { ActivityTracker } from '../runtime/activity';
 import { RuntimeDiagnostics, type HarnessReadyReason } from '../runtime/diagnostics';
 import { createControllerReveal, ResumePresentationGate } from '../runtime/resume-presentation';
-import { viewportShowsReady } from '../runtime/harness-ready';
+import { READY_INPUT_FAIL_OPEN_MS, viewportShowsReady } from '../runtime/harness-ready';
 import { MOUSE_TRACKING_RESET, stripMouseTrackingSequences } from '../runtime/mouse-filter';
+
+export { READY_INPUT_FAIL_OPEN_MS };
 
 const WAKE_PROMPT_RETRY_WINDOW_MS = 60_000;
 const WAKE_PROMPT_RETRY_INTERVAL_MS = 5_000;
-/**
- * Bounded wait for the harness ready footer before a prompt is delivered
- * anyway. Large harness restores (codex/devin resume) can take ~30s, so the
- * fail-open bound must stay comfortably above a slow-but-successful load.
- */
-export const READY_INPUT_FAIL_OPEN_MS = 60_000;
-
 function generateSessionKey(profileName: string): string {
   const suffix = Math.random().toString(36).slice(2, 6);
   return `${profileName}_${suffix}`;
@@ -90,7 +87,8 @@ export function buildProfileEnv(
   profileName: string,
   extraArgs: string[],
   cwdOverride?: string,
-  harnessSelfUpdateOverride?: boolean
+  harnessSelfUpdateOverride?: boolean,
+  bypass = false
 ): {
   profile: Profile;
   cwd: string;
@@ -110,6 +108,13 @@ export function buildProfileEnv(
     );
   }
 
+  const harness = detectHarness(profile.executable);
+  if (bypass && !applyHarnessBypass(harness, [])) {
+    throw new Error(
+      `--bypass is not supported for the ${harness} harness. Supported harnesses: codex, devin.`
+    );
+  }
+
   const cwd = cwdOverride
     ? resolvePath(cwdOverride)
     : profile.cwd
@@ -117,7 +122,6 @@ export function buildProfileEnv(
       : process.cwd();
   ensureDirectories(profile, cwd);
   const env = buildEnv(profile, configPath);
-  const harness = detectHarness(profile.executable);
   if (harness === 'codex' && env.CODEX_HOME) {
     ensureCodexProfileStandalone(env.CODEX_HOME);
   }
@@ -128,11 +132,14 @@ export function buildProfileEnv(
   );
   Object.assign(env, selfUpdateOverrides.env);
 
+  const args = [...(profile.args || []), ...selfUpdateOverrides.args, ...extraArgs];
+  const launchArgs = bypass ? applyHarnessBypass(harness, args) : args;
+
   return {
     profile,
     cwd,
     env,
-    args: [...(profile.args || []), ...selfUpdateOverrides.args, ...extraArgs],
+    args: launchArgs || args,
     hibernateAfterMs: parseDurationMs(config.settings.hibernateAfter) ?? -1,
     mousePassthrough: config.settings.mousePassthrough,
   };
@@ -148,7 +155,8 @@ function setupController(
   onWakeRequested?: () => Promise<void>,
   onActivity?: () => void,
   onInputPrepared?: (deliveryId: string, marker: string, submitValue: string) => void,
-  waitForHarnessReady?: () => Promise<void>
+  waitForHarnessReady?: () => Promise<void>,
+  onStopRequested?: () => { stopping: boolean; alreadyStopping?: boolean }
 ) {
   const controller = new SessionController(sessionKey);
   controller.setDeliveryStatusProvider(() => deliveryTracker.get());
@@ -259,6 +267,16 @@ function setupController(
     if (request.method === 'session.interrupt') {
       return onInterrupt ? onInterrupt() : { outcome: 'unsupported', requested: false };
     }
+    if (request.method === 'session.stop') {
+      if (!onStopRequested) {
+        throw new IpcError(
+          IpcErrorCodes.METHOD_NOT_FOUND,
+          'Stopping is supported only for detached runtimes.',
+          IpcErrorReasons.UNSUPPORTED_METHOD
+        );
+      }
+      return onStopRequested();
+    }
     return { handled: false };
   });
 
@@ -284,6 +302,7 @@ export async function runCommand(
     invocationCwd?: string;
     launchArgv?: string[];
     detached?: boolean;
+    bypass?: boolean;
     harnessSelfUpdate?: boolean;
     onDetachedReady?: (info: DetachedReadyInfo) => void;
     /** Test override for the prompt-delivery fail-open bound while a harness loads. */
@@ -294,7 +313,8 @@ export async function runCommand(
     profileName,
     extraArgs,
     options?.cwd,
-    options?.harnessSelfUpdate
+    options?.harnessSelfUpdate,
+    options?.bypass
   );
 
   const sessionKey = options?.sessionKey || generateSessionKey(profileName);
@@ -316,10 +336,12 @@ export async function runCommand(
     hibernateAfterMs > 0 &&
     !!detectedProfileSessionId &&
     (options?.detached === true || process.stdin.isTTY === true);
-  const harnessCapabilities = getHarnessCapabilities(detectHarness(profile.executable));
+  const harnessType = detectHarness(profile.executable);
+  const harnessCapabilities = getHarnessCapabilities(harnessType);
   const deliveryTracker = new DeliveryTracker();
   let hibernated = false;
   let hibernateRequested = false;
+  let stopRequested = false;
   let wakeRequested = false;
   let wakeSignal: Promise<void> | null = null;
   let wakeSignalResolve: (() => void) | null = null;
@@ -393,6 +415,29 @@ export async function runCommand(
     wakeRequested = true;
     wakePromptPending = true;
     wakeSignalResolve?.();
+  };
+
+  const requestStop = (): { stopping: boolean; alreadyStopping?: boolean } => {
+    if (stopRequested) return { stopping: true, alreadyStopping: true };
+    stopRequested = true;
+    hibernateRequested = false;
+    runtime.runtimeState = 'stopping';
+    persistRuntimeState();
+    if (hibernateTimer) {
+      clearTimeout(hibernateTimer);
+      hibernateTimer = null;
+    }
+    if (hibernated) {
+      wakeRequested = true;
+      wakeSignalResolve?.();
+    } else {
+      ptyWriteRef.current = null;
+      ptyResizeRef.current = null;
+      setImmediate(() => {
+        ptyKillRef.current?.(process.platform === 'win32' ? undefined : 'SIGTERM');
+      });
+    }
+    return { stopping: true };
   };
 
   const waitForWake = async (): Promise<void> => {
@@ -554,7 +599,8 @@ export async function runCommand(
       wakePromptPending = false;
       if (marker) inputWatcher?.track(marker, submitValue, deliveryId, overrides);
     },
-    waitForHarnessReady
+    waitForHarnessReady,
+    options?.detached === true ? requestStop : undefined
   );
   controllerRef = controller;
   controller.setStripMouseTracking(!mousePassthrough);
@@ -615,6 +661,7 @@ export async function runCommand(
   controller.setActivityDiagnosticsProvider(getActivitySnapshot);
   const canHibernate = (): boolean =>
     hibernationEnabled &&
+    !stopRequested &&
     !hibernated &&
     !hibernateRequested &&
     isAgentIdle() &&
@@ -811,6 +858,9 @@ export async function runCommand(
       runtime.harnessPid = pty.pid;
       runtime.runtimeState = 'running';
       persistRuntimeState();
+      if (stopRequested) {
+        setImmediate(() => pty.kill(process.platform === 'win32' ? undefined : 'SIGTERM'));
+      }
       const desiredSize = controller.getTerminalSize();
       pty.requestExternalResize(desiredSize.cols, desiredSize.rows);
       // Record the PID used for liveness pruning. For a detached runtime the
@@ -863,6 +913,7 @@ export async function runCommand(
   }
 
   let outputRenderQueue: Promise<void> = Promise.resolve();
+  let workspaceTrustAccepted = false;
   let presentationCutoffQueue: Promise<void> | null = null;
   let presentationCutoffGeneration: number | null = null;
   let presentationReleasePromise: Promise<void> | null = null;
@@ -888,6 +939,12 @@ export async function runCommand(
       }
       controller.feedOutput(chunk);
       await controller.flushViewport();
+      if (options?.bypass && !workspaceTrustAccepted && ptyWriteRef.current) {
+        if (isWorkspaceTrustPromptVisible(harnessType, controller.getLiveViewportLines())) {
+          workspaceTrustAccepted = true;
+          ptyWriteRef.current('\r');
+        }
+      }
       if (readySignal && readyPattern) {
         const viewport = controller.getLiveViewportState();
         if (viewportShowsReady(viewport.lines, readyPattern)) markReady('pattern');
@@ -921,6 +978,7 @@ export async function runCommand(
     let keepRunning = true;
     let exitCode = 0;
     while (keepRunning) {
+      workspaceTrustAccepted = false;
       const diagnostics = diagnosticsEnabled ? RuntimeDiagnostics.start(sessionKey) : null;
       activeDiagnostics = diagnostics;
       if (usePty) beginReadyGate();
@@ -1026,6 +1084,10 @@ export async function runCommand(
       runtime.runtimeState = 'hibernated';
       persistRuntimeState();
       await waitForWake();
+      if (stopRequested) {
+        keepRunning = false;
+        continue;
+      }
       await controller.resetLivePresentation('');
       if (!options?.detached && process.stdout.isTTY) {
         process.stdout.write(LIVE_PRESENTATION_RESET);

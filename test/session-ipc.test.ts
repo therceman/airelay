@@ -88,7 +88,7 @@ describe('controller protocol parity', () => {
   });
 
   it('accepts the current protocol', () => {
-    const result = checkProtocolParity(2);
+    const result = checkProtocolParity(3);
     expect(result).toEqual({ ok: true, warnings: [] });
   });
 });

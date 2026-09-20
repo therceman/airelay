@@ -309,11 +309,12 @@ describe('promptCommand', () => {
       const exitCodePromise = promptCommand('testprofile_1234', 'hello');
 
       const err = new Error('IPC request timed out');
-      await emitRetryableErrorTwice(err);
+      await emitError(err);
 
       const exitCode = await exitCodePromise;
       expect(exitCode).toBe(1);
       expect(console.error).toHaveBeenCalledWith(expect.stringContaining('timeout'));
+      expect(mockSocketInstances).toHaveLength(1);
     });
 
     it('handles invalid IPC response (non-JSON)', async () => {

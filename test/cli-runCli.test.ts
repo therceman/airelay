@@ -111,6 +111,7 @@ describe('runCli', () => {
     expect(output).toContain('airelay - Cross-platform CLI');
     expect(output).toContain('Usage:');
     expect(output).toContain('Commands:');
+    expect(output).toContain('stop <key|runtime-id>');
     expect(output).toContain('help');
     expect(output).toContain('guide');
     expect(process.exit).not.toHaveBeenCalled();
@@ -204,6 +205,45 @@ describe('runCli', () => {
           'codex2',
           '--key',
           'airelay_master',
+          '--',
+          'resume',
+          'native-session',
+        ],
+      })
+    );
+  });
+
+  it('passes explicit bypass to start and keeps it as an Airelay launch option', async () => {
+    process.argv = [
+      'node',
+      'cli.js',
+      'start',
+      'codex',
+      '--bypass',
+      '--key',
+      'worker',
+      '--detached',
+      '--',
+      'resume',
+      'native-session',
+    ];
+    await runCli();
+
+    const { startCommand } = require('../src/commands/start');
+    expect(startCommand).toHaveBeenCalledWith(
+      'codex',
+      ['resume', 'native-session'],
+      expect.objectContaining({
+        key: 'worker',
+        bypass: true,
+        detached: true,
+        launchArgv: [
+          'start',
+          'codex',
+          '--bypass',
+          '--key',
+          'worker',
+          '--detached',
           '--',
           'resume',
           'native-session',
@@ -474,6 +514,26 @@ describe('parseArgs', () => {
     expect(result.extraArgs).toEqual(['resume', 'session-id']);
   });
 
+  it('parses --bypass for foreground and detached start, but not after --', () => {
+    const start = parseArgs([
+      'node',
+      'airelay',
+      'start',
+      'codex',
+      '--bypass',
+      '--key',
+      'worker',
+      '--detached',
+      '--',
+      '--bypass',
+    ]);
+    expect(start.flags.bypass).toBe(true);
+    expect(start.extraArgs).toEqual(['--bypass']);
+
+    const detached = parseArgs(['node', 'airelay', '__detach-run', 'devin', '--bypass']);
+    expect(detached.flags.bypass).toBe(true);
+  });
+
   it('rejects an invalid harness self-update value', () => {
     const result = parseArgs(['node', 'airelay', 'start', 'codex2', '--harness-self-update', 'no']);
     expect(result.flags._error).toBe('--harness-self-update requires true or false.');
@@ -503,6 +563,12 @@ describe('parseArgs', () => {
     expect(result.profile).toBe('myprof');
     expect(result.flags.key).toBeUndefined();
     expect(result.extraArgs).toEqual(['--key', 'test', 'arg1']);
+  });
+
+  it('run does not reinterpret --bypass as an Airelay start flag', () => {
+    const result = parseArgs(['node', 'airelay', 'run', 'devin', '--bypass']);
+    expect(result.flags.bypass).toBeUndefined();
+    expect(result.extraArgs).toEqual(['--bypass']);
   });
 
   it('start --key missing value before -- returns error flag', () => {

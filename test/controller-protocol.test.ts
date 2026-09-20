@@ -71,6 +71,11 @@ describe('parseRequest', () => {
     expect(req).toEqual({ id: 'req-int', method: 'session.interrupt', params: {} });
   });
 
+  it('parses a valid session.stop request', () => {
+    const req = parseRequest('{"id":"req-stop","method":"session.stop"}');
+    expect(req).toEqual({ id: 'req-stop', method: 'session.stop', params: {} });
+  });
+
   it('defaults params to empty object when omitted', () => {
     const req = parseRequest('{"id":"req-5","method":"ping"}');
     expect(req.params).toEqual({});

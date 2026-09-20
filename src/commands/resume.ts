@@ -219,6 +219,10 @@ function getHarnessArgs(entry: LaunchHistoryEntry): string[] {
       index += 1;
       continue;
     }
+    if (entry.argv[index] === '--bypass') {
+      index += 1;
+      continue;
+    }
     return entry.argv.slice(index);
   }
 

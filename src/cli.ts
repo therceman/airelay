@@ -39,6 +39,7 @@ const KNOWN_COMMANDS = [
   'history',
   'transcript',
   'interrupt',
+  'stop',
   'attach',
   'detached',
   '__detach-run',
@@ -110,6 +111,11 @@ function parseArgs(argv: string[]): ParseResult {
     // Otherwise they would leak into the harness args.
     if (command === 'start' && arg === '--detached') {
       flags.detached = true;
+      i++;
+      continue;
+    }
+    if ((command === 'start' || command === '__detach-run') && arg === '--bypass') {
+      flags.bypass = true;
       i++;
       continue;
     }
@@ -189,22 +195,17 @@ function parseArgs(argv: string[]): ParseResult {
   };
 }
 
-function removeHarnessSelfUpdateFlag(argv: string[]): string[] {
-  const sanitized: string[] = [];
-  let harnessArgs = false;
-  for (let index = 0; index < argv.length; index++) {
-    if (argv[index] === '--') {
-      harnessArgs = true;
-      sanitized.push(argv[index]);
-      continue;
-    }
-    if (!harnessArgs && argv[index] === '--harness-self-update') {
-      index += 1;
-      continue;
-    }
-    sanitized.push(argv[index]);
-  }
-  return sanitized;
+function buildStartLaunchArgv(
+  profile: string,
+  flags: Record<string, string | boolean>,
+  extraArgs: string[]
+): string[] {
+  const launchArgv = ['start', profile];
+  if (flags.bypass === true) launchArgv.push('--bypass');
+  if (typeof flags.key === 'string') launchArgv.push('--key', flags.key);
+  if (flags.detached === true) launchArgv.push('--detached');
+  if (extraArgs.length > 0) launchArgv.push('--', ...extraArgs);
+  return launchArgv;
 }
 
 function showHelp(): void {
@@ -219,7 +220,7 @@ Commands:
   create <name>         Create a new profile
   new                   Create a new profile (interactive)
   resume [key]          Resume a session by selecting launch history or by key
-  start <profile>       Start a new session (--key <key>, --detached, --harness-self-update <bool>, -- <harness_args>)
+  start <profile>       Start a new session (--bypass, --key <key>, --detached, --harness-self-update <bool>, -- <harness_args>)
   list                  List all profiles
   which <profile>       Show resolved runtime details
   doctor [profile]      Run diagnostics
@@ -237,6 +238,7 @@ Commands:
   status [key]           Show runtime, process, memory, and activity status
   session-debug <key>   Show latest persistent PTY/resume diagnostics
   interrupt <key>       Interrupt the active turn without destroying the session
+  stop <key|runtime-id> Stop a detached runtime and its harness
   session-find <key>    Search current visible session output for pattern
   tail <key>            Show the last session output lines
   heartbeat <session>   Send periodic heartbeat to a session
@@ -301,6 +303,7 @@ Prompt options:
 
 Start options:
   --key <key>              Custom session key (overrides auto-generated key)
+  --bypass                 Explicitly bypass harness permissions and auto-confirm its exact workspace trust screen (Codex/Devin only; dangerous)
   --detached               Launch a supervised detached runtime (survives launcher exit)
 
 Session options:
@@ -355,7 +358,7 @@ async function runCli(): Promise<void> {
         if (!profile) {
           console.error('Error: Profile name required');
           console.error(
-            'Usage: airelay start <profile> [--key <key>] [--detached] [--harness-self-update <bool>] [-- <harness_args...>]'
+            'Usage: airelay start <profile> [--bypass] [--key <key>] [--detached] [--harness-self-update <bool>] [-- <harness_args...>]'
           );
           process.exit(1);
         }
@@ -381,10 +384,11 @@ async function runCli(): Promise<void> {
           await startCommand(profile, extraArgs, {
             key: sessionKey,
             detached: flags.detached === true,
+            bypass: flags.bypass === true,
             harnessSelfUpdate:
               typeof flags.harnessSelfUpdate === 'boolean' ? flags.harnessSelfUpdate : undefined,
             invocationCwd: process.cwd(),
-            launchArgv: removeHarnessSelfUpdateFlag(process.argv.slice(2)),
+            launchArgv: buildStartLaunchArgv(profile, flags, extraArgs),
           });
         }
         break;
@@ -400,6 +404,7 @@ async function runCli(): Promise<void> {
           const sessionKey = flags.key as string | boolean | undefined;
           const exitCode = await detachedRuntimeMain(profile, extraArgs, {
             key: typeof sessionKey === 'string' && sessionKey.trim() ? sessionKey : undefined,
+            bypass: flags.bypass === true,
             harnessSelfUpdate:
               typeof flags.harnessSelfUpdate === 'boolean' ? flags.harnessSelfUpdate : undefined,
           });
@@ -416,6 +421,19 @@ async function runCli(): Promise<void> {
         {
           const { attachCommand } = await import('./commands/attach');
           const exitCode = await attachCommand(profile);
+          process.exit(exitCode);
+        }
+        break;
+
+      case 'stop':
+        if (!profile) {
+          console.error('Error: Detached session key or runtime ID required');
+          console.error('Usage: airelay stop <key|runtime-id>');
+          process.exit(1);
+        }
+        {
+          const { stopCommand } = await import('./commands/stop');
+          const exitCode = await stopCommand(profile);
           process.exit(exitCode);
         }
         break;
