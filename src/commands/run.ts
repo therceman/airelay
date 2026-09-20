@@ -41,6 +41,7 @@ import { PostSubmitWorkingDetector } from '../runtime/post-submit-working';
 import { ActivityTracker } from '../runtime/activity';
 import { RuntimeDiagnostics, type HarnessReadyReason } from '../runtime/diagnostics';
 import { createControllerReveal, ResumePresentationGate } from '../runtime/resume-presentation';
+import { TerminalQueryReplyTracker } from '../runtime/terminal-query';
 import { READY_INPUT_FAIL_OPEN_MS, viewportShowsReady } from '../runtime/harness-ready';
 import { MOUSE_TRACKING_RESET, stripMouseTrackingSequences } from '../runtime/mouse-filter';
 
@@ -156,14 +157,19 @@ function setupController(
   onActivity?: () => void,
   onInputPrepared?: (deliveryId: string, marker: string, submitValue: string) => void,
   waitForHarnessReady?: () => Promise<void>,
-  onStopRequested?: () => { stopping: boolean; alreadyStopping?: boolean }
+  onStopRequested?: () => { stopping: boolean; alreadyStopping?: boolean },
+  filterRawInput?: (data: string) => string
 ) {
   const controller = new SessionController(sessionKey);
   controller.setDeliveryStatusProvider(() => deliveryTracker.get());
 
   controller.onRequest(async (request) => {
     if (request.method === 'session.input.raw') {
-      const data = (request.params as { data?: string })?.data ?? '';
+      const input = (request.params as { data?: string })?.data ?? '';
+      const data = filterRawInput?.(input) ?? input;
+      if (input.length > 0 && data.length === 0) {
+        return { delivered: false, raw: true, ignored: 'unsolicited-terminal-reply' };
+      }
       if (!ptyWrite.current) {
         if (!isWakeKeyInput(data)) {
           return { delivered: false, waking: false, ignored: 'non-key-input' };
@@ -329,6 +335,7 @@ export async function runCommand(
   };
   const ptyKillRef: { current: ((signal?: string) => void) | null } = { current: null };
   const activity = new ActivityTracker();
+  const terminalQueryReplies = new TerminalQueryReplyTracker();
   const usePty = options?.usePty === true;
   const detectedProfileSessionId = options?.profileSessionId || detectResumeSessionId(args);
   const hibernationEnabled =
@@ -600,7 +607,8 @@ export async function runCommand(
       if (marker) inputWatcher?.track(marker, submitValue, deliveryId, overrides);
     },
     waitForHarnessReady,
-    options?.detached === true ? requestStop : undefined
+    options?.detached === true ? requestStop : undefined,
+    (data) => terminalQueryReplies.filterInput(data)
   );
   controllerRef = controller;
   controller.setStripMouseTracking(!mousePassthrough);
@@ -927,6 +935,7 @@ export async function runCommand(
   // Serialize xterm writes so each delivery observation sees the frame produced
   // by the current PTY chunk, not a stale or later frame.
   spawnOpts.onOutput = (chunk: string) => {
+    terminalQueryReplies.observeOutput(chunk);
     if (chunk.trim().length > 0) {
       activity.noteOutput();
       resetHibernateTimer();
@@ -978,6 +987,7 @@ export async function runCommand(
     let keepRunning = true;
     let exitCode = 0;
     while (keepRunning) {
+      terminalQueryReplies.reset();
       workspaceTrustAccepted = false;
       const diagnostics = diagnosticsEnabled ? RuntimeDiagnostics.start(sessionKey) : null;
       activeDiagnostics = diagnostics;

@@ -35,9 +35,11 @@ process.stdin.on('data',function(d){
   if(s.indexOf('\\u0003')>=0){process.stdout.write('BYE');setTimeout(function(){process.exit(0);},50);return;}
   if(s.indexOf('SIZE')>=0){process.stdout.write('SIZE:'+process.stdout.columns+','+process.stdout.rows+'\\n');return;}
   if(s.indexOf('ANSI')>=0){process.stdout.write('\\u001b[31mANSI-OUT\\u001b[0m');return;}
+  if(s.indexOf('PROBE')>=0){process.stdout.write('\\u001b]10;?\\u001b\\\\PROBE_READY\\n');return;}
+  if(s.indexOf('\\u001b]10;rgb:')>=0){process.stdout.write('TERMINAL_REPLY_RECEIVED\\n');return;}
   process.stdout.write('E:'+JSON.stringify(s)+'\\n');
 });
-process.stdout.write('READY\\n');`;
+process.stdout.write('\\u001b]10;?\\u001b\\\\READY\\n');`;
 
 let built = false;
 function ensureBuilt(): void {
@@ -283,6 +285,43 @@ describe('detached lifecycle, attach, prompt routing (E2E)', () => {
     await viewportContains(runtime.controllerEndpoint, 'E:"SYNC"', 4000);
     const elapsed = Date.now() - tBefore;
     expect(elapsed).toBeLessThan(4000);
+    stdin.emit(Buffer.from([0x04]));
+    expect(await attach).toBe(0);
+  });
+
+  it('drops stale replayed terminal replies but forwards a reply to a live query', async () => {
+    const stdin = new StdinSource();
+    const res = new ResizeSource();
+    const terminalReply = '\x1b]10;rgb:cccc/cccc/cccc\x1b\\';
+    let repliedToLiveQuery = false;
+    const attach = attachFor(runtime, stdin, res, {
+      renderOverride: (chunk) => {
+        if (!repliedToLiveQuery && chunk.includes('PROBE_READY')) {
+          repliedToLiveQuery = true;
+          stdin.emit(Buffer.from(terminalReply));
+        }
+        return true;
+      },
+    });
+    await sleep(150);
+
+    // The startup query is now only present in the rawRing bootstrap. Its
+    // terminal response must not become literal input in the already-started
+    // harness.
+    stdin.emit(Buffer.from(terminalReply));
+    await sleep(100);
+    expect(await viewportContains(runtime.controllerEndpoint, 'TERMINAL_REPLY_RECEIVED', 100)).toBe(
+      false
+    );
+
+    // A query emitted after attach is live and its exact response still reaches
+    // the harness through the same raw-input IPC path.
+    await rawWrite(runtime.controllerEndpoint, 'PROBE');
+    expect(await waitFor(() => repliedToLiveQuery, 1000, 10)).toBe(true);
+    expect(
+      await viewportContains(runtime.controllerEndpoint, 'TERMINAL_REPLY_RECEIVED', 1000)
+    ).toBe(true);
+
     stdin.emit(Buffer.from([0x04]));
     expect(await attach).toBe(0);
   });

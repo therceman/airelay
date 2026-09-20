@@ -3,6 +3,10 @@ import { findSessionByKey, pruneStaleSessions } from './sessions';
 import { getIpcEndpointPath } from '../utils/ipc-path';
 import { preflightVersionCheck } from './session-ipc';
 import { readLines } from '../controller/protocol';
+import {
+  classifyTerminalQueryReply,
+  MAX_TERMINAL_QUERY_REPLY_LENGTH,
+} from '../runtime/terminal-query';
 
 const CTRL_C = 0x03;
 const CTRL_D = 0x04;
@@ -24,6 +28,19 @@ const isPlainNavigationSequence = (sequence: AttachBuffer): boolean => {
   return PLAIN_CSI_PATTERN.test(value) || PLAIN_SS3_PATTERN.test(value);
 };
 
+function findOscTerminator(
+  input: AttachBuffer,
+  start: number
+): { end: number; length: number } | undefined {
+  for (let index = start + 2; index < input.length; index += 1) {
+    if (input[index] === 0x07) return { end: index, length: 1 };
+    if (input[index] === 0x1b && input[index + 1] === 0x5c) {
+      return { end: index, length: 2 };
+    }
+  }
+  return undefined;
+}
+
 export interface AttachInputFilterResult {
   data: AttachBuffer;
   pendingEscape: AttachBuffer;
@@ -31,8 +48,8 @@ export interface AttachInputFilterResult {
 
 /**
  * Remove unambiguous control/modifier combinations while preserving ordinary
- * terminal input. The one-byte pending buffer lets a split plain escape
- * sequence be classified without a timer or an unbounded queue.
+ * terminal input. The bounded pending buffer lets split key and terminal-reply
+ * sequences be classified without a timer or unbounded queue.
  */
 export function filterAttachInput(
   chunk: AttachBuffer,
@@ -52,6 +69,30 @@ export function filterAttachInput(
       }
 
       const introducer = input[index + 1];
+      if (introducer === 0x5d) {
+        const terminator = findOscTerminator(input, index);
+        if (!terminator) {
+          if (input.length - index <= MAX_ESCAPE_SEQUENCE_BYTES) {
+            nextPending = Buffer.from(input.subarray(index));
+          }
+          // An overlong incomplete OSC is ambiguous; discard its remaining
+          // chunk rather than allowing its printable payload into the harness.
+          break;
+        }
+
+        const end = terminator.end + terminator.length;
+        const sequence = input.subarray(index, end);
+        if (
+          sequence.length <= MAX_TERMINAL_QUERY_REPLY_LENGTH &&
+          classifyTerminalQueryReply(sequence.toString('latin1'))
+        ) {
+          output.push(...sequence);
+        }
+        // Other OSC input is not keyboard input and remains filtered.
+        index = end;
+        continue;
+      }
+
       if (introducer !== 0x5b && introducer !== 0x4f) {
         // ESC followed by a printable byte is Alt/Meta input, not two keys.
         index += 2;
@@ -84,7 +125,10 @@ export function filterAttachInput(
       }
 
       const sequence = input.subarray(index, end + 1);
-      if (isPlainNavigationSequence(sequence)) {
+      if (
+        isPlainNavigationSequence(sequence) ||
+        classifyTerminalQueryReply(sequence.toString('latin1'))
+      ) {
         output.push(...sequence);
       }
       index = end + 1;

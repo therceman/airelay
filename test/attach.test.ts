@@ -321,6 +321,32 @@ describe('AttachClient stream behavior', () => {
     expect(t.raw).toEqual(['\x1b[A', 'ok']);
   });
 
+  it('preserves complete terminal replies instead of leaking OSC payload as text', async () => {
+    const t = new FakeTransport();
+    const { client } = makeClient(t);
+    client.start();
+    const oscReply = '\x1b]10;rgb:cccc/cccc/cccc\x1b\\';
+
+    await client.writeRaw(Buffer.from(oscReply.slice(0, 12)));
+    expect(t.raw).toEqual([]);
+    await client.writeRaw(Buffer.from(oscReply.slice(12)));
+    await client.writeRaw(Buffer.from('\x1b[12;34R\x1b[?1;2c\x1b[?1u'));
+
+    expect(t.raw).toEqual([oscReply, '\x1b[12;34R\x1b[?1;2c\x1b[?1u']);
+  });
+
+  it('drops unrelated and overlong OSC input without retaining an unbounded prefix', async () => {
+    const t = new FakeTransport();
+    const { client } = makeClient(t);
+    client.start();
+
+    await client.writeRaw(Buffer.from('\x1b]0;terminal title\x07'));
+    await client.writeRaw(Buffer.from(`\x1b]10;rgb:${'a'.repeat(64)}`));
+    await client.writeRaw(Buffer.from('ordinary'));
+
+    expect(t.raw).toEqual(['ordinary']);
+  });
+
   it('stream chunks are rendered verbatim and in order, without clear/redraw injection', async () => {
     const t = new FakeTransport();
     const { client } = makeClient(t);
