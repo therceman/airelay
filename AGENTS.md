@@ -85,6 +85,11 @@ Env vars with path-like values (`HOME`, `XDG_*`, `*_HOME`, `*_CONFIG_DIR`) get `
 
 ## Code Quality Rules
 
+- **Code map**: Before completing every task, compare the final diff with
+  `docs/CODE-MAP.md`. Update the map when the task changes module ownership,
+  major dependency/lifecycle flows, or the change-to-test guidance. If none of
+  those changed, leave the map untouched and note that it was reviewed; do not
+  add implementation-detail churn.
 - **DRY**: Extract repeated logic to `src/utils/` (e.g., `yaml.ts` for profile serialization)
 - **Error messages**: Include actionable suggestions (available profiles, commands to run)
 - **Tests**: Cover commands, runtime utils, and edge cases; use temp directories for file I/O
