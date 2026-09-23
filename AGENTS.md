@@ -25,6 +25,8 @@ verification requires re-evaluation of affected gates.
 ## Architecture
 
 - Entry: `src/index.ts` → `src/cli.ts:runCli()`
+- Detailed source ownership, dependency flow, lifecycle paths, and change-to-test map:
+  [docs/CODE-MAP.md](docs/CODE-MAP.md)
 - Commands:
   - TUI: `src/commands/select.ts` (main menu: Resume/Start/Create)
   - CLI: `src/commands/{run,list,which,doctor,init,create,resume,start,new}.ts`
