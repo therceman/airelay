@@ -199,6 +199,25 @@ export function updateLaunchHistorySession(
   return true;
 }
 
+/** Replace one launch row's full argv while preserving its stable row identity. */
+export function updateLaunchHistoryArgv(
+  id: string,
+  invocationCwd: string,
+  argv: string[]
+): boolean {
+  const currentCwd = path.resolve(invocationCwd);
+  const history = loadHistory();
+  const entry = history.find(
+    (candidate) => candidate.id === id && path.resolve(candidate.invocationCwd) === currentCwd
+  );
+  if (!entry) return false;
+
+  entry.argv = [...argv];
+  entry.command = renderLaunchCommand(entry.argv);
+  store.save(history);
+  return true;
+}
+
 export function removeLaunchHistory(sessionKey: string, invocationCwd = process.cwd()): number {
   const currentCwd = path.resolve(invocationCwd);
   const history = loadHistory();

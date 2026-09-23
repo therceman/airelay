@@ -251,6 +251,14 @@ export function applyHarnessBypass(harness: HarnessType, args: string[]): string
   const capabilities = HARNESS_CAPABILITIES[harness];
   if (!capabilities?.bypassArgs) return undefined;
 
+  return [...capabilities.bypassArgs, ...removeHarnessBypass(harness, args)];
+}
+
+/** Remove the permission option family owned by the harness bypass setting. */
+export function removeHarnessBypass(harness: HarnessType, args: string[]): string[] {
+  const capabilities = HARNESS_CAPABILITIES[harness];
+  if (!capabilities?.bypassArgs) return [...args];
+
   const overrides = new Set(capabilities.bypassOverrides || []);
   const remaining: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
@@ -270,7 +278,21 @@ export function applyHarnessBypass(harness: HarnessType, args: string[]): string
     }
   }
 
-  return [...capabilities.bypassArgs, ...remaining];
+  return remaining;
+}
+
+/** Detect the provider-native arguments that express Airelay's bypass mode. */
+export function hasHarnessBypass(harness: HarnessType, args: string[]): boolean {
+  const expected = HARNESS_CAPABILITIES[harness]?.bypassArgs;
+  if (!expected || expected.length === 0) return false;
+
+  return args.some((arg, index) => {
+    if (expected.length === 1) return arg === expected[0];
+    if (arg === expected[0]) {
+      return expected.slice(1).every((value, offset) => args[index + 1 + offset] === value);
+    }
+    return arg === `${expected[0]}=${expected[1]}`;
+  });
 }
 
 /** Only confirm a trust screen when its question, selected Yes, No option and instructions agree. */

@@ -12,11 +12,17 @@ import {
   LaunchHistoryEntry,
   markLaunchHistoryUsed,
   removeLaunchHistoryEntry,
+  updateLaunchHistoryArgv,
   updateLaunchHistorySession,
 } from './history';
 import Enquirer from 'enquirer';
 import path from 'path';
-import { detectHarness } from '../utils/harness';
+import {
+  applyHarnessBypass,
+  detectHarness,
+  hasHarnessBypass,
+  removeHarnessBypass,
+} from '../utils/harness';
 import { withAirelayPromptSymbols } from '../utils/enquirer';
 
 /**
@@ -76,7 +82,11 @@ async function rejectActiveSession(profile: string, profileSessionId: string): P
   return true;
 }
 
-async function resumeSession(profile: string, session: SessionEntry): Promise<number> {
+async function resumeSession(
+  profile: string,
+  session: SessionEntry,
+  bypass = false
+): Promise<number> {
   const resumeArgs =
     session.profileArgs && session.profileArgs.length > 0
       ? session.profileArgs
@@ -95,6 +105,7 @@ async function resumeSession(profile: string, session: SessionEntry): Promise<nu
     profileSessionId: session.profileSessionId,
     profileArgs: session.profileArgs,
     usePty: true,
+    bypass,
   });
 }
 
@@ -117,6 +128,51 @@ export function getSameHarnessProfiles(profile: string): string[] {
 interface ResumeSelection {
   profile: string;
   sessionId?: string;
+  bypass: boolean;
+}
+
+function getHistoryBypass(entry: LaunchHistoryEntry, profile: string): boolean {
+  const separatorIndex = entry.argv.indexOf('--');
+  const airelayArgs = entry.argv.slice(2, separatorIndex === -1 ? undefined : separatorIndex);
+  const harness = detectHarness(loadConfig().profiles[profile]?.executable || '');
+  return airelayArgs.includes('--bypass') || hasHarnessBypass(harness, getHarnessArgs(entry));
+}
+
+function getHistoryAirelayArgs(entry: LaunchHistoryEntry): string[] {
+  const separatorIndex = entry.argv.indexOf('--');
+  if (separatorIndex !== -1) return entry.argv.slice(0, separatorIndex);
+
+  const prefix = entry.argv.slice(0, 2);
+  let index = 2;
+  while (index < entry.argv.length) {
+    if (entry.argv[index] === '--key' && index + 1 < entry.argv.length) {
+      prefix.push(entry.argv[index], entry.argv[index + 1]);
+      index += 2;
+    } else if (entry.argv[index] === '--detached' || entry.argv[index] === '--bypass') {
+      prefix.push(entry.argv[index]);
+      index += 1;
+    } else {
+      break;
+    }
+  }
+  return prefix;
+}
+
+function setHistoryBypass(
+  entry: LaunchHistoryEntry,
+  profile: string,
+  enabled: boolean
+): string[] | undefined {
+  if (entry.argv[0] !== 'start') return undefined;
+
+  const prefix = getHistoryAirelayArgs(entry).filter((argument, index) => {
+    return !(index >= 2 && argument === '--bypass');
+  });
+  const harness = detectHarness(loadConfig().profiles[profile]?.executable || '');
+  const argsWithoutBypass = removeHarnessBypass(harness, getHarnessArgs(entry));
+
+  if (enabled) prefix.splice(2, 0, '--bypass');
+  return [...prefix, ...(argsWithoutBypass.length > 0 ? ['--', ...argsWithoutBypass] : [])];
 }
 
 async function chooseResumeProfile(
@@ -125,27 +181,55 @@ async function chooseResumeProfile(
   profileSessionId?: string
 ): Promise<ResumeSelection | undefined> {
   const alternativeProfiles = getSameHarnessProfiles(profile);
+  let bypass = entry ? getHistoryBypass(entry, profile) : false;
+  const harness = detectHarness(loadConfig().profiles[profile]?.executable || '');
+  const canToggleBypass = entry !== undefined && applyHarnessBypass(harness, []) !== undefined;
+  let actionResult: { resumeAction: string };
+  do {
+    actionResult = (await Enquirer.prompt(
+      withAirelayPromptSymbols({
+        type: 'select',
+        name: 'resumeAction',
+        message: 'Select how to resume this session',
+        choices: [
+          { name: 'launch', message: 'Launch' },
+          ...(alternativeProfiles.length > 0
+            ? [{ name: 'switchProfile', message: 'Use another profile (same harness)' }]
+            : []),
+          ...(canToggleBypass
+            ? [
+                {
+                  name: 'toggleBypass',
+                  message: bypass
+                    ? 'Disable bypass mode for future resumes'
+                    : 'Enable bypass mode for future resumes',
+                },
+              ]
+            : []),
+          ...(entry && profileSessionId
+            ? [{ name: 'changeSession', message: 'Change Session' }]
+            : []),
+          ...(entry ? [{ name: 'remove', message: 'Remove history entry' }] : []),
+        ],
+        initial: 0,
+      })
+    )) as { resumeAction: string };
 
-  const actionResult = (await Enquirer.prompt(
-    withAirelayPromptSymbols({
-      type: 'select',
-      name: 'resumeAction',
-      message: 'Select how to resume this session',
-      choices: [
-        { name: 'launch', message: 'Launch' },
-        ...(alternativeProfiles.length > 0
-          ? [{ name: 'switchProfile', message: 'Use another profile (same harness)' }]
-          : []),
-        ...(entry && profileSessionId
-          ? [{ name: 'changeSession', message: 'Change Session' }]
-          : []),
-        ...(entry ? [{ name: 'remove', message: 'Remove history entry' }] : []),
-      ],
-      initial: 0,
-    })
-  )) as { resumeAction: string };
+    if (actionResult.resumeAction === 'toggleBypass' && entry) {
+      const nextBypass = !bypass;
+      const updatedArgv = setHistoryBypass(entry, profile, nextBypass);
+      if (!updatedArgv || !updateLaunchHistoryArgv(entry.id, entry.invocationCwd, updatedArgv)) {
+        console.error('Error: Could not update bypass mode for this history entry.');
+        return undefined;
+      }
+      entry.argv = updatedArgv;
+      bypass = nextBypass;
+      console.log(`Bypass mode ${bypass ? 'enabled' : 'disabled'} for future resumes.`);
+    }
+  } while (actionResult.resumeAction === 'toggleBypass' && entry !== undefined);
+  const action = actionResult.resumeAction;
 
-  if (actionResult.resumeAction === 'remove' && entry) {
+  if (action === 'remove' && entry) {
     if (removeLaunchHistoryEntry(entry.id, entry.invocationCwd)) {
       console.log(`Removed history entry for key "${entry.sessionKey}".`);
     } else {
@@ -154,7 +238,7 @@ async function chooseResumeProfile(
     return undefined;
   }
 
-  if (actionResult.resumeAction === 'changeSession' && entry && profileSessionId) {
+  if (action === 'changeSession' && entry && profileSessionId) {
     const sessionResult = (await Enquirer.prompt(
       withAirelayPromptSymbols({
         type: 'input',
@@ -175,11 +259,11 @@ async function chooseResumeProfile(
     }
 
     console.log(`Changed session for key "${entry.sessionKey}" to "${sessionId}".`);
-    return { profile, sessionId };
+    return { profile, sessionId, bypass };
   }
 
-  if (actionResult.resumeAction !== 'switchProfile') {
-    return { profile };
+  if (action !== 'switchProfile') {
+    return { profile, bypass };
   }
 
   const profileResult = (await Enquirer.prompt(
@@ -195,10 +279,10 @@ async function chooseResumeProfile(
   if (!alternativeProfiles.includes(profileResult.profile)) {
     console.error('Error: Selected profile is not available for this session.');
     process.exit(1);
-    return { profile };
+    return { profile, bypass };
   }
 
-  return { profile: profileResult.profile };
+  return { profile: profileResult.profile, bypass };
 }
 
 function getHarnessArgs(entry: LaunchHistoryEntry): string[] {
@@ -420,6 +504,7 @@ async function resumeFromFolder(targetCwd = process.cwd()): Promise<void> {
   }
   const launchProfile = resumeSelection.profile;
   const launchSessionId = resumeSelection.sessionId ?? profileSessionId;
+  const launchProfileArgs = getHarnessArgs(selected);
   if (
     (await rejectActiveSession(selected.profile, launchSessionId)) ||
     (launchProfile !== selected.profile &&
@@ -429,18 +514,22 @@ async function resumeFromFolder(targetCwd = process.cwd()): Promise<void> {
     return;
   }
 
-  const exitCode = await resumeSession(launchProfile, {
-    id: launchSessionId,
-    profile: selected.profile,
-    lastUsed: getLastUsed(selected),
-    cwd: selected.invocationCwd,
-    sessionKey: selected.sessionKey,
-    profileSessionId: launchSessionId,
-    profileArgs: resumeSelection.sessionId
-      ? replaceResumeSessionId(profileArgs, launchSessionId)
-      : profileArgs,
-  });
   markResumeHistoryUsed(selected, launchProfile);
+  const exitCode = await resumeSession(
+    launchProfile,
+    {
+      id: launchSessionId,
+      profile: selected.profile,
+      lastUsed: getLastUsed(selected),
+      cwd: selected.invocationCwd,
+      sessionKey: selected.sessionKey,
+      profileSessionId: launchSessionId,
+      profileArgs: resumeSelection.sessionId
+        ? replaceResumeSessionId(launchProfileArgs, launchSessionId)
+        : launchProfileArgs,
+    },
+    resumeSelection.bypass
+  );
   process.exit(exitCode);
 }
 
@@ -504,16 +593,20 @@ export async function switchLastSessionProfile(targetCwd = process.cwd()): Promi
     return;
   }
 
-  const exitCode = await resumeSession(launchProfile, {
-    id: profileSessionId,
-    profile: selected.profile,
-    lastUsed: getLastUsed(selected),
-    cwd: selected.invocationCwd,
-    sessionKey: selected.sessionKey,
-    profileSessionId,
-    profileArgs,
-  });
   markResumeHistoryUsed(selected, launchProfile);
+  const exitCode = await resumeSession(
+    launchProfile,
+    {
+      id: profileSessionId,
+      profile: selected.profile,
+      lastUsed: getLastUsed(selected),
+      cwd: selected.invocationCwd,
+      sessionKey: selected.sessionKey,
+      profileSessionId,
+      profileArgs,
+    },
+    getHistoryBypass(selected, launchProfile)
+  );
   process.exit(exitCode);
 }
 

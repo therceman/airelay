@@ -24,6 +24,7 @@ jest.mock('../src/commands/history', () => ({
   getLaunchHistory: jest.fn(),
   markLaunchHistoryUsed: jest.fn(),
   removeLaunchHistoryEntry: jest.fn().mockReturnValue(true),
+  updateLaunchHistoryArgv: jest.fn().mockReturnValue(true),
   updateLaunchHistorySession: jest.fn().mockReturnValue(true),
 }));
 
@@ -45,6 +46,7 @@ import {
   getLaunchHistory,
   markLaunchHistoryUsed,
   removeLaunchHistoryEntry,
+  updateLaunchHistoryArgv,
   updateLaunchHistorySession,
 } from '../src/commands/history';
 import { loadConfig } from '../src/config/load';
@@ -377,7 +379,113 @@ describe('resumeCommand', () => {
       })
     );
     expect(markLaunchHistoryUsed).toHaveBeenCalledWith('newest-row');
+    expect((markLaunchHistoryUsed as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+      (runCommand as jest.Mock).mock.invocationCallOrder[0]
+    );
     jest.restoreAllMocks();
+  });
+
+  it('persists a bypass toggle and uses it for the selected history resume', async () => {
+    const currentCwd = process.cwd();
+    (loadConfig as jest.Mock).mockReturnValue({
+      profiles: { codex: { executable: 'codex' } },
+    });
+    (getLaunchHistory as jest.Mock).mockReturnValue([
+      {
+        id: 'codex-bypass-row',
+        profile: 'codex',
+        sessionKey: 'bb-tips_master',
+        invocationCwd: currentCwd,
+        startedAt: 100,
+        argv: [
+          'start',
+          'codex',
+          '--key',
+          'bb-tips_master',
+          '--',
+          'resume',
+          '01a0cca9-951c-73e3-a318-c279085a4e48',
+        ],
+      },
+    ]);
+    (Enquirer.prompt as jest.Mock)
+      .mockResolvedValueOnce({
+        historyEntry: 'codex (key: bb-tips_master, session: 01a0cca9-951c-73e3-a318-c279085a4e48)',
+      })
+      .mockResolvedValueOnce({ resumeAction: 'toggleBypass' })
+      .mockResolvedValueOnce({ resumeAction: 'launch' });
+
+    await resumeCommand();
+
+    expect(updateLaunchHistoryArgv).toHaveBeenCalledWith('codex-bypass-row', currentCwd, [
+      'start',
+      'codex',
+      '--bypass',
+      '--key',
+      'bb-tips_master',
+      '--',
+      'resume',
+      '01a0cca9-951c-73e3-a318-c279085a4e48',
+    ]);
+    expect((Enquirer.prompt as jest.Mock).mock.calls[2][0].choices).toContainEqual({
+      name: 'toggleBypass',
+      message: 'Disable bypass mode for future resumes',
+    });
+    expect(runCommand).toHaveBeenCalledWith(
+      'codex',
+      ['resume', '01a0cca9-951c-73e3-a318-c279085a4e48'],
+      expect.objectContaining({ bypass: true })
+    );
+  });
+
+  it('removes stored bypass settings when the resume menu toggles bypass off', async () => {
+    const currentCwd = process.cwd();
+    (loadConfig as jest.Mock).mockReturnValue({
+      profiles: { codex: { executable: 'codex' } },
+    });
+    (getLaunchHistory as jest.Mock).mockReturnValue([
+      {
+        id: 'codex-bypass-row',
+        profile: 'codex',
+        sessionKey: 'bb-tips_master',
+        invocationCwd: currentCwd,
+        startedAt: 100,
+        argv: [
+          'start',
+          'codex',
+          '--bypass',
+          '--key',
+          'bb-tips_master',
+          '--',
+          '--dangerously-bypass-approvals-and-sandbox',
+          'resume',
+          '01a0cca9-951c-73e3-a318-c279085a4e48',
+        ],
+      },
+    ]);
+    (Enquirer.prompt as jest.Mock)
+      .mockResolvedValueOnce({
+        historyEntry: 'codex (key: bb-tips_master, session: 01a0cca9-951c-73e3-a318-c279085a4e48)',
+      })
+      .mockResolvedValueOnce({ resumeAction: 'toggleBypass' })
+      .mockResolvedValueOnce({ resumeAction: 'launch' });
+
+    await resumeCommand();
+
+    expect(updateLaunchHistoryArgv).toHaveBeenCalledWith('codex-bypass-row', currentCwd, [
+      'start',
+      'codex',
+      '--key',
+      'bb-tips_master',
+      '--',
+      'resume',
+      '01a0cca9-951c-73e3-a318-c279085a4e48',
+    ]);
+    expect(runCommand).toHaveBeenCalledWith(
+      'codex',
+      ['resume', '01a0cca9-951c-73e3-a318-c279085a4e48'],
+      expect.objectContaining({ bypass: false })
+    );
   });
 
   it('reports when the selected session is already running', async () => {
@@ -423,6 +531,7 @@ describe('resumeCommand', () => {
     expect((Enquirer.prompt as jest.Mock).mock.calls[1][0].choices).toEqual([
       { name: 'launch', message: 'Launch' },
       { name: 'switchProfile', message: 'Use another profile (same harness)' },
+      { name: 'toggleBypass', message: 'Enable bypass mode for future resumes' },
       { name: 'changeSession', message: 'Change Session' },
       { name: 'remove', message: 'Remove history entry' },
     ]);
@@ -544,6 +653,7 @@ describe('resumeCommand', () => {
     expect(actionPrompt.choices).toEqual([
       { name: 'launch', message: 'Launch' },
       { name: 'switchProfile', message: 'Use another profile (same harness)' },
+      { name: 'toggleBypass', message: 'Disable bypass mode for future resumes' },
       { name: 'changeSession', message: 'Change Session' },
       { name: 'remove', message: 'Remove history entry' },
     ]);
@@ -602,6 +712,7 @@ describe('resumeCommand', () => {
 
     expect((Enquirer.prompt as jest.Mock).mock.calls[1][0].choices).toEqual([
       { name: 'launch', message: 'Launch' },
+      { name: 'toggleBypass', message: 'Enable bypass mode for future resumes' },
       { name: 'changeSession', message: 'Change Session' },
       { name: 'remove', message: 'Remove history entry' },
     ]);

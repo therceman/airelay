@@ -6,7 +6,9 @@ import {
   getResumeSessionArgs,
   getSessionArgExample,
   getSessionPatterns,
+  hasHarnessBypass,
   isWorkspaceTrustPromptVisible,
+  removeHarnessBypass,
 } from '../src/utils/harness';
 import { detectAvailableHarnesses } from '../src/utils/detect-harnesses';
 
@@ -63,6 +65,17 @@ describe('harness metadata', () => {
       applyHarnessBypass('devin', ['--permission-mode', 'smart', '--resume', 'session-id'])
     ).toEqual(['--permission-mode', 'bypass', '--resume', 'session-id']);
     expect(applyHarnessBypass('opencode', [])).toBeUndefined();
+  });
+
+  it('detects and removes harness-native bypass arguments', () => {
+    expect(hasHarnessBypass('codex', ['resume', 'session-id'])).toBe(false);
+    expect(hasHarnessBypass('codex', ['--dangerously-bypass-approvals-and-sandbox'])).toBe(true);
+    expect(
+      removeHarnessBypass('devin', ['--permission-mode', 'bypass', '--resume', 'session-id'])
+    ).toEqual(['--resume', 'session-id']);
+    expect(
+      removeHarnessBypass('devin', ['--permission-mode', 'smart', '--resume', 'session-id'])
+    ).toEqual(['--resume', 'session-id']);
   });
 
   it('accepts only complete trust screens with the affirmative choice selected', () => {

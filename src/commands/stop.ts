@@ -1,11 +1,19 @@
 import { randomUUID } from 'crypto';
+import type { DetachedRuntimeEntry } from '../runtime/detached-registry';
 import {
   checkProtocolParity,
   checkVersionParity,
   fetchControllerInfo,
   sendControllerRequest,
 } from './session-ipc';
-import { findDetachedBySessionKey, getDetachedEntry } from '../runtime/detached-registry';
+import {
+  findDetachedBySessionKey,
+  getDetachedEntry,
+  isEntryReachable,
+  isProcessAlive,
+  removeDetachedEntry,
+} from '../runtime/detached-registry';
+import { CONTROLLER_PROTOCOL_VERSION } from '../utils/version';
 
 const STOP_TIMEOUT_MS = 5000;
 const STOP_CONFIRM_TIMEOUT_MS = 5000;
@@ -18,6 +26,42 @@ async function waitForRegistryRemoval(runtimeId: string): Promise<boolean> {
     await new Promise((resolve) => setTimeout(resolve, STOP_POLL_INTERVAL_MS));
   }
   return !getDetachedEntry(runtimeId);
+}
+
+async function waitForLegacyRuntimeExit(entry: DetachedRuntimeEntry): Promise<boolean> {
+  const deadline = Date.now() + STOP_CONFIRM_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (!getDetachedEntry(entry.runtimeId)) return true;
+    if (!isProcessAlive(entry.runtimePid)) {
+      if (!(await isEntryReachable(entry))) removeDetachedEntry(entry.runtimeId);
+      return !getDetachedEntry(entry.runtimeId);
+    }
+    await new Promise((resolve) => setTimeout(resolve, STOP_POLL_INTERVAL_MS));
+  }
+  return !getDetachedEntry(entry.runtimeId);
+}
+
+async function stopLegacyRuntime(entry: DetachedRuntimeEntry): Promise<number> {
+  if (!isProcessAlive(entry.runtimePid)) {
+    if (!(await isEntryReachable(entry))) removeDetachedEntry(entry.runtimeId);
+    if (!getDetachedEntry(entry.runtimeId)) {
+      console.log(`Detached session ${entry.sessionKey} was already stopped.`);
+      return 0;
+    }
+    console.error(`Error: Detached runtime ${entry.sessionKey} is no longer running.`);
+    return 1;
+  }
+
+  process.kill(entry.runtimePid, 'SIGTERM');
+  if (!(await waitForLegacyRuntimeExit(entry))) {
+    console.error(
+      `Stop was sent, but detached runtime ${entry.sessionKey} has not exited after ${STOP_CONFIRM_TIMEOUT_MS}ms.`
+    );
+    return 1;
+  }
+
+  console.log(`Stopped detached session ${entry.sessionKey}.`);
+  return 0;
 }
 
 /** Request graceful shutdown of one identity-verified detached runtime. */
@@ -39,6 +83,13 @@ export async function stopCommand(sessionKeyOrRuntimeId: string): Promise<number
     ) {
       console.error('Error: Controller identity does not match the detached runtime registry.');
       return 1;
+    }
+
+    if (
+      info.controllerProtocolVersion !== undefined &&
+      info.controllerProtocolVersion < CONTROLLER_PROTOCOL_VERSION
+    ) {
+      return await stopLegacyRuntime(entry);
     }
 
     const protocolParity = checkProtocolParity(info.controllerProtocolVersion);

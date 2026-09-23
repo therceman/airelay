@@ -11,6 +11,7 @@ import {
   markLaunchHistoryUsed,
   finalizeLaunchHistoryEntry,
   updateLaunchHistorySession,
+  updateLaunchHistoryArgv,
 } from '../src/commands/history';
 import { runCommand } from '../src/commands/run';
 import { createTestConfig, useTestEnv } from './test-utils';
@@ -239,6 +240,35 @@ describe('launch history', () => {
         command: 'airelay start devin --key repodex_master -- --resume quickest-psychology',
       }),
     ]);
+  });
+
+  it('updates launch argv and rendered command for a selected history row', () => {
+    const entry = recordLaunchHistory({
+      profile: 'worker',
+      sessionKey: 'worker_key',
+      invocationCwd: process.cwd(),
+      argv: ['start', 'worker', '--key', 'worker_key', '--', 'resume', 'session-id'],
+      startedAt: 100,
+    });
+
+    expect(
+      updateLaunchHistoryArgv(entry.id, process.cwd(), [
+        'start',
+        'worker',
+        '--bypass',
+        '--key',
+        'worker_key',
+        '--',
+        'resume',
+        'session-id',
+      ])
+    ).toBe(true);
+
+    expect(getLaunchHistory()[0]).toMatchObject({
+      id: entry.id,
+      argv: ['start', 'worker', '--bypass', '--key', 'worker_key', '--', 'resume', 'session-id'],
+      command: 'airelay start worker --bypass --key worker_key -- resume session-id',
+    });
   });
 
   it('removes exact duplicate launches and keeps the freshest row', () => {
