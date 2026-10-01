@@ -6,6 +6,7 @@ import {
   configSetCommand,
   configUnsetCommand,
 } from '../src/commands/config';
+import { ConfigSchema } from '../src/config/schema';
 import { createTestConfig, useTestEnv } from './test-utils';
 
 const testEnv = useTestEnv();
@@ -158,8 +159,20 @@ describe('config command', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('settings.promptMaxLength'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('settings.hibernateAfter'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('settings.harnessSelfUpdate'));
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringContaining('Default: true; value: true or false.')
+    );
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Unicode code points'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('profiles.<profile>.args'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('config unset'));
+  });
+
+  it('defaults mouse passthrough on while preserving an explicit opt-out', () => {
+    const baseConfig = { version: 1, profiles: { worker: { executable: 'node' } } };
+    expect(ConfigSchema.parse(baseConfig).settings.mousePassthrough).toBe(true);
+    expect(
+      ConfigSchema.parse({ ...baseConfig, settings: { mousePassthrough: false } }).settings
+        .mousePassthrough
+    ).toBe(false);
   });
 });

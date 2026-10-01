@@ -37,9 +37,9 @@ export interface PtyOptions {
    */
   detached?: boolean;
   /**
-   * Strip harness mouse-tracking DECSET/DECRST sequences from foreground-bound
-   * output so the user's terminal keeps native text selection. The raw onOutput
-   * stream (controller/viewport ingest) stays unmodified.
+   * Strip harness mouse-tracking DECSET/DECRST sequences when terminal-native
+   * selection is preferred. The raw onOutput stream (controller/viewport
+   * ingest) stays unmodified.
    */
   stripMouseTracking?: boolean;
 }

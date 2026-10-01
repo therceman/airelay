@@ -27,7 +27,7 @@ const HIBERNATE_AFTER_DESCRIPTION =
 const HARNESS_SELF_UPDATE_DESCRIPTION =
   'Allow harnesses to check for self-updates on startup and wake; disabled by default for reliable automation.';
 const MOUSE_PASSTHROUGH_DESCRIPTION =
-  'Forward harness mouse-tracking modes to the terminal; disabled by default so native text selection keeps working.';
+  'Forward mouse-tracking modes so fullscreen harness UIs can receive wheel events; disable to prefer terminal-native selection.';
 const PROFILE_FIELDS = new Set(['executable', 'cwd', 'args', 'env', 'description', 'createDirs']);
 const ARRAY_PROFILE_FIELDS = new Set(['args', 'createDirs']);
 

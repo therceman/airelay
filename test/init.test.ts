@@ -30,6 +30,7 @@ describe('initCommand', () => {
 
     const config = loadConfig(testConfigPath);
     expect(config.profiles.codex).toEqual({ executable: 'codex' });
+    expect(config.settings.mousePassthrough).toBe(true);
     expect(fs.existsSync(path.join(testEnv.testDir, 'codex'))).toBe(false);
   });
 
