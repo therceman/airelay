@@ -1,10 +1,11 @@
 import fs from 'fs';
 import net from 'net';
 import path from 'path';
+import { Terminal } from '@xterm/headless';
 import {
   MOUSE_TRACKING_RESET,
   MouseTrackingFilter,
-  stripMouseMotionTrackingSequences,
+  stripAnyEventMouseSequences,
   stripMouseTrackingSequences,
 } from '../src/runtime/mouse-filter';
 import { runCommand } from '../src/commands/run';
@@ -42,9 +43,9 @@ describe('MouseTrackingFilter', () => {
     expect(filter.feed('a\x1b[?1000;1002;1003;1006hb')).toBe('ab');
   });
 
-  it('preserves mixed mouse/non-mouse parameter lists', () => {
+  it('removes mouse parameters from mixed lists while preserving non-mouse modes', () => {
     const filter = new MouseTrackingFilter();
-    expect(filter.feed('a\x1b[?1000;1049hb')).toBe('a\x1b[?1000;1049hb');
+    expect(filter.feed('a\x1b[?1000;1049hb')).toBe('a\x1b[?1049hb');
   });
 
   it('passes through ordinary text, colors and cursor movement', () => {
@@ -65,11 +66,12 @@ describe('MouseTrackingFilter', () => {
     expect(filter.feed('49h')).toBe('\x1b[?1049h');
   });
 
-  it('strips motion modes across chunks but keeps click and wheel modes', () => {
-    const filter = new MouseTrackingFilter('motion');
+  it('strips any-event motion across chunks but keeps click, wheel, and drag modes', () => {
+    const filter = new MouseTrackingFilter('any-event');
     expect(filter.feed('a\x1b[?1000;100')).toBe('a');
-    expect(filter.feed('2;1003;1006h')).toBe('\x1b[?1000;1006h');
-    expect(filter.feed('\x1b[?1003l\x1b[?1000l')).toBe('\x1b[?1003l\x1b[?1000l');
+    expect(filter.feed('2;1003;1006h')).toBe('\x1b[?1000;1002;1006h');
+    expect(filter.feed('\x1b[?100')).toBe('');
+    expect(filter.feed('3l\x1b[?1002l')).toBe('\x1b[?1002l');
   });
 });
 
@@ -83,7 +85,7 @@ describe('stripMouseTrackingSequences', () => {
 
   it('handles combined mode lists and disables', () => {
     expect(stripMouseTrackingSequences('a\x1b[?9;1003lb')).toBe('ab');
-    expect(stripMouseTrackingSequences('a\x1b[?1003;1049lb')).toBe('a\x1b[?1003;1049lb');
+    expect(stripMouseTrackingSequences('a\x1b[?1003;1049lb')).toBe('a\x1b[?1049lb');
   });
 });
 
@@ -96,22 +98,28 @@ describe('MOUSE_TRACKING_RESET', () => {
   });
 });
 
-describe('stripMouseMotionTrackingSequences', () => {
-  it('removes only motion enables, including from combined mode lists', () => {
+describe('stripAnyEventMouseSequences', () => {
+  it('removes any-event motion mode both ways, preserving click/wheel/drag modes', () => {
     const modes = '\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h';
-    expect(stripMouseMotionTrackingSequences(modes)).toBe('\x1b[?1000h\x1b[?1006h');
-    expect(stripMouseMotionTrackingSequences('\x1b[?1000;1002;1003;1006h')).toBe(
-      '\x1b[?1000;1006h'
-    );
-    expect(stripMouseMotionTrackingSequences('\x1b[?1003l')).toBe('\x1b[?1003l');
-    expect(stripMouseMotionTrackingSequences('\x1b[?1049h\x1b[?2004h')).toBe(
-      '\x1b[?1049h\x1b[?2004h'
-    );
+    expect(stripAnyEventMouseSequences(modes)).toBe('\x1b[?1000h\x1b[?1002h\x1b[?1006h');
+    expect(stripAnyEventMouseSequences('\x1b[?1000;1002;1003;1006h')).toBe('\x1b[?1000;1002;1006h');
+    expect(stripAnyEventMouseSequences('\x1b[?1003l')).toBe('');
+    expect(stripAnyEventMouseSequences('\x1b[?1000;1002;1003l')).toBe('\x1b[?1000;1002l');
+    expect(stripAnyEventMouseSequences('\x1b[?1049h\x1b[?2004h')).toBe('\x1b[?1049h\x1b[?2004h');
   });
 
   it('does not modify normal tracking, wheel, or unrelated terminal sequences', () => {
     const input = 'text\x1b[?1000h\x1b[?1006h\x1b[31m\x1b[2J';
-    expect(stripMouseMotionTrackingSequences(input)).toBe(input);
+    expect(stripAnyEventMouseSequences(input)).toBe(input);
+  });
+
+  it('leaves xterm in drag tracking mode after Codex mouse-mode negotiation', async () => {
+    const terminal = new Terminal({ cols: 80, rows: 24 });
+    const codexModes = '\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h';
+    const forwarded = MOUSE_TRACKING_RESET + stripAnyEventMouseSequences(codexModes);
+    await new Promise<void>((resolve) => terminal.write(forwarded, resolve));
+    expect(terminal.modes.mouseTrackingMode).toBe('drag');
+    terminal.dispose();
   });
 });
 
@@ -172,7 +180,7 @@ setTimeout(() => process.exit(0), 300);`
     expect(foreground).not.toMatch(MOUSE_ENABLE_PATTERN);
   }, 15000);
 
-  it('keeps click/wheel modes but suppresses motion modes when passthrough is enabled', async () => {
+  it('keeps click/wheel/drag modes but suppresses any-event motion when passthrough is enabled', async () => {
     const harnessPath = writeHarness(
       'mouse-passthrough',
       `process.stdout.write('${MOUSE_BURST}');
@@ -193,8 +201,8 @@ setTimeout(() => process.exit(0), 300);`
     }
     const foreground = chunks.join('');
     expect(foreground).toContain('\x1b[?1000h');
+    expect(foreground).toContain('\x1b[?1002h');
     expect(foreground).toContain('\x1b[?1006h');
-    expect(foreground).not.toContain('\x1b[?1002h');
     expect(foreground).not.toContain('\x1b[?1003h');
   }, 15000);
 
@@ -260,7 +268,7 @@ setTimeout(() => process.exit(0), 1500);`
     await expect(runPromise).resolves.toBe(0);
   }, 15000);
 
-  it('preserves click/wheel modes but strips motion modes from attached clients', async () => {
+  it('preserves click/wheel/drag modes but strips any-event motion from attached clients', async () => {
     const harnessPath = writeHarness(
       'mouse-attach-safe',
       `process.stdout.write('${MOUSE_BURST}DONE');
@@ -314,8 +322,8 @@ setTimeout(() => process.exit(0), 1500);`
 
     expect(firstChunk).toBe(MOUSE_TRACKING_RESET);
     expect(streamed).toContain('\x1b[?1000h');
+    expect(streamed).toContain('\x1b[?1002h');
     expect(streamed).toContain('\x1b[?1006h');
-    expect(streamed).not.toContain('\x1b[?1002h');
     expect(streamed).not.toContain('\x1b[?1003h');
     expect(streamed).toContain('DONE');
     await expect(runPromise).resolves.toBe(0);

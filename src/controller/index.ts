@@ -535,10 +535,10 @@ export class SessionController {
         if (this.mousePassthrough !== null) {
           this.streamMouseFilters.set(
             socket,
-            new MouseTrackingFilter(this.mousePassthrough ? 'motion' : 'all')
+            new MouseTrackingFilter(this.mousePassthrough ? 'any-event' : 'all')
           );
           // Reset stale terminal mouse modes before replay. Filtered replay then
-          // enables click/wheel modes only when mousePassthrough is on.
+          // enables click/wheel/drag modes only when mousePassthrough is on.
           try {
             socket.write(serializeStreamFrame(MOUSE_TRACKING_RESET));
           } catch {

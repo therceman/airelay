@@ -17,7 +17,7 @@ const MOUSE_TRACKING_MODES = new Set([
   '1015',
   '1016',
 ]);
-const MOUSE_MOTION_TRACKING_MODES = new Set(['1002', '1003']);
+const ANY_EVENT_MOUSE_MODE = '1003';
 
 const ESC = String.fromCharCode(0x1b);
 const MOUSE_DECSET_PATTERN = new RegExp(`${ESC}\\[\\?([0-9;]*)([hl])`, 'g');
@@ -36,37 +36,34 @@ export const MOUSE_TRACKING_RESET = [...MOUSE_TRACKING_MODES]
  * where no chunk-split sequences can exist.
  */
 export function stripMouseTrackingSequences(text: string): string {
-  return text.replace(MOUSE_DECSET_PATTERN, (sequence, params: string) =>
-    isMouseModeSequence(params) ? '' : sequence
-  );
-}
-
-/** Remove high-rate motion enables while retaining click and wheel tracking. */
-export function stripMouseMotionTrackingSequences(text: string): string {
   return text.replace(MOUSE_DECSET_PATTERN, (sequence, params: string, final: string) => {
-    if (final !== 'h') return sequence;
     const modes = params.split(';').filter(Boolean);
-    const remaining = modes.filter((mode) => !MOUSE_MOTION_TRACKING_MODES.has(mode));
+    const remaining = modes.filter((mode) => !MOUSE_TRACKING_MODES.has(mode));
     if (remaining.length === modes.length) return sequence;
-    return remaining.length > 0 ? `${ESC}[?${remaining.join(';')}h` : '';
+    return remaining.length > 0 ? `${ESC}[?${remaining.join(';')}${final}` : '';
   });
 }
 
-function isMouseModeSequence(params: string): boolean {
-  const modes = params.split(';').filter((mode) => mode.length > 0);
-  return modes.length > 0 && modes.every((mode) => MOUSE_TRACKING_MODES.has(mode));
+/** Remove unsolicited pointer-motion reports while retaining click, wheel, and drag tracking. */
+export function stripAnyEventMouseSequences(text: string): string {
+  return text.replace(MOUSE_DECSET_PATTERN, (sequence, params: string, final: string) => {
+    const modes = params.split(';').filter(Boolean);
+    const remaining = modes.filter((mode) => mode !== ANY_EVENT_MOUSE_MODE);
+    if (remaining.length === modes.length) return sequence;
+    return remaining.length > 0 ? `${ESC}[?${remaining.join(';')}${final}` : '';
+  });
 }
 
 /**
- * Incremental terminal-bound mouse-mode filter. Motion policy suppresses only
- * high-rate pointer reporting; all policy suppresses all tracked mouse modes.
+ * Incremental terminal-bound mouse-mode filter. Any-event policy suppresses
+ * unsolicited pointer reports; all policy suppresses every tracked mouse mode.
  * A trailing partial sequence is retained until the next chunk disambiguates
  * it; retained state is bounded.
  */
 export class MouseTrackingFilter {
   private pending = '';
 
-  constructor(private readonly policy: 'all' | 'motion' = 'all') {}
+  constructor(private readonly policy: 'all' | 'any-event' = 'all') {}
 
   feed(chunk: string): string {
     if (!chunk) return '';
@@ -84,8 +81,8 @@ export class MouseTrackingFilter {
       }
     }
 
-    return this.policy === 'motion'
-      ? stripMouseMotionTrackingSequences(body)
+    return this.policy === 'any-event'
+      ? stripAnyEventMouseSequences(body)
       : stripMouseTrackingSequences(body);
   }
 

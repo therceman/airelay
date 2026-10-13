@@ -45,7 +45,7 @@ import { TerminalQueryReplyTracker } from '../runtime/terminal-query';
 import { READY_INPUT_FAIL_OPEN_MS, viewportShowsReady } from '../runtime/harness-ready';
 import {
   MOUSE_TRACKING_RESET,
-  stripMouseMotionTrackingSequences,
+  stripAnyEventMouseSequences,
   stripMouseTrackingSequences,
 } from '../runtime/mouse-filter';
 
@@ -863,7 +863,7 @@ export async function runCommand(
         ? { cols: process.stdout.columns, rows: process.stdout.rows }
         : controller.getTerminalSize(),
     stripMouseTracking: !mousePassthrough,
-    stripMouseMotionTracking: mousePassthrough,
+    stripAnyEventMouse: mousePassthrough,
   };
   const diagnosticsEnabled = usePty && !!detectedProfileSessionId;
   const resumePresentationEnabled =
@@ -1025,7 +1025,7 @@ export async function runCommand(
           (chunk) =>
             writeForeground(
               mousePassthrough
-                ? stripMouseMotionTrackingSequences(chunk)
+                ? stripAnyEventMouseSequences(chunk)
                 : stripMouseTrackingSequences(chunk)
             )
         );

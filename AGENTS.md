@@ -42,7 +42,7 @@ Config schema (`src/config/schema.ts`):
 - `settings.promptMaxLength`: `-1` (unlimited) or a positive integer up to 262144 Unicode code points
 - `settings.hibernateAfter`: duration such as `5m`, `30s`, `2h`, or `off`; defaults to `5m`
 - `settings.harnessSelfUpdate`: whether harness self-update checks are allowed; defaults to `false`
-- `settings.mousePassthrough`: allow click/wheel input in fullscreen harnesses while suppressing high-rate pointer-motion reports; defaults to `true`
+- `settings.mousePassthrough`: allow click/wheel/drag input while suppressing unsolicited pointer-motion reports; defaults to `true`
 - `profiles: { <name>: { executable, cwd?, args?, env?, description?, createDirs? } }`
 
 `airelay config set <key> <value>` updates every schema-defined setting and

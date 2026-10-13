@@ -31,10 +31,10 @@ export interface SpawnOptions {
   onOutput?: (chunk: string) => void;
   /** Optional foreground PTY writer; detached runtimes never use it. */
   onForegroundOutput?: (chunk: string) => void;
-  /** Strip harness mouse-tracking sequences from foreground-bound output. */
+  /** Strip every mouse-tracking mode when native terminal selection is preferred. */
   stripMouseTracking?: boolean;
-  /** Strip pointer-motion modes while preserving click/wheel tracking. */
-  stripMouseMotionTracking?: boolean;
+  /** Strip any-event pointer reports while preserving click/wheel/drag tracking. */
+  stripAnyEventMouse?: boolean;
   diagnostics?: PtyDiagnostics;
 }
 
@@ -125,7 +125,7 @@ async function spawnAndWaitPty(options: SpawnOptions): Promise<number> {
     diagnostics: options.diagnostics,
     detached: options.detached === true,
     stripMouseTracking: options.stripMouseTracking === true,
-    stripMouseMotionTracking: options.stripMouseMotionTracking === true,
+    stripAnyEventMouse: options.stripAnyEventMouse === true,
   });
 
   if (options.trackPID) {

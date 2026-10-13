@@ -38,8 +38,8 @@ export interface PtyOptions {
   detached?: boolean;
   /** Strip all mouse-tracking modes when terminal-native selection is preferred. */
   stripMouseTracking?: boolean;
-  /** Strip high-rate pointer-motion modes while retaining click/wheel tracking. */
-  stripMouseMotionTracking?: boolean;
+  /** Strip any-event pointer reports while retaining click/wheel/drag tracking. */
+  stripAnyEventMouse?: boolean;
 }
 
 export interface PtyResizeSource {
@@ -191,8 +191,8 @@ export function createPty(options: PtyOptions): PtyInstance {
   // buffer / viewport); it must not leak to the launcher's stdio.
   const foregroundMouseFilter = options.stripMouseTracking
     ? new MouseTrackingFilter()
-    : options.stripMouseMotionTracking
-      ? new MouseTrackingFilter('motion')
+    : options.stripAnyEventMouse
+      ? new MouseTrackingFilter('any-event')
       : null;
   term.onData((data: string) => {
     hasOutput = true;
