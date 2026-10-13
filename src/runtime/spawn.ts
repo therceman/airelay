@@ -33,6 +33,8 @@ export interface SpawnOptions {
   onForegroundOutput?: (chunk: string) => void;
   /** Strip harness mouse-tracking sequences from foreground-bound output. */
   stripMouseTracking?: boolean;
+  /** Strip pointer-motion modes while preserving click/wheel tracking. */
+  stripMouseMotionTracking?: boolean;
   diagnostics?: PtyDiagnostics;
 }
 
@@ -123,6 +125,7 @@ async function spawnAndWaitPty(options: SpawnOptions): Promise<number> {
     diagnostics: options.diagnostics,
     detached: options.detached === true,
     stripMouseTracking: options.stripMouseTracking === true,
+    stripMouseMotionTracking: options.stripMouseMotionTracking === true,
   });
 
   if (options.trackPID) {

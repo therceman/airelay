@@ -4,6 +4,7 @@ import path from 'path';
 import {
   MOUSE_TRACKING_RESET,
   MouseTrackingFilter,
+  stripMouseMotionTrackingSequences,
   stripMouseTrackingSequences,
 } from '../src/runtime/mouse-filter';
 import { runCommand } from '../src/commands/run';
@@ -63,6 +64,13 @@ describe('MouseTrackingFilter', () => {
     expect(filter.feed('\x1b[?10')).toBe('');
     expect(filter.feed('49h')).toBe('\x1b[?1049h');
   });
+
+  it('strips motion modes across chunks but keeps click and wheel modes', () => {
+    const filter = new MouseTrackingFilter('motion');
+    expect(filter.feed('a\x1b[?1000;100')).toBe('a');
+    expect(filter.feed('2;1003;1006h')).toBe('\x1b[?1000;1006h');
+    expect(filter.feed('\x1b[?1003l\x1b[?1000l')).toBe('\x1b[?1003l\x1b[?1000l');
+  });
 });
 
 describe('stripMouseTrackingSequences', () => {
@@ -85,6 +93,25 @@ describe('MOUSE_TRACKING_RESET', () => {
       expect(MOUSE_TRACKING_RESET).toContain(`\x1b[?${mode}l`);
     }
     expect(MOUSE_TRACKING_RESET).not.toMatch(/\?10[04][49]l|\?1049l|\?2004l/);
+  });
+});
+
+describe('stripMouseMotionTrackingSequences', () => {
+  it('removes only motion enables, including from combined mode lists', () => {
+    const modes = '\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h';
+    expect(stripMouseMotionTrackingSequences(modes)).toBe('\x1b[?1000h\x1b[?1006h');
+    expect(stripMouseMotionTrackingSequences('\x1b[?1000;1002;1003;1006h')).toBe(
+      '\x1b[?1000;1006h'
+    );
+    expect(stripMouseMotionTrackingSequences('\x1b[?1003l')).toBe('\x1b[?1003l');
+    expect(stripMouseMotionTrackingSequences('\x1b[?1049h\x1b[?2004h')).toBe(
+      '\x1b[?1049h\x1b[?2004h'
+    );
+  });
+
+  it('does not modify normal tracking, wheel, or unrelated terminal sequences', () => {
+    const input = 'text\x1b[?1000h\x1b[?1006h\x1b[31m\x1b[2J';
+    expect(stripMouseMotionTrackingSequences(input)).toBe(input);
   });
 });
 
@@ -145,7 +172,7 @@ setTimeout(() => process.exit(0), 300);`
     expect(foreground).not.toMatch(MOUSE_ENABLE_PATTERN);
   }, 15000);
 
-  it('passes mouse modes through when settings.mousePassthrough is true', async () => {
+  it('keeps click/wheel modes but suppresses motion modes when passthrough is enabled', async () => {
     const harnessPath = writeHarness(
       'mouse-passthrough',
       `process.stdout.write('${MOUSE_BURST}');
@@ -164,7 +191,11 @@ setTimeout(() => process.exit(0), 300);`
     } finally {
       writeSpy.mockRestore();
     }
-    expect(chunks.join('')).toContain('\x1b[?1003h');
+    const foreground = chunks.join('');
+    expect(foreground).toContain('\x1b[?1000h');
+    expect(foreground).toContain('\x1b[?1006h');
+    expect(foreground).not.toContain('\x1b[?1002h');
+    expect(foreground).not.toContain('\x1b[?1003h');
   }, 15000);
 
   it('strips mouse modes from detached attach stream frames', async () => {
@@ -226,6 +257,67 @@ setTimeout(() => process.exit(0), 1500);`
     expect(firstChunk).toBe(MOUSE_TRACKING_RESET);
     expect(streamed).toContain('XYDONE');
     expect(streamed).not.toMatch(MOUSE_ENABLE_PATTERN);
+    await expect(runPromise).resolves.toBe(0);
+  }, 15000);
+
+  it('preserves click/wheel modes but strips motion modes from attached clients', async () => {
+    const harnessPath = writeHarness(
+      'mouse-attach-safe',
+      `process.stdout.write('${MOUSE_BURST}DONE');
+setTimeout(() => process.exit(0), 1500);`
+    );
+    writeConfig('mouseattachsafe', harnessPath, true);
+
+    let endpoint = '';
+    const runPromise = runCommand('mouseattachsafe', [], {
+      usePty: true,
+      detached: true,
+      sessionKey: 'mouse_attach_safe',
+      onSessionStart: (info) => {
+        endpoint = info.controllerEndpoint;
+      },
+    });
+    const socketEndpoint = await waitForEndpoint(() => endpoint);
+    const { streamed, firstChunk } = await new Promise<{
+      streamed: string;
+      firstChunk: string;
+    }>((resolve) => {
+      const socket = net.createConnection(socketEndpoint);
+      let buffer = '';
+      let collected = '';
+      let first = '';
+      const finish = setTimeout(() => {
+        socket.destroy();
+        resolve({ streamed: collected, firstChunk: first });
+      }, 700);
+      socket.on('connect', () => {
+        socket.write(JSON.stringify({ id: 'a1', method: 'session.attach' }) + '\n');
+      });
+      socket.on('data', (chunk: Buffer) => {
+        buffer = readLines(buffer + chunk.toString(), (line) => {
+          try {
+            const msg = JSON.parse(line) as { type?: string; data?: { chunk?: string } };
+            if (msg.type === 'stream' && typeof msg.data?.chunk === 'string') {
+              if (!first) first = msg.data.chunk;
+              collected += msg.data.chunk;
+            }
+          } catch {
+            // Ignore malformed frames
+          }
+        });
+      });
+      socket.on('error', () => {
+        clearTimeout(finish);
+        resolve({ streamed: collected, firstChunk: first });
+      });
+    });
+
+    expect(firstChunk).toBe(MOUSE_TRACKING_RESET);
+    expect(streamed).toContain('\x1b[?1000h');
+    expect(streamed).toContain('\x1b[?1006h');
+    expect(streamed).not.toContain('\x1b[?1002h');
+    expect(streamed).not.toContain('\x1b[?1003h');
+    expect(streamed).toContain('DONE');
     await expect(runPromise).resolves.toBe(0);
   }, 15000);
 });

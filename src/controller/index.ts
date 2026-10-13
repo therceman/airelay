@@ -100,16 +100,12 @@ export class SessionController {
   /** Open sockets that are attached viewport clients (tracked for session.info / registry). */
   private attachedClients: Set<net.Socket> = new Set();
   private onAttachedChangeCb: ((count: number) => void) | null = null;
-  /**
-   * Per-socket mouse-mode strippers. Attached clients receive PTY output with
-   * harness mouse-tracking enables removed so their terminal keeps native
-   * text selection. Disabled when settings.mousePassthrough is true.
-   */
+  /** Per-socket filters keep high-rate motion reports out of attached clients. */
   private streamMouseFilters = new Map<net.Socket, MouseTrackingFilter>();
-  private stripMouseTracking = false;
+  private mousePassthrough: boolean | null = null;
 
-  setStripMouseTracking(enabled: boolean): void {
-    this.stripMouseTracking = enabled;
+  setMousePassthrough(enabled: boolean): void {
+    this.mousePassthrough = enabled;
   }
 
   /**
@@ -536,12 +532,13 @@ export class SessionController {
         response = createSuccessResponse(request.id, { pong: true });
       } else if (request.method === 'session.attach') {
         this.attachedClients.add(socket);
-        if (this.stripMouseTracking) {
-          this.streamMouseFilters.set(socket, new MouseTrackingFilter());
-          // Explicitly disable mouse tracking in the attaching terminal: the
-          // filter also strips DECRST, so a mode leaked by an earlier or
-          // crashed session would otherwise stay enabled for this attach.
-          // Written as a raw frame to bypass that same filter.
+        if (this.mousePassthrough !== null) {
+          this.streamMouseFilters.set(
+            socket,
+            new MouseTrackingFilter(this.mousePassthrough ? 'motion' : 'all')
+          );
+          // Reset stale terminal mouse modes before replay. Filtered replay then
+          // enables click/wheel modes only when mousePassthrough is on.
           try {
             socket.write(serializeStreamFrame(MOUSE_TRACKING_RESET));
           } catch {

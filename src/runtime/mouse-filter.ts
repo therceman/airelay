@@ -17,6 +17,7 @@ const MOUSE_TRACKING_MODES = new Set([
   '1015',
   '1016',
 ]);
+const MOUSE_MOTION_TRACKING_MODES = new Set(['1002', '1003']);
 
 const ESC = String.fromCharCode(0x1b);
 const MOUSE_DECSET_PATTERN = new RegExp(`${ESC}\\[\\?([0-9;]*)([hl])`, 'g');
@@ -40,20 +41,32 @@ export function stripMouseTrackingSequences(text: string): string {
   );
 }
 
+/** Remove high-rate motion enables while retaining click and wheel tracking. */
+export function stripMouseMotionTrackingSequences(text: string): string {
+  return text.replace(MOUSE_DECSET_PATTERN, (sequence, params: string, final: string) => {
+    if (final !== 'h') return sequence;
+    const modes = params.split(';').filter(Boolean);
+    const remaining = modes.filter((mode) => !MOUSE_MOTION_TRACKING_MODES.has(mode));
+    if (remaining.length === modes.length) return sequence;
+    return remaining.length > 0 ? `${ESC}[?${remaining.join(';')}h` : '';
+  });
+}
+
 function isMouseModeSequence(params: string): boolean {
   const modes = params.split(';').filter((mode) => mode.length > 0);
   return modes.length > 0 && modes.every((mode) => MOUSE_TRACKING_MODES.has(mode));
 }
 
 /**
- * Incremental filter that removes mouse-tracking DECSET/DECRST sequences from a
- * terminal-bound output stream. The harness keeps its own mouse state — only
- * the user's terminal is prevented from entering mouse-report mode, so native
- * drag-select stays available. A trailing partial sequence is retained until
- * the next chunk disambiguates it; retained state is bounded.
+ * Incremental terminal-bound mouse-mode filter. Motion policy suppresses only
+ * high-rate pointer reporting; all policy suppresses all tracked mouse modes.
+ * A trailing partial sequence is retained until the next chunk disambiguates
+ * it; retained state is bounded.
  */
 export class MouseTrackingFilter {
   private pending = '';
+
+  constructor(private readonly policy: 'all' | 'motion' = 'all') {}
 
   feed(chunk: string): string {
     if (!chunk) return '';
@@ -71,7 +84,9 @@ export class MouseTrackingFilter {
       }
     }
 
-    return stripMouseTrackingSequences(body);
+    return this.policy === 'motion'
+      ? stripMouseMotionTrackingSequences(body)
+      : stripMouseTrackingSequences(body);
   }
 
   /** Emit any retained partial sequence verbatim at end of stream. */

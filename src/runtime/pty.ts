@@ -36,12 +36,10 @@ export interface PtyOptions {
    * the parent stdout), and no stdin/resize listeners are attached.
    */
   detached?: boolean;
-  /**
-   * Strip harness mouse-tracking DECSET/DECRST sequences when terminal-native
-   * selection is preferred. The raw onOutput stream (controller/viewport
-   * ingest) stays unmodified.
-   */
+  /** Strip all mouse-tracking modes when terminal-native selection is preferred. */
   stripMouseTracking?: boolean;
+  /** Strip high-rate pointer-motion modes while retaining click/wheel tracking. */
+  stripMouseMotionTracking?: boolean;
 }
 
 export interface PtyResizeSource {
@@ -191,7 +189,11 @@ export function createPty(options: PtyOptions): PtyInstance {
   // Forward PTY output to parent's stdout and optional onOutput callback.
   // In detached mode, output is only fed to onOutput (the controller's ring
   // buffer / viewport); it must not leak to the launcher's stdio.
-  const foregroundMouseFilter = options.stripMouseTracking ? new MouseTrackingFilter() : null;
+  const foregroundMouseFilter = options.stripMouseTracking
+    ? new MouseTrackingFilter()
+    : options.stripMouseMotionTracking
+      ? new MouseTrackingFilter('motion')
+      : null;
   term.onData((data: string) => {
     hasOutput = true;
     lastOutputAt = Date.now();

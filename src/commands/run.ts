@@ -43,7 +43,11 @@ import { RuntimeDiagnostics, type HarnessReadyReason } from '../runtime/diagnost
 import { createControllerReveal, ResumePresentationGate } from '../runtime/resume-presentation';
 import { TerminalQueryReplyTracker } from '../runtime/terminal-query';
 import { READY_INPUT_FAIL_OPEN_MS, viewportShowsReady } from '../runtime/harness-ready';
-import { MOUSE_TRACKING_RESET, stripMouseTrackingSequences } from '../runtime/mouse-filter';
+import {
+  MOUSE_TRACKING_RESET,
+  stripMouseMotionTrackingSequences,
+  stripMouseTrackingSequences,
+} from '../runtime/mouse-filter';
 
 export { READY_INPUT_FAIL_OPEN_MS };
 
@@ -611,7 +615,7 @@ export async function runCommand(
     (data) => terminalQueryReplies.filterInput(data)
   );
   controllerRef = controller;
-  controller.setStripMouseTracking(!mousePassthrough);
+  controller.setMousePassthrough(mousePassthrough);
   controller.setRuntimeInfoProvider(() => ({ ...runtime }));
 
   if (options?.detached === true) {
@@ -859,6 +863,7 @@ export async function runCommand(
         ? { cols: process.stdout.columns, rows: process.stdout.rows }
         : controller.getTerminalSize(),
     stripMouseTracking: !mousePassthrough,
+    stripMouseMotionTracking: mousePassthrough,
   };
   const diagnosticsEnabled = usePty && !!detectedProfileSessionId;
   const resumePresentationEnabled =
@@ -981,12 +986,10 @@ export async function runCommand(
     resetHibernateTimer();
   };
 
-  // With tracking sequences stripped, a real terminal could only still be in
-  // mouse-report mode if state leaked from an earlier or crashed session —
-  // nothing valid ever re-enables it, so reset it up front (and once more on
-  // exit for symmetry). Skipped when passthrough is on or no TTY is driven.
+  // Clear stale mouse-report state before startup and after exit. Active
+  // harness output is filtered to the configured safe mouse policy.
   const resetTerminalMouseTracking = (): void => {
-    if (!usePty || mousePassthrough || options?.detached || !process.stdout.isTTY) return;
+    if (!usePty || options?.detached || !process.stdout.isTTY) return;
     try {
       process.stdout.write(MOUSE_TRACKING_RESET);
     } catch {
@@ -1019,7 +1022,12 @@ export async function runCommand(
           // The screen serializer replays the harness's DECSET modes (xterm
           // tracks them from unfiltered output), so mouse tracking would leak
           // to the terminal here unless it is stripped again.
-          (chunk) => writeForeground(mousePassthrough ? chunk : stripMouseTrackingSequences(chunk))
+          (chunk) =>
+            writeForeground(
+              mousePassthrough
+                ? stripMouseMotionTrackingSequences(chunk)
+                : stripMouseTrackingSequences(chunk)
+            )
         );
         presentationGate = new ResumePresentationGate({
           writeForeground,
