@@ -1,6 +1,6 @@
 {
   "name": "airelay",
-  "version": "0.1.160",
+  "version": "0.1.161",
   "description": "Cross-platform CLI for launching profile-isolated AI harness instances",
   "main": "./dist/index.js",
   "bin": {
@@ -32,13 +32,18 @@
     "@types/cross-spawn": "6.0.6",
     "@types/jest": "30.0.0",
     "@types/node": "22.15.21",
-    "@typescript-eslint/eslint-plugin": "^7.18.0",
-    "@typescript-eslint/parser": "^7.18.0",
+    "@typescript-eslint/eslint-plugin": "^8.71.2",
+    "@typescript-eslint/parser": "^8.71.2",
     "eslint": "8.57.1",
     "husky": "^9.1.7",
     "jest": "30.3.0",
     "prettier": "3.8.3",
     "ts-jest": "29.4.0",
     "typescript": "5.9.3"
+  },
+  "overrides": {
+    "@istanbuljs/load-nyc-config": {
+      "js-yaml": "^4.1.0"
+    }
   }
 }

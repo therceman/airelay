@@ -14,6 +14,7 @@ import {
   removeLaunchHistoryEntry,
   updateLaunchHistoryArgv,
   updateLaunchHistorySession,
+  updateLaunchHistorySessionKey,
 } from './history';
 import Enquirer from 'enquirer';
 import path from 'path';
@@ -128,6 +129,7 @@ export function getSameHarnessProfiles(profile: string): string[] {
 interface ResumeSelection {
   profile: string;
   sessionId?: string;
+  sessionKey?: string;
   bypass: boolean;
 }
 
@@ -209,6 +211,7 @@ async function chooseResumeProfile(
           ...(entry && profileSessionId
             ? [{ name: 'changeSession', message: 'Change Session' }]
             : []),
+          ...(entry ? [{ name: 'changeSessionKey', message: 'Change Session Key' }] : []),
           ...(entry ? [{ name: 'remove', message: 'Remove history entry' }] : []),
         ],
         initial: 0,
@@ -260,6 +263,30 @@ async function chooseResumeProfile(
 
     console.log(`Changed session for key "${entry.sessionKey}" to "${sessionId}".`);
     return { profile, sessionId, bypass };
+  }
+
+  if (action === 'changeSessionKey' && entry) {
+    const keyResult = (await Enquirer.prompt(
+      withAirelayPromptSymbols({
+        type: 'input',
+        name: 'sessionKey',
+        message: 'New session key',
+        initial: entry.sessionKey,
+      })
+    )) as { sessionKey: string };
+    const sessionKey = keyResult.sessionKey.trim();
+    if (!sessionKey) {
+      console.error('Error: Session key cannot be empty.');
+      return undefined;
+    }
+
+    if (!updateLaunchHistorySessionKey(entry.id, entry.invocationCwd, sessionKey)) {
+      console.error('Error: Could not update the selected history entry session key.');
+      return undefined;
+    }
+
+    console.log(`Changed session key from "${entry.sessionKey}" to "${sessionKey}".`);
+    return { profile, sessionKey, bypass };
   }
 
   if (action !== 'switchProfile') {
@@ -522,7 +549,7 @@ async function resumeFromFolder(targetCwd = process.cwd()): Promise<void> {
       profile: selected.profile,
       lastUsed: getLastUsed(selected),
       cwd: selected.invocationCwd,
-      sessionKey: selected.sessionKey,
+      sessionKey: resumeSelection.sessionKey ?? selected.sessionKey,
       profileSessionId: launchSessionId,
       profileArgs: resumeSelection.sessionId
         ? replaceResumeSessionId(launchProfileArgs, launchSessionId)

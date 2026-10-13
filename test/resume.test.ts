@@ -26,6 +26,7 @@ jest.mock('../src/commands/history', () => ({
   removeLaunchHistoryEntry: jest.fn().mockReturnValue(true),
   updateLaunchHistoryArgv: jest.fn().mockReturnValue(true),
   updateLaunchHistorySession: jest.fn().mockReturnValue(true),
+  updateLaunchHistorySessionKey: jest.fn().mockReturnValue(true),
 }));
 
 jest.mock('../src/config/load', () => ({
@@ -48,6 +49,7 @@ import {
   removeLaunchHistoryEntry,
   updateLaunchHistoryArgv,
   updateLaunchHistorySession,
+  updateLaunchHistorySessionKey,
 } from '../src/commands/history';
 import { loadConfig } from '../src/config/load';
 import Enquirer from 'enquirer';
@@ -533,6 +535,7 @@ describe('resumeCommand', () => {
       { name: 'switchProfile', message: 'Use another profile (same harness)' },
       { name: 'toggleBypass', message: 'Enable bypass mode for future resumes' },
       { name: 'changeSession', message: 'Change Session' },
+      { name: 'changeSessionKey', message: 'Change Session Key' },
       { name: 'remove', message: 'Remove history entry' },
     ]);
     expect(console.error).toHaveBeenCalledWith(
@@ -655,6 +658,7 @@ describe('resumeCommand', () => {
       { name: 'switchProfile', message: 'Use another profile (same harness)' },
       { name: 'toggleBypass', message: 'Disable bypass mode for future resumes' },
       { name: 'changeSession', message: 'Change Session' },
+      { name: 'changeSessionKey', message: 'Change Session Key' },
       { name: 'remove', message: 'Remove history entry' },
     ]);
     const profilePrompt = (Enquirer.prompt as jest.Mock).mock.calls[2][0];
@@ -714,6 +718,7 @@ describe('resumeCommand', () => {
       { name: 'launch', message: 'Launch' },
       { name: 'toggleBypass', message: 'Enable bypass mode for future resumes' },
       { name: 'changeSession', message: 'Change Session' },
+      { name: 'changeSessionKey', message: 'Change Session Key' },
       { name: 'remove', message: 'Remove history entry' },
     ]);
     expect((Enquirer.prompt as jest.Mock).mock.calls[2][0]).toEqual(
@@ -766,6 +771,83 @@ describe('resumeCommand', () => {
     expect(updateLaunchHistorySession).not.toHaveBeenCalled();
     expect(runCommand).not.toHaveBeenCalled();
     expect(console.error).toHaveBeenCalledWith('Error: Session ID cannot be empty.');
+  });
+
+  it('changes the selected Airelay key and resumes the same native session', async () => {
+    const currentCwd = process.cwd();
+    (getLaunchHistory as jest.Mock).mockReturnValue([
+      {
+        id: 'devin-key-row',
+        profile: 'devin',
+        sessionKey: 'game_worker',
+        invocationCwd: currentCwd,
+        startedAt: 100,
+        argv: ['start', 'devin', '--key', 'game_worker', '--', '--resume', 'grape-cabin'],
+      },
+    ]);
+    (Enquirer.prompt as jest.Mock)
+      .mockResolvedValueOnce({
+        historyEntry: 'devin (key: game_worker, session: grape-cabin)',
+      })
+      .mockResolvedValueOnce({ resumeAction: 'changeSessionKey' })
+      .mockResolvedValueOnce({ sessionKey: 'game_worker_2' });
+
+    await resumeCommand();
+
+    expect((Enquirer.prompt as jest.Mock).mock.calls[1][0].choices).toContainEqual({
+      name: 'changeSessionKey',
+      message: 'Change Session Key',
+    });
+    expect((Enquirer.prompt as jest.Mock).mock.calls[2][0]).toEqual(
+      expect.objectContaining({
+        type: 'input',
+        name: 'sessionKey',
+        message: 'New session key',
+        initial: 'game_worker',
+      })
+    );
+    expect(updateLaunchHistorySessionKey).toHaveBeenCalledWith(
+      'devin-key-row',
+      currentCwd,
+      'game_worker_2'
+    );
+    expect(runCommand).toHaveBeenCalledWith(
+      'devin',
+      ['--resume', 'grape-cabin'],
+      expect.objectContaining({
+        sessionKey: 'game_worker_2',
+        profileSessionId: 'grape-cabin',
+      })
+    );
+    expect(console.log).toHaveBeenCalledWith(
+      'Changed session key from "game_worker" to "game_worker_2".'
+    );
+  });
+
+  it('does not update or launch when the replacement key is empty', async () => {
+    const currentCwd = process.cwd();
+    (getLaunchHistory as jest.Mock).mockReturnValue([
+      {
+        id: 'empty-key-row',
+        profile: 'devin',
+        sessionKey: 'game_worker',
+        invocationCwd: currentCwd,
+        startedAt: 100,
+        argv: ['start', 'devin', '--key', 'game_worker', '--', '--resume', 'grape-cabin'],
+      },
+    ]);
+    (Enquirer.prompt as jest.Mock)
+      .mockResolvedValueOnce({
+        historyEntry: 'devin (key: game_worker, session: grape-cabin)',
+      })
+      .mockResolvedValueOnce({ resumeAction: 'changeSessionKey' })
+      .mockResolvedValueOnce({ sessionKey: '   ' });
+
+    await resumeCommand();
+
+    expect(updateLaunchHistorySessionKey).not.toHaveBeenCalled();
+    expect(runCommand).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith('Error: Session key cannot be empty.');
   });
 
   it('switches the latest session with alternatives first and marks the current profile', async () => {

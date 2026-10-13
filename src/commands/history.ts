@@ -63,8 +63,9 @@ function shellQuote(value: string): string {
   return "'" + value.replace(/'/g, "'\"'\"'") + "'";
 }
 
-export function renderLaunchCommand(argv: string[]): string {
-  return ['airelay', ...argv].map(shellQuote).join(' ');
+export function renderLaunchCommand(argv: string[], cwd?: string): string {
+  const command = ['airelay', ...argv].map(shellQuote).join(' ');
+  return cwd ? `cd -- ${shellQuote(cwd)} && ${command}` : command;
 }
 
 function createHistoryId(): string {
@@ -195,6 +196,44 @@ export function updateLaunchHistorySession(
   entry.argv = [...entry.argv];
   entry.argv[resumeIndex + 1] = sessionId;
   entry.command = renderLaunchCommand(entry.argv);
+  store.save(history);
+  return true;
+}
+
+/** Change the Airelay key for one saved launch while preserving its harness session. */
+export function updateLaunchHistorySessionKey(
+  id: string,
+  invocationCwd: string,
+  sessionKey: string
+): boolean {
+  if (!sessionKey.trim()) {
+    return false;
+  }
+
+  const currentCwd = path.resolve(invocationCwd);
+  const history = loadHistory();
+  const entry = history.find(
+    (candidate) => candidate.id === id && path.resolve(candidate.invocationCwd) === currentCwd
+  );
+  if (!entry || entry.argv[0] !== 'start') {
+    return false;
+  }
+
+  const argv = [...entry.argv];
+  const separatorIndex = argv.indexOf('--');
+  const argsEnd = separatorIndex === -1 ? argv.length : separatorIndex;
+  const keyIndex = argv.findIndex(
+    (argument, index) => index >= 2 && index < argsEnd && argument === '--key'
+  );
+  if (keyIndex !== -1 && keyIndex + 1 < argsEnd) {
+    argv[keyIndex + 1] = sessionKey;
+  } else {
+    argv.splice(argsEnd, 0, '--key', sessionKey);
+  }
+
+  entry.sessionKey = sessionKey;
+  entry.argv = argv;
+  entry.command = renderLaunchCommand(argv);
   store.save(history);
   return true;
 }

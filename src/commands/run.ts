@@ -6,7 +6,7 @@ import { spawnAndWait, SpawnOptions } from '../runtime/spawn';
 import { LIVE_PRESENTATION_RESET, SessionController } from '../controller';
 import { IpcError, IpcErrorCodes, IpcErrorReasons } from '../types/controller';
 import { addSession, deleteSession, updateSessionRuntime } from './sessions';
-import { recordLaunchHistory } from './history';
+import { recordLaunchHistory, renderLaunchCommand } from './history';
 import { getAirelayVersion, CONTROLLER_PROTOCOL_VERSION } from '../utils/version';
 import {
   detectHarness,
@@ -676,21 +676,33 @@ export async function runCommand(
     controller.getAttachedClientCount() === 0;
   const buildHibernatedScreen = (): string => {
     const label = harnessLabel === 'unknown' ? profile.executable : harnessLabel;
+    const launchArgv = options?.launchArgv ?? [
+      'start',
+      profileName,
+      ...(options?.bypass ? ['--bypass'] : []),
+      ...(options?.detached ? ['--detached'] : []),
+      '--key',
+      sessionKey,
+      ...(extraArgs.length > 0 ? ['--', ...extraArgs] : []),
+    ];
     return (
       `Agent hibernated [${label}]\r\n` +
+      `Profile: ${profileName}\r\n` +
       `Session: ${detectedProfileSessionId}\r\n` +
       `Project: ${cwd}\r\n\r\n` +
+      `Launcher: ${renderLaunchCommand(launchArgv, cwd)}\r\n\r\n` +
       'Press [space] to wake up\r\n'
     );
   };
   const showHibernatedScreen = async (): Promise<void> => {
     const screen = buildHibernatedScreen();
-    await controller.resetLivePresentation(screen);
+    const mouseSelectableScreen = `${MOUSE_TRACKING_RESET}${screen}`;
+    await controller.resetLivePresentation(mouseSelectableScreen);
     // Keep the controller's viewport/attach stream truthful while the child
     // process is gone. This also gives detached clients a useful idle screen.
     if (!process.stdout.isTTY || options?.detached === true) return;
     try {
-      process.stdout.write(`${LIVE_PRESENTATION_RESET}${screen}`);
+      process.stdout.write(`${LIVE_PRESENTATION_RESET}${mouseSelectableScreen}`);
     } catch {
       // The terminal may have closed while the child was shutting down.
     }

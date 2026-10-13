@@ -4,6 +4,7 @@ import path from 'path';
 import { runCommand } from '../src/commands/run';
 import { readLines } from '../src/controller/protocol';
 import { readLatestRuntimeDiagnostic } from '../src/runtime/diagnostics';
+import { MOUSE_TRACKING_RESET } from '../src/runtime/mouse-filter';
 import { useTestEnv } from './test-utils';
 
 const testEnv = useTestEnv();
@@ -229,6 +230,11 @@ setInterval(() => {}, 50);
     const beforeConfiguredHibernate = await request(endpoint, 'session.viewport');
     expect(beforeConfiguredHibernate.data?.lines?.join(' ')).not.toContain('Agent hibernated');
     await waitForHibernatedScreen(endpoint);
+    const hibernatedViewport = await request(endpoint, 'session.viewport');
+    const hibernatedText = hibernatedViewport.data?.lines?.join('\n') ?? '';
+    expect(hibernatedText).toContain('Profile: sleeper');
+    expect(hibernatedText).toContain('Launcher:');
+    expect(hibernatedText).toContain('airelay start sleeper');
     const hibernated = readStoredRuntime();
     expect(hibernated.runtimeState).toBe('hibernated');
     expect(hibernated.controllerPid).toBe(process.pid);
@@ -383,6 +389,14 @@ setInterval(() => {}, 50);
       await waitForStoredRuntimeState('devin', 'devin_wake_prompt_test', 'hibernated');
       const hibernatedScreen = await request(endpoint, 'session.viewport');
       expect(hibernatedScreen.data?.lines?.join(' ')).toContain('Agent hibernated');
+      const hibernatedOutput = writeSpy.mock.calls
+        .map(([chunk]) => String(chunk))
+        .find((chunk) => chunk.includes('Agent hibernated'));
+      expect(hibernatedOutput).toBeDefined();
+      expect(hibernatedOutput).toContain(MOUSE_TRACKING_RESET);
+      expect(hibernatedOutput!.indexOf(MOUSE_TRACKING_RESET)).toBeLessThan(
+        hibernatedOutput!.indexOf('Launcher:')
+      );
 
       const promptPromise = sendPrompt(endpoint, 'wake prompt body');
       await new Promise((resolve) => setTimeout(resolve, 300));

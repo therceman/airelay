@@ -11,6 +11,7 @@ import {
   markLaunchHistoryUsed,
   finalizeLaunchHistoryEntry,
   updateLaunchHistorySession,
+  updateLaunchHistorySessionKey,
   updateLaunchHistoryArgv,
 } from '../src/commands/history';
 import { runCommand } from '../src/commands/run';
@@ -271,6 +272,58 @@ describe('launch history', () => {
     });
   });
 
+  it('changes one saved session key in history and launcher argv', () => {
+    const entry = recordLaunchHistory({
+      profile: 'devin',
+      sessionKey: 'game_worker',
+      invocationCwd: process.cwd(),
+      argv: ['start', 'devin', '--key', 'game_worker', '--', '--resume', 'grape-cabin'],
+      startedAt: 100,
+    });
+
+    expect(updateLaunchHistorySessionKey(entry.id, process.cwd(), 'game_worker_2')).toBe(true);
+    expect(getLaunchHistory()[0]).toMatchObject({
+      id: entry.id,
+      sessionKey: 'game_worker_2',
+      argv: ['start', 'devin', '--key', 'game_worker_2', '--', '--resume', 'grape-cabin'],
+      command: 'airelay start devin --key game_worker_2 -- --resume grape-cabin',
+    });
+  });
+
+  it('inserts the new key before harness args when a saved launcher has no key flag', () => {
+    const entry = recordLaunchHistory({
+      profile: 'devin',
+      sessionKey: 'legacy-key',
+      invocationCwd: process.cwd(),
+      argv: ['start', 'devin', '--', '--resume', 'grape-cabin'],
+      startedAt: 100,
+    });
+
+    expect(updateLaunchHistorySessionKey(entry.id, process.cwd(), 'renamed-key')).toBe(true);
+    expect(getLaunchHistory()[0].argv).toEqual([
+      'start',
+      'devin',
+      '--key',
+      'renamed-key',
+      '--',
+      '--resume',
+      'grape-cabin',
+    ]);
+  });
+
+  it('rejects an empty replacement session key', () => {
+    const entry = recordLaunchHistory({
+      profile: 'devin',
+      sessionKey: 'game_worker',
+      invocationCwd: process.cwd(),
+      argv: ['start', 'devin', '--key', 'game_worker'],
+      startedAt: 100,
+    });
+
+    expect(updateLaunchHistorySessionKey(entry.id, process.cwd(), '   ')).toBe(false);
+    expect(getLaunchHistory()[0].sessionKey).toBe('game_worker');
+  });
+
   it('removes exact duplicate launches and keeps the freshest row', () => {
     const older = recordLaunchHistory({
       profile: 'worker',
@@ -388,6 +441,17 @@ describe('launch history', () => {
 
   it('quotes empty arguments and preserves the command prefix', () => {
     expect(renderLaunchCommand(['start', 'worker', '--', ''])).toBe("airelay start worker -- ''");
+  });
+
+  it('renders a copyable launcher rooted at the session project directory', () => {
+    expect(
+      renderLaunchCommand(
+        ['start', 'opencode', '--key', 'worker_1', '--', 'resume', 's1'],
+        '/home/user/project files'
+      )
+    ).toBe(
+      "cd -- '/home/user/project files' && airelay start opencode --key worker_1 -- resume s1"
+    );
   });
 
   it('removes matching entries only from the current invocation directory', () => {
