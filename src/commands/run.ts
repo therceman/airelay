@@ -54,7 +54,14 @@ export { READY_INPUT_FAIL_OPEN_MS };
 const WAKE_PROMPT_RETRY_WINDOW_MS = 60_000;
 const WAKE_PROMPT_RETRY_INTERVAL_MS = 5_000;
 function generateSessionKey(profileName: string): string {
-  const suffix = Math.random().toString(36).slice(2, 6);
+  const letters = 'abcdefghijklmnopqrstuvwxyz';
+  const digits = '0123456789';
+  const suffix = Array.from({ length: 4 }, (_, index) => {
+    const letter = letters[Math.floor(Math.random() * letters.length)];
+    if (index === 3) return letter;
+    const digit = digits[Math.floor(Math.random() * digits.length)];
+    return `${letter}${digit}`;
+  }).join('');
   return `${profileName}_${suffix}`;
 }
 
