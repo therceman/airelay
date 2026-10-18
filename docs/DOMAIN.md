@@ -114,7 +114,9 @@ After harness exits:
 - Without an argument, select a resumable launch from the current folder's
   launch history, sorted newest first.
 - With a profile or session key, resume using the existing session selector or
-  direct key lookup.
+  direct key lookup. If the session registry no longer has that key, a matching
+  resumable launch-history entry is used; duplicate keys prefer the current
+  folder, then the most recently used entry.
 
 When more than one profile uses the same detected harness, the interactive
 session picker offers `Use another profile (same harness)`. The project

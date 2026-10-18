@@ -456,6 +456,51 @@ function markResumeHistoryUsed(entry: LaunchHistoryEntry, profile: string): void
   markLaunchHistoryUsed(entry.id, Date.now(), profile);
 }
 
+function findResumableHistoryByKey(
+  sessionKey: string,
+  targetCwd: string
+): LaunchHistoryEntry | undefined {
+  const currentCwd = path.resolve(targetCwd);
+  return getLaunchHistory()
+    .filter(
+      (entry) =>
+        entry.sessionKey === sessionKey && getResumeSessionId(getHarnessArgs(entry)) !== undefined
+    )
+    .sort((a, b) => {
+      const cwdPriority =
+        Number(path.resolve(b.invocationCwd) === currentCwd) -
+        Number(path.resolve(a.invocationCwd) === currentCwd);
+      return cwdPriority || getLastUsed(b) - getLastUsed(a);
+    })[0];
+}
+
+async function resumeSavedHistoryEntry(entry: LaunchHistoryEntry): Promise<void> {
+  const profileArgs = getHarnessArgs(entry);
+  const profileSessionId = getResumeSessionId(profileArgs);
+  if (!profileSessionId) return;
+
+  if (await rejectActiveSession(entry.profile, profileSessionId)) {
+    process.exit(1);
+    return;
+  }
+
+  markResumeHistoryUsed(entry, entry.profile);
+  const exitCode = await resumeSession(
+    entry.profile,
+    {
+      id: profileSessionId,
+      profile: entry.profile,
+      lastUsed: getLastUsed(entry),
+      cwd: entry.invocationCwd,
+      sessionKey: entry.sessionKey,
+      profileSessionId,
+      profileArgs,
+    },
+    getHistoryBypass(entry, entry.profile)
+  );
+  process.exit(exitCode);
+}
+
 export interface ResumableProject {
   path: string;
   lastUsed: number;
@@ -667,6 +712,12 @@ export async function resumeCommand(
   // Not found as session key/ID, check if it's a profile name
   const config = loadConfig();
   if (!config.profiles[profileOrSessionKey]) {
+    const historyEntry = findResumableHistoryByKey(profileOrSessionKey, targetCwd);
+    if (historyEntry) {
+      await resumeSavedHistoryEntry(historyEntry);
+      return;
+    }
+
     console.error(`Error: Profile or session not found: ${profileOrSessionKey}`);
     console.error('Usage: airelay resume [profile|session-key]');
     process.exit(1);

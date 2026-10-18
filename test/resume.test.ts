@@ -67,6 +67,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   (findSessionByKey as jest.Mock).mockReturnValue(undefined);
   (getSessions as jest.Mock).mockReturnValue([]);
+  (getLaunchHistory as jest.Mock).mockReturnValue([]);
   (loadConfig as jest.Mock).mockReturnValue({
     profiles: {
       testprofile: { executable: 'opencode' },
@@ -87,6 +88,67 @@ describe('resumeCommand', () => {
     ['-r', 'ritzy-whitefish'],
   ])('recognizes Devin %s session arguments', (flag, sessionId) => {
     expect(getResumeSessionId([flag, sessionId])).toBe(sessionId);
+  });
+
+  it('resumes a renamed key from saved launch history when the session registry has no match', async () => {
+    const invocationCwd = process.cwd();
+    (getLaunchHistory as jest.Mock).mockReturnValue([
+      {
+        id: 'renamed-history-entry',
+        profile: 'testprofile',
+        sessionKey: 'renamed-session',
+        invocationCwd,
+        startedAt: 100,
+        argv: ['start', 'testprofile', '--key', 'renamed-session', '--', '--resume', 'native-42'],
+      },
+    ]);
+
+    await resumeCommand('renamed-session');
+
+    expect(runCommand).toHaveBeenCalledWith(
+      'testprofile',
+      ['--resume', 'native-42'],
+      expect.objectContaining({
+        cwd: invocationCwd,
+        sessionKey: 'renamed-session',
+        profileSessionId: 'native-42',
+        profileArgs: ['--resume', 'native-42'],
+        usePty: true,
+      })
+    );
+    expect(markLaunchHistoryUsed).toHaveBeenCalledWith('renamed-history-entry');
+    expect(process.exit).toHaveBeenCalledWith(0);
+  });
+
+  it('prefers a matching saved launch from the current folder over a newer duplicate key', async () => {
+    const currentCwd = path.resolve('/tmp/current-project');
+    (getLaunchHistory as jest.Mock).mockReturnValue([
+      {
+        id: 'other-project-entry',
+        profile: 'testprofile',
+        sessionKey: 'shared-key',
+        invocationCwd: '/tmp/other-project',
+        startedAt: 500,
+        argv: ['start', 'testprofile', '--key', 'shared-key', '--', '--resume', 'other-session'],
+      },
+      {
+        id: 'current-project-entry',
+        profile: 'testprofile',
+        sessionKey: 'shared-key',
+        invocationCwd: currentCwd,
+        startedAt: 100,
+        argv: ['start', 'testprofile', '--key', 'shared-key', '--', '--resume', 'current-session'],
+      },
+    ]);
+
+    await resumeCommand('shared-key', currentCwd);
+
+    expect(runCommand).toHaveBeenCalledWith(
+      'testprofile',
+      ['--resume', 'current-session'],
+      expect.objectContaining({ cwd: currentCwd })
+    );
+    expect(markLaunchHistoryUsed).toHaveBeenCalledWith('current-project-entry');
   });
 
   it('returns unique resumable projects in recent-use order', () => {
