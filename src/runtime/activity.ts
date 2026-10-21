@@ -6,6 +6,9 @@ export type ActivityReason = 'prompt_delivery' | 'harness_working' | 'recent_io'
 export interface ActivitySnapshot {
   state: 'busy' | 'idle';
   activityReason: ActivityReason;
+  userInputState: 'in_progress' | 'idle';
+  lastUserInputAt: number | null;
+  userInputQuietForMs: number | null;
   lastInputAt: number | null;
   lastOutputAt: number | null;
   lastActivityAt: number | null;
@@ -25,6 +28,7 @@ export interface ActivitySnapshotOptions {
 export class ActivityTracker {
   private lastInputAt: number | undefined;
   private lastOutputAt: number | undefined;
+  private lastUserInputAt: number | undefined;
 
   noteInput(now = Date.now()): void {
     this.lastInputAt = now;
@@ -32,6 +36,10 @@ export class ActivityTracker {
 
   noteOutput(now = Date.now()): void {
     this.lastOutputAt = now;
+  }
+
+  noteUserInput(now = Date.now()): void {
+    this.lastUserInputAt = now;
   }
 
   getLastInputAt(): number | undefined {
@@ -63,6 +71,8 @@ export class ActivityTracker {
     const promptDeliveryPending = options.promptDeliveryPending === true;
     const harnessWorking = options.harnessWorking === true;
     const recentIo = this.isRecentlyActive(now);
+    const userInputQuietForMs =
+      this.lastUserInputAt === undefined ? null : Math.max(0, now - this.lastUserInputAt);
     const activityReason: ActivityReason = promptDeliveryPending
       ? 'prompt_delivery'
       : harnessWorking
@@ -74,6 +84,12 @@ export class ActivityTracker {
     return {
       state: activityReason === 'idle' ? 'idle' : 'busy',
       activityReason,
+      userInputState:
+        userInputQuietForMs !== null && userInputQuietForMs < ACTIVITY_QUIET_MS
+          ? 'in_progress'
+          : 'idle',
+      lastUserInputAt: this.lastUserInputAt ?? null,
+      userInputQuietForMs,
       lastInputAt: this.lastInputAt ?? null,
       lastOutputAt: this.lastOutputAt ?? null,
       lastActivityAt: this.getLastActivityAt() ?? null,

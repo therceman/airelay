@@ -140,6 +140,9 @@ export interface SessionInfoData {
   /** Semantic harness availability state used by external watchers. */
   state?: 'busy' | 'idle';
   activityReason?: ActivityReason;
+  userInputState?: 'in_progress' | 'idle';
+  lastUserInputAt?: number | null;
+  userInputQuietForMs?: number | null;
   lastInputAt?: number | null;
   lastOutputAt?: number | null;
   lastActivityAt?: number | null;

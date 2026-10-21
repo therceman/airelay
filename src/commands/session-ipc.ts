@@ -13,6 +13,9 @@ export interface ControllerInfo {
   startedAt?: number;
   state?: 'busy' | 'idle';
   activityReason?: ActivityReason;
+  userInputState?: 'in_progress' | 'idle';
+  lastUserInputAt?: number | null;
+  userInputQuietForMs?: number | null;
   lastInputAt?: number | null;
   lastOutputAt?: number | null;
   lastActivityAt?: number | null;
@@ -134,6 +137,9 @@ export function fetchControllerInfo(
               startedAt: parsed.data.startedAt as number,
               state: parsed.data.state as 'busy' | 'idle' | undefined,
               activityReason: parsed.data.activityReason as ActivityReason | undefined,
+              userInputState: parsed.data.userInputState as 'in_progress' | 'idle' | undefined,
+              lastUserInputAt: parsed.data.lastUserInputAt as number | null | undefined,
+              userInputQuietForMs: parsed.data.userInputQuietForMs as number | null | undefined,
               lastInputAt: parsed.data.lastInputAt as number | null | undefined,
               lastOutputAt: parsed.data.lastOutputAt as number | null | undefined,
               lastActivityAt: parsed.data.lastActivityAt as number | null | undefined,

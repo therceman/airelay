@@ -17,6 +17,9 @@ const IPC_TIMEOUT_MS = 3000;
 export interface StatusActivity {
   state: 'busy' | 'idle' | null;
   reason: ActivityReason | null;
+  userInputState: 'in_progress' | 'idle' | null;
+  lastUserInputAt: number | null;
+  userInputQuietForMs: number | null;
   lastInputAt: number | null;
   lastOutputAt: number | null;
   lastActivityAt: number | null;
@@ -238,6 +241,9 @@ function activityFrom(info: ControllerInfo | null): StatusActivity {
   return {
     state: info?.state ?? null,
     reason: info?.activityReason ?? null,
+    userInputState: info?.userInputState ?? null,
+    lastUserInputAt: info?.lastUserInputAt ?? null,
+    userInputQuietForMs: info?.userInputQuietForMs ?? null,
     lastInputAt: info?.lastInputAt ?? null,
     lastOutputAt: info?.lastOutputAt ?? null,
     lastActivityAt: info?.lastActivityAt ?? null,
@@ -382,6 +388,8 @@ export function renderStatus(snapshot: StatusSnapshot): string {
     `  state            ${session.state}`,
     `  activity         ${session.activity.state || '-'}`,
     `  activity reason  ${session.activity.reason || '-'}`,
+    `  user input       ${session.activity.userInputState || '-'}`,
+    `  user input quiet ${session.activity.userInputQuietForMs ?? '-'} ms`,
     `  last input       ${session.activity.lastInputAt ?? '-'}`,
     `  last output      ${session.activity.lastOutputAt ?? '-'}`,
     `  quiet for        ${session.activity.quietForMs ?? '-'} ms`,

@@ -43,6 +43,25 @@ describe('ActivityTracker', () => {
     expect(tracker.snapshot({ now: 5200 }).state).toBe('idle');
   });
 
+  it('reports direct user input separately and expires it after the shared quiet boundary', () => {
+    const tracker = new ActivityTracker();
+    tracker.noteOutput(0);
+    tracker.noteUserInput(1000);
+
+    expect(tracker.snapshot({ now: 5999 })).toMatchObject({
+      state: 'idle',
+      userInputState: 'in_progress',
+      lastUserInputAt: 1000,
+      userInputQuietForMs: 4999,
+    });
+    expect(tracker.snapshot({ now: 6000 })).toMatchObject({
+      state: 'idle',
+      userInputState: 'idle',
+      lastUserInputAt: 1000,
+      userInputQuietForMs: 5000,
+    });
+  });
+
   it('keeps a pending prompt busy beyond the quiet interval', () => {
     const tracker = new ActivityTracker();
     tracker.noteOutput(0);
@@ -104,6 +123,9 @@ describe('ActivityTracker', () => {
     expect(tracker.snapshot({ now: ACTIVITY_QUIET_MS + 1 })).toEqual({
       state: 'idle',
       activityReason: 'idle',
+      userInputState: 'idle',
+      lastUserInputAt: null,
+      userInputQuietForMs: null,
       lastInputAt: null,
       lastOutputAt: 0,
       lastActivityAt: 0,
@@ -115,6 +137,9 @@ describe('ActivityTracker', () => {
     expect(new ActivityTracker().snapshot({ now: 123 })).toEqual({
       state: 'idle',
       activityReason: 'idle',
+      userInputState: 'idle',
+      lastUserInputAt: null,
+      userInputQuietForMs: null,
       lastInputAt: null,
       lastOutputAt: null,
       lastActivityAt: null,

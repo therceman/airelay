@@ -165,7 +165,7 @@ function setupController(
   onInputInjected?: (deliveryId: string, text: string, submitValue: string) => void,
   onInterrupt?: () => Promise<InterruptResult>,
   onWakeRequested?: () => Promise<void>,
-  onActivity?: () => void,
+  onActivity?: (source: 'user_input' | 'command') => void,
   onInputPrepared?: (deliveryId: string, marker: string, submitValue: string) => void,
   waitForHarnessReady?: () => Promise<void>,
   onStopRequested?: () => { stopping: boolean; alreadyStopping?: boolean },
@@ -195,7 +195,7 @@ function setupController(
           IpcErrorReasons.CONTROLLER_UNAVAILABLE
         );
       }
-      onActivity?.();
+      if (data.length > 0) onActivity?.('user_input');
       ptyWrite.current(data);
       return { delivered: true, raw: true };
     }
@@ -249,7 +249,7 @@ function setupController(
       }
 
       try {
-        onActivity?.();
+        onActivity?.('command');
         if (!shouldSubmit) {
           ptyWrite.current(text);
         } else {
@@ -609,7 +609,10 @@ export async function runCommand(
       interruptController?.request() ||
       Promise.resolve({ outcome: 'unsupported', requested: false } as InterruptResult),
     requestWake,
-    () => resetHibernateTimer(),
+    (source) => {
+      resetHibernateTimer();
+      if (source === 'user_input') activity.noteUserInput();
+    },
     (deliveryId, marker, submitValue) => {
       currentTerminalMarker = marker || undefined;
       markerTracker.reset();
@@ -990,6 +993,7 @@ export async function runCommand(
   };
   spawnOpts.onInput = () => {
     activity.noteInput();
+    activity.noteUserInput();
     resetHibernateTimer();
   };
 

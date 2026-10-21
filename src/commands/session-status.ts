@@ -23,6 +23,9 @@ interface StatusResult {
   pingLatencyMs?: number;
   state?: string;
   activityReason?: ActivityReason;
+  userInputState?: 'in_progress' | 'idle';
+  lastUserInputAt?: number | null;
+  userInputQuietForMs?: number | null;
   lastInputAt?: number | null;
   lastOutputAt?: number | null;
   lastActivityAt?: number | null;
@@ -102,6 +105,9 @@ function fetchSessionInfo(endpoint: string): Promise<{
   lastOutputChangeAt?: number;
   state?: 'busy' | 'idle';
   activityReason?: ActivityReason;
+  userInputState?: 'in_progress' | 'idle';
+  lastUserInputAt?: number | null;
+  userInputQuietForMs?: number | null;
   lastInputAt?: number | null;
   lastOutputAt?: number | null;
   lastActivityAt?: number | null;
@@ -148,6 +154,9 @@ function fetchSessionInfo(endpoint: string): Promise<{
               lastOutputChangeAt: parsed.data.lastOutputChangeAt as number | undefined,
               state: parsed.data.state as 'busy' | 'idle' | undefined,
               activityReason: parsed.data.activityReason as ActivityReason | undefined,
+              userInputState: parsed.data.userInputState as 'in_progress' | 'idle' | undefined,
+              lastUserInputAt: parsed.data.lastUserInputAt as number | null | undefined,
+              userInputQuietForMs: parsed.data.userInputQuietForMs as number | null | undefined,
               lastInputAt: parsed.data.lastInputAt as number | null | undefined,
               lastOutputAt: parsed.data.lastOutputAt as number | null | undefined,
               lastActivityAt: parsed.data.lastActivityAt as number | null | undefined,
@@ -235,6 +244,9 @@ export async function sessionStatusCommand(
     'startedAt',
     'state',
     'activityReason',
+    'userInputState',
+    'lastUserInputAt',
+    'userInputQuietForMs',
     'lastInputAt',
     'lastOutputAt',
     'lastActivityAt',
@@ -253,6 +265,9 @@ export async function sessionStatusCommand(
     pingLatencyMs: ping.latencyMs,
     state,
     activityReason: info.activityReason,
+    userInputState: info.userInputState,
+    lastUserInputAt: info.lastUserInputAt,
+    userInputQuietForMs: info.userInputQuietForMs,
     lastInputAt: info.lastInputAt,
     lastOutputAt: info.lastOutputAt,
     lastActivityAt: info.lastActivityAt,
@@ -309,6 +324,12 @@ export async function sessionStatusCommand(
     }
     if (result.activityReason) {
       console.log(`  Activity reason: ${result.activityReason}`);
+    }
+    if (result.userInputState) {
+      console.log(`  User input: ${result.userInputState}`);
+    }
+    if (result.userInputQuietForMs !== undefined && result.userInputQuietForMs !== null) {
+      console.log(`  User input quiet for: ${result.userInputQuietForMs}ms`);
     }
     if (result.quietForMs !== undefined && result.quietForMs !== null) {
       console.log(`  Quiet for: ${result.quietForMs}ms`);

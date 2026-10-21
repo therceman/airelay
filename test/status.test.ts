@@ -75,6 +75,9 @@ function info(overrides: Partial<ControllerInfo> = {}): ControllerInfo {
     startedAt: 1000,
     state: 'busy',
     activityReason: 'recent_io',
+    userInputState: 'in_progress',
+    lastUserInputAt: 2500,
+    userInputQuietForMs: 500,
     lastInputAt: 2000,
     lastOutputAt: 3000,
     lastActivityAt: 3000,
@@ -241,6 +244,8 @@ describe('airelay status', () => {
     await expect(statusCommand('human')).resolves.toBe(0);
     const output = (console.log as jest.Mock).mock.calls[0][0] as string;
     expect(output).toContain('activity reason  recent_io');
+    expect(output).toContain('user input       in_progress');
+    expect(output).toContain('user input quiet 500 ms');
     expect(output).toContain('last output      3000');
     expect(output).toContain('raw ring         512 B / 2 chunks');
     expect(output).toContain('Harness tree');

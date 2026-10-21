@@ -15,7 +15,7 @@ has materially changed.
 | Controller, terminal state, or IPC          | `src/controller/index.ts`                             | `src/controller/protocol.ts`, `src/types/controller.ts`, `test/controller-*.test.ts`                                                                                                            |
 | Resume hydration/reveal or terminal queries | `src/runtime/resume-presentation.ts`                  | `src/runtime/terminal-query.ts`, `src/controller/index.ts`, `test/resume-presentation.test.ts`, `test/terminal-query.test.ts`                                                                   |
 | Prompt submission and retries               | `src/runtime/delivery-sequence.ts`                    | `src/runtime/input-submit-watcher.ts`, `src/runtime/delivery-marker.ts`, `src/commands/run.ts`, `test/delivery-sequence.test.ts`, `test/input-submit-watcher.test.ts`, `test/run-input.test.ts` |
-| Busy/idle reasoning                         | `src/runtime/activity.ts`                             | `src/commands/run.ts`, `src/types/controller.ts`, `test/activity.test.ts`, `test/session-status-blocking.test.ts`                                                                               |
+| Busy/idle and direct user-input status       | `src/runtime/activity.ts`                             | `src/commands/run.ts`, `src/types/controller.ts`, `src/commands/session-status.ts`, `src/commands/status.ts`, `test/activity.test.ts`, `test/controller-e2e.test.ts`, `test/status.test.ts` |
 | Harness-specific arguments/capabilities     | `src/utils/harness.ts`                                | `src/commands/run.ts`, `test/harness.test.ts`, `test/workspace-trust.test.ts`                                                                                                                   |
 | Mouse tracking policy and config default    | `src/config/schema.ts`, `src/runtime/mouse-filter.ts`, `src/controller/index.ts`, `src/runtime/pty.ts` | `test/config-command.test.ts`, `test/init.test.ts`, `test/mouse-filter.test.ts` |
 | Config parsing/defaults/paths               | `src/config/schema.ts`                                | `src/config/load.ts`, `src/config/paths.ts`, `src/config/defaults.ts`, `test/config.test.ts`, `test/paths.test.ts`                                                                              |
@@ -83,8 +83,9 @@ terminal parser or serializer without first checking the controller/xterm APIs.
   state, and bounded Enter-only retries. Keep manual/raw input separate.
 - `delivery.ts`: delivery status/correlation. `post-submit-working.ts` detects
   supported post-submit working evidence; it is not the activity clock.
-- `activity.ts`: I/O timestamps and the 5-second recent-I/O rule. The runtime
-  combines this with an unresolved prompt lease and the harness-working guard.
+- `activity.ts`: I/O timestamps and the 5-second recent-I/O rule, plus a
+  separate 5-second direct-user-input signal. The runtime combines agent
+  activity with an unresolved prompt lease and the harness-working guard.
 - `capacity-watcher.ts`, `interrupt.ts`, `harness-ready.ts`, and
   `mouse-filter.ts`: focused runtime policies; edit these rather than adding
   parallel policies to the orchestrator.

@@ -459,6 +459,9 @@ describe('controller E2E: real IPC socket flow', () => {
     controller.setActivityDiagnosticsProvider(() => ({
       state: 'busy',
       activityReason: 'recent_io',
+      userInputState: 'in_progress',
+      lastUserInputAt: 150,
+      userInputQuietForMs: 750,
       lastInputAt: 100,
       lastOutputAt: 200,
       lastActivityAt: 200,
@@ -471,6 +474,9 @@ describe('controller E2E: real IPC socket flow', () => {
     expect(info).toMatchObject({
       state: 'busy',
       activityReason: 'recent_io',
+      userInputState: 'in_progress',
+      lastUserInputAt: 150,
+      userInputQuietForMs: 750,
       lastInputAt: 100,
       lastOutputAt: 200,
       lastActivityAt: 200,

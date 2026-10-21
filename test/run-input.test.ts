@@ -2,6 +2,7 @@ import fs from 'fs';
 import net from 'net';
 import path from 'path';
 import { runCommand } from '../src/commands/run';
+import { fetchControllerInfo } from '../src/commands/session-ipc';
 import { readLines } from '../src/controller/protocol';
 import { useTestEnv } from './test-utils';
 
@@ -45,6 +46,38 @@ function sendInput(
       reject(error);
     });
   });
+}
+
+function sendRawInput(endpoint: string, data: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(endpoint);
+    socket.on('connect', () => {
+      socket.end(
+        JSON.stringify({ id: 'raw-input-test', method: 'session.input.raw', params: { data } }) +
+          '\n',
+        () => resolve()
+      );
+    });
+    socket.on('error', (error) => {
+      socket.destroy();
+      reject(error);
+    });
+    socket.on('close', () => {
+      if (!socket.destroyed) {
+        socket.destroy();
+      }
+    });
+  });
+}
+
+async function waitForUserInputStatus(endpoint: string): Promise<void> {
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline) {
+    const info = await fetchControllerInfo(endpoint);
+    if (info.userInputState === 'in_progress') return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error('Controller did not report user input as in progress');
 }
 
 describe('command-driven input after resume', () => {
@@ -166,5 +199,54 @@ setTimeout(() => process.exit(2), 1500);
     expect(response.type).toBe('success');
     await expect(runPromise).resolves.toBe(0);
     expect(fs.readFileSync(inputLogPath, 'utf8')).toBe('unfinished manual text');
+  }, 10000);
+
+  it('reports raw attached keyboard input separately from agent activity', async () => {
+    const harnessPath = path.join(testEnv.testDir, 'user-input-status-harness');
+    fs.writeFileSync(
+      harnessPath,
+      `#!/usr/bin/env node
+if (process.stdin.isTTY && process.stdin.setRawMode) process.stdin.setRawMode(true);
+process.stdin.on('data', (chunk) => {
+  if (chunk.includes('y')) process.exit(0);
+});
+setTimeout(() => process.exit(2), 5000);
+`
+    );
+    fs.chmodSync(harnessPath, 0o755);
+    fs.writeFileSync(
+      testEnv.configPath,
+      JSON.stringify({
+        version: 1,
+        settings: { hibernateAfter: 'off', harnessSelfUpdate: true },
+        profiles: { user_input: { executable: harnessPath } },
+      })
+    );
+
+    let endpoint = '';
+    const runPromise = runCommand('user_input', [], {
+      usePty: true,
+      detached: true,
+      sessionKey: 'user_input_status_test',
+      onSessionStart: (info) => {
+        endpoint = info.controllerEndpoint;
+      },
+    });
+
+    const deadline = Date.now() + 1000;
+    while (!endpoint && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(endpoint).toBeTruthy();
+
+    await sendRawInput(endpoint, 'x');
+    await waitForUserInputStatus(endpoint);
+    await expect(fetchControllerInfo(endpoint)).resolves.toMatchObject({
+      userInputState: 'in_progress',
+      lastUserInputAt: expect.any(Number),
+      userInputQuietForMs: expect.any(Number),
+    });
+    await sendRawInput(endpoint, 'y');
+    await expect(runPromise).resolves.toBe(0);
   }, 10000);
 });
