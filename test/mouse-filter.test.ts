@@ -2,6 +2,8 @@ import fs from 'fs';
 import net from 'net';
 import path from 'path';
 import { Terminal } from '@xterm/headless';
+import { SessionController } from '../src/controller';
+import { createControllerReveal } from '../src/runtime/resume-presentation';
 import {
   MOUSE_TRACKING_RESET,
   MouseTrackingFilter,
@@ -69,9 +71,19 @@ describe('MouseTrackingFilter', () => {
   it('strips any-event motion across chunks but keeps click, wheel, and drag modes', () => {
     const filter = new MouseTrackingFilter('any-event');
     expect(filter.feed('a\x1b[?1000;100')).toBe('a');
-    expect(filter.feed('2;1003;1006h')).toBe('\x1b[?1000;1002;1006h');
+    expect(filter.feed('2;1003;1006h')).toBe('\x1b[?1000;1002;1002;1006h');
     expect(filter.feed('\x1b[?100')).toBe('');
-    expect(filter.feed('3l\x1b[?1002l')).toBe('\x1b[?1002l');
+    expect(filter.feed('3l\x1b[?1002l')).toBe('\x1b[?1002l\x1b[?1002l');
+  });
+
+  it('downgrades a standalone any-event mode across every chunk boundary', () => {
+    const sequence = '\x1b[?1003h';
+    for (let boundary = 1; boundary < sequence.length; boundary += 1) {
+      const filter = new MouseTrackingFilter('any-event');
+      const forwarded =
+        filter.feed(sequence.slice(0, boundary)) + filter.feed(sequence.slice(boundary));
+      expect(forwarded).toBe('\x1b[?1002h');
+    }
   });
 });
 
@@ -99,12 +111,14 @@ describe('MOUSE_TRACKING_RESET', () => {
 });
 
 describe('stripAnyEventMouseSequences', () => {
-  it('removes any-event motion mode both ways, preserving click/wheel/drag modes', () => {
+  it('maps any-event enable and disable to drag tracking while preserving other modes', () => {
     const modes = '\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h';
-    expect(stripAnyEventMouseSequences(modes)).toBe('\x1b[?1000h\x1b[?1002h\x1b[?1006h');
-    expect(stripAnyEventMouseSequences('\x1b[?1000;1002;1003;1006h')).toBe('\x1b[?1000;1002;1006h');
-    expect(stripAnyEventMouseSequences('\x1b[?1003l')).toBe('');
-    expect(stripAnyEventMouseSequences('\x1b[?1000;1002;1003l')).toBe('\x1b[?1000;1002l');
+    expect(stripAnyEventMouseSequences(modes)).toBe('\x1b[?1000h\x1b[?1002h\x1b[?1002h\x1b[?1006h');
+    expect(stripAnyEventMouseSequences('\x1b[?1000;1002;1003;1006h')).toBe(
+      '\x1b[?1000;1002;1002;1006h'
+    );
+    expect(stripAnyEventMouseSequences('\x1b[?1003l')).toBe('\x1b[?1002l');
+    expect(stripAnyEventMouseSequences('\x1b[?1000;1002;1003l')).toBe('\x1b[?1000;1002;1002l');
     expect(stripAnyEventMouseSequences('\x1b[?1049h\x1b[?2004h')).toBe('\x1b[?1049h\x1b[?2004h');
   });
 
@@ -120,6 +134,41 @@ describe('stripAnyEventMouseSequences', () => {
     await new Promise<void>((resolve) => terminal.write(forwarded, resolve));
     expect(terminal.modes.mouseTrackingMode).toBe('drag');
     terminal.dispose();
+  });
+
+  it('preserves wheel tracking when official resume serialization emits only the active any-event mode', async () => {
+    const controller = new SessionController('resume_mouse_tracking');
+    controller.resize(80, 24);
+    const terminal = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+    const foreground: string[] = [];
+    try {
+      controller.feedOutput('\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006hREADY');
+      await controller.flushViewport();
+      const snapshot = controller.serializeLivePresentation();
+      expect(snapshot).toContain('\x1b[?1003h');
+      expect(snapshot).not.toContain('\x1b[?1000h');
+      expect(snapshot).not.toContain('\x1b[?1002h');
+
+      await createControllerReveal(
+        controller,
+        () => Promise.resolve(),
+        (chunk) => foreground.push(stripAnyEventMouseSequences(chunk))
+      )('quiet_period', () => true);
+
+      expect(foreground).toHaveLength(1);
+      await new Promise<void>((resolve) =>
+        terminal.write(MOUSE_TRACKING_RESET + foreground[0], resolve)
+      );
+      expect(terminal.modes.mouseTrackingMode).toBe('drag');
+      expect(foreground[0]).not.toContain('\x1b[?1003h');
+      await new Promise<void>((resolve) =>
+        terminal.write(stripAnyEventMouseSequences('\x1b[?1003l'), resolve)
+      );
+      expect(terminal.modes.mouseTrackingMode).toBe('none');
+    } finally {
+      terminal.dispose();
+      await controller.stop();
+    }
   });
 });
 

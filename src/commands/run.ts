@@ -1030,9 +1030,8 @@ export async function runCommand(
         const revealViewport = createControllerReveal(
           controller,
           () => presentationCutoffQueue ?? outputRenderQueue,
-          // The screen serializer replays the harness's DECSET modes (xterm
-          // tracks them from unfiltered output), so mouse tracking would leak
-          // to the terminal here unless it is stripped again.
+          // Serialized snapshots emit only the active tracking mode, so an
+          // any-event mode must become drag tracking rather than disappear.
           (chunk) =>
             writeForeground(
               mousePassthrough

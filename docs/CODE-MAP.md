@@ -89,6 +89,9 @@ terminal parser or serializer without first checking the controller/xterm APIs.
 - `capacity-watcher.ts`, `interrupt.ts`, `harness-ready.ts`, and
   `mouse-filter.ts`: focused runtime policies; edit these rather than adding
   parallel policies to the orchestrator.
+- `mouse-filter.ts` downgrades any-event tracking to drag tracking for live
+  output, serialized resume screens, and attach streams. Dropping the mode
+  entirely breaks wheel input when a snapshot contains only the active mode.
 - `diagnostics.ts`: bounded metadata-only PTY/resume trace. It must not persist
   prompts, PTY output, environment values, or terminal contents.
 - `detached-registry.ts`, `identity.ts`, `signals.ts`, and `procfs.ts`: detached

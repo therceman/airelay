@@ -44,13 +44,13 @@ export function stripMouseTrackingSequences(text: string): string {
   });
 }
 
-/** Remove unsolicited pointer-motion reports while retaining click, wheel, and drag tracking. */
+/** Downgrade any-event tracking to drag so snapshots retain wheel input without hover reports. */
 export function stripAnyEventMouseSequences(text: string): string {
   return text.replace(MOUSE_DECSET_PATTERN, (sequence, params: string, final: string) => {
     const modes = params.split(';').filter(Boolean);
-    const remaining = modes.filter((mode) => mode !== ANY_EVENT_MOUSE_MODE);
-    if (remaining.length === modes.length) return sequence;
-    return remaining.length > 0 ? `${ESC}[?${remaining.join(';')}${final}` : '';
+    if (!modes.includes(ANY_EVENT_MOUSE_MODE)) return sequence;
+    const safeModes = modes.map((mode) => (mode === ANY_EVENT_MOUSE_MODE ? '1002' : mode));
+    return `${ESC}[?${safeModes.join(';')}${final}`;
   });
 }
 
