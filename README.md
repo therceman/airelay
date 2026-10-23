@@ -190,9 +190,11 @@ Use `airelay create <name> --executable <tool>` for guided profile creation, and
 ## Project and role workspaces
 
 `airelay workspace` provisions reusable project/role instructions and Skills,
-with optional instances for separate MCP identities. Managed Devin launches
-verify native tool discovery and filter inherited environment variables before
-starting. They use the existing Airelay profiles and session lifecycle. See
+with optional instances for distinct agent identities. The current host
+migration target is zero MCP registrations, pending safe controller cutover.
+Managed Devin launches verify native tool discovery and filter inherited
+environment variables before starting. They use the existing Airelay profiles
+and session lifecycle. See
 [Agent Workspaces](docs/WORKSPACES.md) for provisioning, launch, verification,
 and migration requirements.
 

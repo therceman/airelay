@@ -229,6 +229,70 @@ describe('project/role workspaces', () => {
     verifyWorkspaceFiles({ project: 'test', role: 'worker', instance: 'worker-01' }, root);
   });
 
+  it('cuts roles and instances over to zero MCP with protected rollback and unchanged shared assets', () => {
+    const binding = { project: 'test', role: 'worker' };
+    const roleOptions = { ...binding, root, instructions, skillsDir };
+    const role = provisionWorkspace({
+      ...roleOptions,
+      mcpConfig: mcpFile('zero-role', 'dummy-role-credential'),
+    });
+    const bindings: Array<typeof binding & { instance?: string }> = [
+      binding,
+      ...['worker-01', 'worker-02'].map((instance) => ({ ...binding, instance })),
+    ];
+    for (const current of bindings.slice(1))
+      provisionWorkspace({
+        ...current,
+        root,
+        mcpConfig: mcpFile(current.instance!, `dummy-${current.instance}`),
+      });
+    const directories = bindings.map((current) => workspacePath(current, root));
+    const files = directories.flatMap((directory) =>
+      ['.airelay-workspace.json', '.devin/mcp_config.local.json'].map((name) =>
+        path.join(directory, name)
+      )
+    );
+    const originals = files.map((file) => fs.readFileSync(file));
+    const backup = path.join(caseDirectory, 'zero-mcp-backup');
+    backupWorkspaceConfiguration(files, backup);
+    const roleAssets = ['AGENTS.md', '.devin/skills/worker-guide/SKILL.md'].map((name) =>
+      fs.readFileSync(path.join(role.directory, name))
+    );
+
+    const dryRun = provisionWorkspace({ ...roleOptions, update: true, dryRun: true });
+    expect(dryRun.changed).toEqual(['.devin/mcp_config.local.json', '.airelay-workspace.json']);
+    files.forEach((file, index) => expect(fs.readFileSync(file)).toEqual(originals[index]));
+    provisionWorkspace({ ...roleOptions, update: true });
+    for (const current of bindings.slice(1)) provisionWorkspace({ ...current, root, update: true });
+
+    for (const current of bindings) {
+      const { manifest, directory } = verifyWorkspaceFiles(current, root);
+      expect(manifest.allowedMcpServers).toEqual([]);
+      for (const name of ['mcp_config.json', 'mcp_config.local.json'])
+        expect(JSON.parse(fs.readFileSync(path.join(directory, '.devin', name), 'utf8'))).toEqual({
+          mcpServers: {},
+        });
+      expect(fs.statSync(path.join(directory, '.devin/mcp_config.local.json')).mode & 0o777).toBe(
+        0o600
+      );
+      expect(fs.readFileSync(path.join(directory, 'AGENTS.md'))).toEqual(roleAssets[0]);
+      expect(fs.readFileSync(path.join(directory, '.devin/skills/worker-guide/SKILL.md'))).toEqual(
+        roleAssets[1]
+      );
+      if ('instance' in current)
+        expect(fs.realpathSync(path.join(directory, '.devin/skills'))).toBe(
+          path.join(role.directory, '.devin/skills')
+        );
+    }
+    expect(provisionWorkspace({ ...roleOptions, update: true }).changed).toEqual([]);
+    expect(fs.statSync(backup).mode & 0o777).toBe(0o700);
+    restoreWorkspaceConfiguration(backup, files);
+    files.forEach((file, index) => expect(fs.readFileSync(file)).toEqual(originals[index]));
+    bindings.forEach((current) =>
+      expect(verifyWorkspaceFiles(current, root).manifest.allowedMcpServers).toEqual(['test-mcp'])
+    );
+  });
+
   it('rejects added configuration imports and unapproved Skill files', () => {
     const role = provisionRole();
     fs.writeFileSync(path.join(role.directory, '.devin/config.json'), '{}');

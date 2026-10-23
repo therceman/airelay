@@ -16,8 +16,8 @@ environment and launch behavior.
       mcp_config.local.json
   bb_splunk/
     worker/                         canonical role assets
-    instances/worker-01/            optional, separate MCP identity
-    instances/worker-02/            optional, separate MCP identity
+    instances/worker-01/            optional, concrete agent identity
+    instances/worker-02/            optional, concrete agent identity
 ```
 
 There are no workspace `sessions/` directories or XDG overlays. Airelay's
@@ -55,29 +55,34 @@ Provisioning is idempotent. Changed managed assets require `--update`; the
 previous materialization must still match its recorded digests. User edits or
 unmanaged target files cause an error. `--dry-run` (or `-n`) writes neither
 workspace files nor configuration. Reprovision with the complete desired input
-set, including any MCP configuration that must remain configured.
+set. The current Owner-approved host target is **zero MCP everywhere**;
+omit `--mcp-config`, including when updating an existing workspace. This
+empties its private MCP file and updates the manifest together. It does not
+mask global registrations: native verification must still discover zero.
 
 Each role owns one regular `AGENTS.md` and one copy of each Skill. Optional
-instances link only those assets to the canonical role. MCP credentials are
-copied into regular mode-0600 `.devin/mcp_config.local.json` files, never linked.
-The public `.devin/mcp_config.json` is an empty base configuration. Omit
-`--mcp-config` for zero approved MCP servers.
+instances link only those assets to the canonical role. Both MCP files contain
+`{"mcpServers":{}}` in the temporary zero-MCP state. The private
+`.devin/mcp_config.local.json` remains a regular mode-0600 file, never a
+credential symlink. Preserve former credentials in a protected backup outside
+active discovery directories, not in an active workspace registration.
 
 ```bash
 airelay workspace provision bb_splunk worker \
   --instructions /path/to/worker/AGENTS.md --skills-dir /path/to/worker/skills
 
 airelay workspace provision bb_splunk worker --instance worker-01 \
-  --mcp-config /private/worker-a.json --principal worker-a
+  --principal worker-a
 airelay workspace provision bb_splunk worker --instance worker-02 \
-  --mcp-config /private/worker-b.json --principal worker-b
+  --principal worker-b
 ```
 
-The MCP input must have the shape `{"mcpServers": {...}}` supported by the
-installed CLI. Keep secret-bearing inputs outside Git with restrictive
-permissions. `--principal` is an optional nonsecret operator label, not a
-credential or authorization grant. Provisioning never creates a backend
-Principal, account or lab entitlement.
+`--principal` is an optional nonsecret operator label, not a credential or
+authorization grant. Provisioning never creates a backend Principal, account
+or lab entitlement. The reusable provisioner still accepts `--mcp-config`
+(`{"mcpServers": {...}}`); that capability is not approval to reconnect tools
+during the zero-MCP cutover. No runtime/session policy is changed by this
+operator migration target.
 
 ## Launch, Wake, and Resume
 
@@ -141,11 +146,19 @@ container sandbox, RSG/RSR integration, ACP adapter or cloud authority is added.
 
 ## Migration and Rollback
 
-Before removing global resources, inventory every source/import and active
-consumer, save private backups outside active configuration directories, and
-verify local replacements with the installed CLI. Do not remove built-ins,
-provider authentication, ordinary preferences, daemons or live session state.
-Wait for safe cutover if a running controller would wake into the old directory.
+The current cutover removes **all eight** global Devin MCP registrations and
+every managed local registration; there are no BB-MCP or `gpt-tunnel`
+exceptions. Before global removal, inventory sources/imports and consumers,
+save private backups, and obtain the approved quiescent cutover window. A
+hibernated controller is still a consumer because its next wake reuses its
+launch configuration. Idle/busy and a historical Job snapshot do not prove
+that durable Jobs or leases are quiescent.
+
+Do not stop Jobs, revoke credentials, consolidate daemons or delete their
+identity registry/durable data to achieve zero discovery. Unused prepared
+workspaces can be emptied separately after checking live consumers. Full
+zero-MCP acceptance requires real-HOME `devin mcp list` in every affected
+context, not an empty local JSON file or a disposable-HOME fixture.
 
 `src/workspace/backup.ts` records original paths, modes, ownership and hashes.
 `restoreWorkspaceConfiguration(backupDirectory, [reviewedOriginalPaths])`
@@ -155,6 +168,18 @@ authentication/preferences. Retain backups and any user-edited workspace files.
 
 The host preparation status and outstanding cutover decisions are recorded in
 [the migration report](WORKSPACE-MIGRATION-2026-10-23.md).
+
+### Future BB-MCP Reconnection (Not Implemented or Approved)
+
+The future target has exactly one HTTP daemon/endpoint. Each authorized
+BB-Splunk concrete agent registers only the project-local alias `bb-mcp`, with
+a unique Bearer credential in a header. The server resolves that credential
+to an immutable agent identity, role and entitlements. Neither an alias,
+workspace path nor a client-supplied `role` query parameter grants authority.
+Never put credentials in URLs/query parameters. Two Workers share canonical
+Role assets but not credentials. BB-MCP stays absent globally and from
+unrelated projects. Reconnection and credential rotation require a separate
+Owner-approved process; this cutover neither rotates nor revokes credentials.
 
 ## Verification
 
@@ -166,9 +191,12 @@ node scripts/verify-workspace-devin.cjs
 
 The optional installed-Devin gate uses a disposable HOME, dummy MCP credentials,
 and five role/instance launch directories. It proves real Skill, rule, symlink
-and MCP discovery plus negative global-contamination checks, without model
-calls or foreign service invocation. It does not certify production agent
-startup/resume or backend Principal permissions.
+and MCP discovery, then removes their dummy registrations and verifies all
+five discover zero. Negative global-contamination checks remain enabled,
+without model calls or foreign service invocation. Unit coverage also proves
+dry-run, zero-MCP reprovisioning, shared asset preservation, and selective
+credential/manifest rollback. This does not certify production startup/resume
+or backend Principal permissions.
 
 Storage is bounded to 256 managed files / 4 MiB, with Skill traversal capped at
 1,024 entries and depth eight. No periodic scanner or separate session store is

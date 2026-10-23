@@ -121,6 +121,10 @@ terminal parser or serializer without first checking the controller/xterm APIs.
   optional instance links, manifests, and provisioning rollback. `verify.ts`
   owns native Devin inventory validation; `backup.ts` owns private configuration
   backup/selective restore. The workspace command registers normal profiles.
+  `docs/WORKSPACE-MIGRATION-2026-10-23.md` owns the temporary zero-MCP host
+  target and approved-window/rollback procedure, not a second runtime policy.
+  `test/workspace.test.ts` and `scripts/verify-workspace-devin.cjs` cover
+  zero-MCP reprovisioning without duplicating canonical Role assets.
 - Managed profiles opt in through `profile.workspace`. `run.ts` validates
   their cwd/assets and rechecks native discovery before every generation;
   `resume.ts` restricts account switching to the same workspace binding.

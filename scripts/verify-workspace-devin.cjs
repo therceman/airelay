@@ -93,6 +93,21 @@ try {
     inventories,
     'Repeated installed-CLI discovery must remain stable.'
   );
+  // Temporary host target: remove MCP from every role and concrete instance.
+  // Preserve the general provisioner contract; this uses only dummy identities.
+  for (const role of ['lead', 'worker', 'advisor'])
+    provisionWorkspace({
+      project: 'bb_splunk',
+      role,
+      root,
+      instructions,
+      skillsDir: skills,
+      update: true,
+    });
+  for (const instance of ['worker-01', 'worker-02'])
+    provisionWorkspace({ project: 'bb_splunk', role: 'worker', instance, root, update: true });
+  for (const inventory of bindings.map(inspect)) assert.deepEqual(inventory.mcpServers, []);
+  assert.equal(fs.realpathSync(firstSkill), fs.realpathSync(secondSkill));
   const globalConfig = path.join(home, '.config/devin');
   fs.mkdirSync(globalConfig, { recursive: true });
   fs.writeFileSync(
@@ -117,6 +132,7 @@ try {
       zeroMcpFixture: true,
       sharedWorkerSkill: true,
       distinctDummyIdentities: true,
+      zeroMcpCutoverVerified: bindings.length,
       repeatedNativeDiscovery: true,
       foreignMcpRejected: true,
       foreignSkillRejected: true,
