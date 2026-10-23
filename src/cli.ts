@@ -23,6 +23,7 @@ const KNOWN_COMMANDS = [
   'help',
   'guide',
   'config',
+  'workspace',
   'select',
   'cleanup',
   'ps',
@@ -246,6 +247,7 @@ Commands:
   help                  Show this help message
   guide                 Show setup instructions for a new machine
   config                Read or update airelay settings
+  workspace             Provision/inspect/verify project role workspaces
 
 Examples:
   airelay init
@@ -638,6 +640,13 @@ async function runCli(): Promise<void> {
           });
           process.exit(exitCode);
         }
+
+      case 'workspace': {
+        const { workspaceCommand } = await import('./commands/workspace');
+        const exitCode = workspaceCommand(profile, args, flags);
+        if (exitCode !== 0) process.exit(exitCode);
+        break;
+      }
 
       case 'sessions': {
         const { sessionsListCommand } = await import('./commands/sessions-list');

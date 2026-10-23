@@ -290,6 +290,7 @@ describe('detached lifecycle, attach, prompt routing (E2E)', () => {
   });
 
   it('drops stale replayed terminal replies but forwards a reply to a live query', async () => {
+    expect(await viewportContains(runtime.controllerEndpoint, 'READY', 2000)).toBe(true);
     const stdin = new StdinSource();
     const res = new ResizeSource();
     const terminalReply = '\x1b]10;rgb:cccc/cccc/cccc\x1b\\';

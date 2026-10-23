@@ -26,7 +26,19 @@ export const SettingsSchema = z.object({
   hibernateAfter: HibernateAfterSchema.default(DEFAULT_HIBERNATE_AFTER),
   harnessSelfUpdate: z.boolean().default(DEFAULT_HARNESS_SELF_UPDATE),
   mousePassthrough: z.boolean().default(DEFAULT_MOUSE_PASSTHROUGH),
+  workspaceRoot: z.string().min(1).optional(),
 });
+
+export const WorkspaceBindingSchema = z
+  .object({
+    project: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/),
+    role: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/),
+    instance: z
+      .string()
+      .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/)
+      .optional(),
+  })
+  .strict();
 
 export const ProfileSchema = z.object({
   executable: z.string().min(1),
@@ -35,6 +47,7 @@ export const ProfileSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
   description: z.string().optional(),
   createDirs: z.array(z.string()).optional(),
+  workspace: WorkspaceBindingSchema.optional(),
 });
 
 export const ConfigSchema = z

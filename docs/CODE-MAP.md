@@ -16,6 +16,7 @@ has materially changed.
 | Resume hydration/reveal or terminal queries | `src/runtime/resume-presentation.ts`                  | `src/runtime/terminal-query.ts`, `src/controller/index.ts`, `test/resume-presentation.test.ts`, `test/terminal-query.test.ts`                                                                   |
 | Prompt submission and retries               | `src/runtime/delivery-sequence.ts`                    | `src/runtime/input-submit-watcher.ts`, `src/runtime/delivery-marker.ts`, `src/commands/run.ts`, `test/delivery-sequence.test.ts`, `test/input-submit-watcher.test.ts`, `test/run-input.test.ts` |
 | Busy/idle and direct user-input status       | `src/runtime/activity.ts`                             | `src/commands/run.ts`, `src/types/controller.ts`, `src/commands/session-status.ts`, `src/commands/status.ts`, `test/activity.test.ts`, `test/controller-e2e.test.ts`, `test/status.test.ts` |
+| Project/role workspaces and managed launch policy | `src/workspace/{provision,verify,backup}.ts`, `src/commands/workspace.ts` | `src/runtime/env.ts`, `src/commands/{run,resume,detached}.ts`, `test/workspace.test.ts`, `scripts/verify-workspace-devin.cjs`, `docs/WORKSPACES.md` |
 | Harness-specific arguments/capabilities     | `src/utils/harness.ts`                                | `src/commands/run.ts`, `test/harness.test.ts`, `test/workspace-trust.test.ts`                                                                                                                   |
 | Mouse tracking policy and config default    | `src/config/schema.ts`, `src/runtime/mouse-filter.ts`, `src/controller/index.ts`, `src/runtime/pty.ts` | `test/config-command.test.ts`, `test/init.test.ts`, `test/mouse-filter.test.ts` |
 | Config parsing/defaults/paths               | `src/config/schema.ts`                                | `src/config/load.ts`, `src/config/paths.ts`, `src/config/defaults.ts`, `test/config.test.ts`, `test/paths.test.ts`                                                                              |
@@ -115,6 +116,16 @@ terminal parser or serializer without first checking the controller/xterm APIs.
   application-level parser.
 
 ### Configuration, Harnesses, and State
+
+- `src/workspace/provision.ts` owns bounded, digest-checked role assets,
+  optional instance links, manifests, and provisioning rollback. `verify.ts`
+  owns native Devin inventory validation; `backup.ts` owns private configuration
+  backup/selective restore. The workspace command registers normal profiles.
+- Managed profiles opt in through `profile.workspace`. `run.ts` validates
+  their cwd/assets and rechecks native discovery before every generation;
+  `resume.ts` restricts account switching to the same workspace binding.
+  `runtime/env.ts` owns the managed allowlist, also used by detached startup.
+  Workspace files never replace the existing Airelay session/history stores.
 
 - `src/config/schema.ts` defines accepted config shape; `load.ts`, `paths.ts`,
   and `defaults.ts` own loading, canonical paths, and defaults.

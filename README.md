@@ -187,6 +187,15 @@ profiles:
 
 Use `airelay create <name> --executable <tool>` for guided profile creation, and `airelay config list` or `airelay which <profile>` to inspect settings. Harness authentication remains the responsibility of the installed CLI.
 
+## Project and role workspaces
+
+`airelay workspace` provisions reusable project/role instructions and Skills,
+with optional instances for separate MCP identities. Managed Devin launches
+verify native tool discovery and filter inherited environment variables before
+starting. They use the existing Airelay profiles and session lifecycle. See
+[Agent Workspaces](docs/WORKSPACES.md) for provisioning, launch, verification,
+and migration requirements.
+
 ## Command reference
 
 | Command | Purpose |
@@ -201,6 +210,7 @@ Use `airelay create <name> --executable <tool>` for guided profile creation, and
 | `airelay attach <session>` | Attach to an existing detached runtime |
 | `airelay list` / `airelay which <profile>` | List or inspect profiles |
 | `airelay doctor [profile]` | Check configured runtimes |
+| `airelay workspace provision` / `inspect` / `verify` | Manage project/role workspaces |
 | `airelay run <profile> -- <args>` | Execute with inherited terminal (not promptable) |
 | `airelay config list` / `set` / `unset` | Inspect and change configuration |
 

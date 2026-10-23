@@ -43,6 +43,13 @@ import { RuntimeDiagnostics, type HarnessReadyReason } from '../runtime/diagnost
 import { createControllerReveal, ResumePresentationGate } from '../runtime/resume-presentation';
 import { TerminalQueryReplyTracker } from '../runtime/terminal-query';
 import { READY_INPUT_FAIL_OPEN_MS, viewportShowsReady } from '../runtime/harness-ready';
+import { verifyWorkspaceFiles } from '../workspace/provision';
+import {
+  validateWorkspaceArgs,
+  validateWorkspaceProfile,
+  verifyNativeWorkspace,
+} from '../workspace/verify';
+import { resolveExecutable } from '../runtime/resolveExecutable';
 import {
   MOUSE_TRACKING_RESET,
   stripAnyEventMouseSequences,
@@ -108,6 +115,7 @@ export function buildProfileEnv(
   args: string[];
   hibernateAfterMs: number;
   mousePassthrough: boolean;
+  workspaceRoot?: string;
 } {
   const config = loadConfig();
   const configPath = getConfigPath();
@@ -121,17 +129,30 @@ export function buildProfileEnv(
   }
 
   const harness = detectHarness(profile.executable);
+  if (profile.workspace) validateWorkspaceProfile(profile);
   if (bypass && !applyHarnessBypass(harness, [])) {
     throw new Error(
       `--bypass is not supported for the ${harness} harness. Supported harnesses: codex, devin.`
     );
   }
 
-  const cwd = cwdOverride
-    ? resolvePath(cwdOverride)
-    : profile.cwd
-      ? resolvePath(profile.cwd)
-      : process.cwd();
+  const managed = profile.workspace
+    ? verifyWorkspaceFiles(profile.workspace, config.settings.workspaceRoot)
+    : null;
+  const cwd = managed
+    ? managed.directory
+    : cwdOverride
+      ? resolvePath(cwdOverride)
+      : profile.cwd
+        ? resolvePath(profile.cwd)
+        : process.cwd();
+  if (
+    managed &&
+    ((cwdOverride && resolvePath(cwdOverride) !== cwd) ||
+      (profile.cwd && resolvePath(profile.cwd) !== cwd))
+  ) {
+    throw new Error('Saved or configured cwd differs from the managed workspace; refusing launch.');
+  }
   ensureDirectories(profile, cwd);
   const env = buildEnv(profile, configPath);
   if (harness === 'codex' && env.CODEX_HOME) {
@@ -146,6 +167,7 @@ export function buildProfileEnv(
 
   const args = [...(profile.args || []), ...selfUpdateOverrides.args, ...extraArgs];
   const launchArgs = bypass ? applyHarnessBypass(harness, args) : args;
+  if (profile.workspace) validateWorkspaceArgs(launchArgs || args);
 
   return {
     profile,
@@ -154,6 +176,7 @@ export function buildProfileEnv(
     args: launchArgs || args,
     hibernateAfterMs: parseDurationMs(config.settings.hibernateAfter) ?? -1,
     mousePassthrough: config.settings.mousePassthrough,
+    workspaceRoot: config.settings.workspaceRoot,
   };
 }
 
@@ -326,13 +349,14 @@ export async function runCommand(
     readyTimeoutMs?: number;
   }
 ): Promise<number> {
-  const { profile, cwd, env, args, hibernateAfterMs, mousePassthrough } = buildProfileEnv(
-    profileName,
-    extraArgs,
-    options?.cwd,
-    options?.harnessSelfUpdate,
-    options?.bypass
-  );
+  const { profile, cwd, env, args, hibernateAfterMs, mousePassthrough, workspaceRoot } =
+    buildProfileEnv(
+      profileName,
+      extraArgs,
+      options?.cwd,
+      options?.harnessSelfUpdate,
+      options?.bypass
+    );
 
   const sessionKey = options?.sessionKey || generateSessionKey(profileName);
   const runtime: RuntimeIdentity = createRuntimeIdentity();
@@ -1013,6 +1037,12 @@ export async function runCommand(
     let keepRunning = true;
     let exitCode = 0;
     while (keepRunning) {
+      if (profile.workspace) {
+        const executable = resolveExecutable(profile.executable);
+        if (!executable)
+          throw new Error('Workspace harness executable not found; run airelay doctor.');
+        verifyNativeWorkspace(profile, workspaceRoot, executable, env);
+      }
       terminalQueryReplies.reset();
       workspaceTrustAccepted = false;
       const diagnostics = diagnosticsEnabled ? RuntimeDiagnostics.start(sessionKey) : null;

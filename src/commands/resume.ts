@@ -120,7 +120,10 @@ export function getSameHarnessProfiles(profile: string): string[] {
   const harness = detectHarness(selectedProfile.executable);
   return Object.entries(config.profiles)
     .filter(
-      ([name, candidate]) => name !== profile && detectHarness(candidate.executable) === harness
+      ([name, candidate]) =>
+        name !== profile &&
+        detectHarness(candidate.executable) === harness &&
+        JSON.stringify(candidate.workspace) === JSON.stringify(selectedProfile.workspace)
     )
     .map(([name]) => name)
     .sort((a, b) => a.localeCompare(b));

@@ -20,6 +20,7 @@ const PROMPT_MAX_LENGTH_KEY = 'settings.promptMaxLength';
 const HIBERNATE_AFTER_KEY = 'settings.hibernateAfter';
 const HARNESS_SELF_UPDATE_KEY = 'settings.harnessSelfUpdate';
 const MOUSE_PASSTHROUGH_KEY = 'settings.mousePassthrough';
+const WORKSPACE_ROOT_KEY = 'settings.workspaceRoot';
 const PROMPT_MAX_LENGTH_DESCRIPTION =
   'Maximum prompt length in Unicode code points before airelay sends the text to a session.';
 const HIBERNATE_AFTER_DESCRIPTION =
@@ -28,7 +29,15 @@ const HARNESS_SELF_UPDATE_DESCRIPTION =
   'Allow harnesses to check for self-updates on startup and wake; disabled by default for reliable automation.';
 const MOUSE_PASSTHROUGH_DESCRIPTION =
   'Allow click, wheel, and drag input while suppressing unsolicited pointer-motion reports; disable to prefer terminal-native selection.';
-const PROFILE_FIELDS = new Set(['executable', 'cwd', 'args', 'env', 'description', 'createDirs']);
+const PROFILE_FIELDS = new Set([
+  'executable',
+  'cwd',
+  'args',
+  'env',
+  'description',
+  'createDirs',
+  'workspace',
+]);
 const ARRAY_PROFILE_FIELDS = new Set(['args', 'createDirs']);
 
 function isSensitiveEnvKey(key: string): boolean {
@@ -128,7 +137,7 @@ function setProfileValue(
   }
   if (!PROFILE_FIELDS.has(field)) {
     throw new Error(
-      `Unknown profile config key "${field}". Supported fields: executable, cwd, args, env, description, createDirs.`
+      `Unknown profile config key "${field}". Supported fields: executable, cwd, args, env, description, createDirs, workspace.`
     );
   }
 
@@ -144,7 +153,7 @@ function setProfileValue(
       throw new Error(`The config key "${keyParts.slice(0, 3).join('.')}" cannot be nested.`);
     }
     profile[field] =
-      ARRAY_PROFILE_FIELDS.has(field) || field === 'env'
+      ARRAY_PROFILE_FIELDS.has(field) || field === 'env' || field === 'workspace'
         ? parseYamlValue(value, keyParts.join('.'))
         : value;
   }
@@ -253,6 +262,11 @@ function setConfigValue(
     };
   }
 
+  if (key === WORKSPACE_ROOT_KEY) {
+    const settings = isRecord(raw.settings) ? raw.settings : {};
+    return { ...raw, settings: { ...settings, workspaceRoot: value } };
+  }
+
   const keyParts = key.split('.');
   if (keyParts[0] === 'profiles') {
     return setProfileValue(raw, keyParts, value);
@@ -263,7 +277,7 @@ function setConfigValue(
   }
 
   throw new Error(
-    `Unknown config key "${key}". Supported keys: ${PROMPT_MAX_LENGTH_KEY}, ${HIBERNATE_AFTER_KEY}, ${HARNESS_SELF_UPDATE_KEY}, ${MOUSE_PASSTHROUGH_KEY} and profiles.<profile>.<field>.`
+    `Unknown config key "${key}". Supported keys: ${PROMPT_MAX_LENGTH_KEY}, ${HIBERNATE_AFTER_KEY}, ${HARNESS_SELF_UPDATE_KEY}, ${MOUSE_PASSTHROUGH_KEY}, ${WORKSPACE_ROOT_KEY} and profiles.<profile>.<field>.`
   );
 }
 
@@ -358,6 +372,7 @@ export function configHelpCommand(): void {
       `  ${MOUSE_PASSTHROUGH_KEY}`,
       `    ${MOUSE_PASSTHROUGH_DESCRIPTION}`,
       `    Default: ${DEFAULT_MOUSE_PASSTHROUGH}; value: true or false.`,
+      '  settings.workspaceRoot           Managed workspace root (default: ~/agent-workspaces).',
       '  profiles.<profile>.executable     Harness executable command.',
       '  profiles.<profile>.cwd            Working directory for the profile.',
       '  profiles.<profile>.args           Default harness arguments as a YAML/JSON array.',
@@ -365,6 +380,7 @@ export function configHelpCommand(): void {
       '  profiles.<profile>.env            Environment map as a YAML/JSON object.',
       '  profiles.<profile>.description    Human-readable profile description.',
       '  profiles.<profile>.createDirs     Directories as a YAML/JSON array to create before launch.',
+      '  profiles.<profile>.workspace      Project/role/optional instance binding as a YAML/JSON object.',
       '  version                           Read-only config schema version.',
       '',
       'Use YAML or JSON syntax for arrays and maps. Changes are validated against the config schema.',

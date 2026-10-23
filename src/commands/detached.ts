@@ -3,6 +3,8 @@ import path from 'path';
 import fs from 'fs';
 import { spawn } from 'cross-spawn';
 import { runCommand, DetachedReadyInfo } from './run';
+import { loadConfig, getConfigPath } from '../config/load';
+import { buildEnv } from '../runtime/env';
 import {
   listDetachedEntries,
   isEntryReachable,
@@ -140,6 +142,10 @@ export async function startDetachedCommand(
   }
 ): Promise<number> {
   const key = options?.key;
+  const selectedProfile = loadConfig().profiles[profile];
+  const runtimeEnv = selectedProfile?.workspace
+    ? buildEnv(selectedProfile, getConfigPath())
+    : process.env;
   const launchArgv = [
     'start',
     profile,
@@ -179,7 +185,7 @@ export async function startDetachedCommand(
       stdio: 'ignore',
       windowsHide: true,
       env: {
-        ...process.env,
+        ...runtimeEnv,
         AIRELAY_DETACHED_RECEIPT: receiptPath,
         AIRELAY_DETACHED_LAUNCH_ARGV: JSON.stringify(launchArgv),
       } as Record<string, string> & NodeJS.ProcessEnv,
