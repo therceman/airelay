@@ -124,8 +124,9 @@ terminal parser or serializer without first checking the controller/xterm APIs.
   private backup/restore; `migrate-profiles.ts` only removes unused unmodified
   retired generated profiles. It is not a second live configuration model.
 - `commands/workspace.ts` provisions/inspects without generating profiles;
-  `workspace-select.ts` owns hierarchical launcher browsing, confirmed creation,
-  storage-root changes and source-folder association prompts. `projects.ts`
+  `workspace-select.ts` owns hierarchical launcher browsing, confirmed creation
+  and source-folder association prompts. It only reads the global storage root;
+  root changes belong to `commands/config.ts`, not the launcher. `projects.ts`
   owns source realpath/ancestor matching and creation through the existing
   provisioner. `settings.workspaceProjects` is a bounded launcher hint, not
   session authority; it opens a project branch, never silently selects a Role.

@@ -81,7 +81,7 @@ it('shows projects first, then immediate children, without flat leaf choices or 
   expect(await chooseSessionWorkspace(source)).toEqual(
     resolveSessionWorkspace('bb_splunk.roles.worker', root)
   );
-  expect(names(0)).toEqual(['node:bb_splunk', 'node:rsg', 'create', 'none', 'settings']);
+  expect(names(0)).toEqual(['node:bb_splunk', 'node:rsg', 'create', 'none']);
   expect(names(1)).toEqual([
     'node:bb_splunk.agents',
     'node:bb_splunk.roles',
@@ -111,24 +111,21 @@ it('does not treat reserved-looking project names as menu actions', async () => 
   answer({ workspace: 'node:create' }, { workspace: 'node:create.lead' }, { remember: false });
   expect((await chooseSessionWorkspace(source))?.selector).toBe('create.lead');
 });
-it('keeps unmanaged launches explicit and does not write on cancelled root changes', async () => {
+it('shows the configured root as read-only information even when no Workspaces exist', async () => {
   const before = fs.readFileSync(env.configPath);
-  answer(
-    { workspace: 'settings' },
-    { root: path.join(env.testDir, 'unused-root') },
-    { save: false },
-    { workspace: 'none' }
-  );
+  answer({ workspace: 'none' });
   expect(await chooseSessionWorkspace(source)).toBeUndefined();
+  expect(menu(0).message).toContain(root);
+  expect(names(0)).toEqual(['create', 'none']);
   expect(fs.readFileSync(env.configPath)).toEqual(before);
-  expect(fs.existsSync(path.join(env.testDir, 'unused-root'))).toBe(false);
+  expect(fs.existsSync(root)).toBe(false);
 });
-it('changes the root only after explicit launcher confirmation', async () => {
-  const nextRoot = path.join(env.testDir, 'new-root');
-  answer({ workspace: 'settings' }, { root: nextRoot }, { save: true }, { workspace: 'none' });
-  expect(await chooseSessionWorkspace(source)).toBeUndefined();
-  expect(loadConfig().settings.workspaceRoot).toBe(nextRoot);
-  expect(loadConfig().profiles).toEqual({ devin: { executable: 'devin' } });
+it('rejects the removed root-settings action without prompting or changing configuration', async () => {
+  const before = fs.readFileSync(env.configPath);
+  answer({ workspace: 'settings' });
+  await expect(chooseSessionWorkspace(source)).rejects.toThrow('not available');
+  expect(prompt).toHaveBeenCalledTimes(1);
+  expect(fs.readFileSync(env.configPath)).toEqual(before);
 });
 it('creates a new zero-MCP Role from an empty launcher without generating a profile', async () => {
   const sourceBefore = fs.readdirSync(source);
@@ -319,8 +316,9 @@ it('browses real Enquirer project and Role menus in a disposable terminal withou
       output += chunk;
       frame += chunk;
       if (
-        (stage === 0 && frame.includes('Change workspace root...')) ||
-        (stage === 1 && frame.includes('Without workspace (normal profile/current directory)'))
+        (stage === 0 || stage === 1) &&
+        frame.includes(stage === 0 ? 'Select a Workspace project' : 'Select within rsg') &&
+        frame.includes('Without workspace (normal profile/current directory)')
       ) {
         if (stage === 0) firstPage = frame;
         stage++;
@@ -345,6 +343,7 @@ it('browses real Enquirer project and Role menus in a disposable terminal withou
     ).toBe(0);
     expect(firstPage).toContain('rsg');
     expect(firstPage).not.toContain('rsg.lead');
+    expect(output).not.toContain('Change workspace root...');
     expect(output).toContain('SELECTED:rsg.lead');
     expect(stage).toBe(3);
   } finally {

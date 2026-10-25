@@ -1,4 +1,5 @@
 import fs from 'fs';
+import path from 'node:path';
 import YAML from 'yaml';
 import {
   configHelpCommand,
@@ -83,6 +84,19 @@ describe('config command', () => {
     expect(disabled.settings.harnessSelfUpdate).toBe(false);
   });
 
+  it('configures the global Workspace root explicitly without moving files or changing profiles', () => {
+    const before = ConfigSchema.parse(YAML.parse(fs.readFileSync(testEnv.configPath, 'utf8')));
+    const root = path.join(testEnv.testDir, 'configured-workspaces');
+    configSetCommand('settings.workspaceRoot', root);
+    const saved = ConfigSchema.parse(YAML.parse(fs.readFileSync(testEnv.configPath, 'utf8')));
+    expect(saved.settings.workspaceRoot).toBe(root);
+    expect(saved.profiles).toEqual(before.profiles);
+    expect(fs.existsSync(root)).toBe(false);
+    const bytes = fs.readFileSync(testEnv.configPath);
+    expect(() => configSetCommand('settings.workspaceRoot', 'relative/root')).toThrow();
+    expect(fs.readFileSync(testEnv.configPath)).toEqual(bytes);
+  });
+
   it('supports unlimited prompt length with -1', () => {
     configSetCommand('settings.promptMaxLength', '-1');
 
@@ -159,6 +173,7 @@ describe('config command', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('settings.promptMaxLength'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('settings.hibernateAfter'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('settings.harnessSelfUpdate'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('settings.workspaceRoot'));
     expect(console.log).toHaveBeenCalledWith(
       expect.stringContaining('Default: true; value: true or false.')
     );

@@ -99,8 +99,8 @@ export async function chooseSessionWorkspace(
 ): Promise<SessionWorkspace | undefined> {
   const source = sourceDirectory(directory);
   const config = loadConfig();
-  let root = workspaceRoot(config.settings.workspaceRoot);
-  let workspaces = listWorkspaces(root);
+  const root = workspaceRoot(config.settings.workspaceRoot);
+  const workspaces = listWorkspaces(root);
   const remembered = findWorkspaceProject(source, root, config.settings.workspaceProjects);
   let prefix =
     remembered && workspaces.some((w) => w.selector.startsWith(`${remembered.project}.`))
@@ -129,7 +129,6 @@ export async function chooseSessionWorkspace(
           { name: 'create', message: 'Create new Workspace...' },
           ...(prefix ? [{ name: 'back', message: 'Back to parent / all projects' }] : []),
           { name: 'none', message: 'Without workspace (normal profile/current directory)' },
-          ...(!prefix ? [{ name: 'settings', message: 'Change workspace root...' }] : []),
         ],
         initial: 0,
       })
@@ -144,32 +143,6 @@ export async function chooseSessionWorkspace(
       if (created) {
         await rememberProject(source, created);
         return created;
-      }
-      continue;
-    }
-    if (result.workspace === 'settings' && !prefix) {
-      const directory = (await Enquirer.prompt(
-        withAirelayPromptSymbols({
-          type: 'input',
-          name: 'root',
-          initial: root,
-          message: 'Workspace storage root (existing workspaces are not moved)',
-        })
-      )) as { root: string };
-      const nextRoot = workspaceRoot(directory.root);
-      const nextWorkspaces = listWorkspaces(nextRoot);
-      const confirmation = (await Enquirer.prompt(
-        withAirelayPromptSymbols({
-          type: 'confirm',
-          name: 'save',
-          initial: false,
-          message: `Save ${nextRoot} as the workspace root for new launches?`,
-        })
-      )) as { save: boolean };
-      if (confirmation.save) {
-        configSetCommand('settings.workspaceRoot', nextRoot);
-        root = nextRoot;
-        workspaces = nextWorkspaces;
       }
       continue;
     }

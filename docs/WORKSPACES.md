@@ -44,7 +44,10 @@ airelay workspace list --json
 
 The installed host keeps `/home/therceman/agent-workspaces` explicitly configured.
 Nothing is moved automatically. The interactive **Start** launcher offers
-hierarchical Workspace selection and an explicitly confirmed storage-root change.
+hierarchical Workspace selection and creation. The storage root is a global
+Airelay setting, not a launch action: configure it explicitly with the command
+above. The launcher shows the configured path for information only and never
+changes it. Existing sessions retain their saved absolute Workspace paths.
 
 ### Interactive Start
 
@@ -56,7 +59,6 @@ Select a Workspace project
   rsg
   Create new Workspace...
   Without workspace (normal profile/current directory)
-  Change workspace root...
 ```
 
 Select a project to see only its immediate children; for example,
@@ -235,6 +237,7 @@ restart/root stability, detached supervisor transfer and immutable key binding.
 | Provision/config | Replaced profile ownership | Provision assets only; reject retired Profile field | Workspace/CLI/migration tests |
 | CLI start/launcher | Session parameter | Freeze selector to absolute binding | CLI/launcher tests |
 | Launcher project browsing | Flat list replaced | Immediate children only; Back and creation at each branch | Hierarchical launcher/creation tests |
+| Launcher storage root | Global configuration, not a launch action | Show root read-only; change only through explicit configuration | Launcher negative/PTY tests and config-command root test |
 | Source-folder discovery | Explicit suggestion, not authority | Longest canonical source ancestor, current storage root, explicit confirmation | Association/root/sibling/symlink tests |
 | Explicit CLI/resume/wake | Intentional exception to launcher hints | Never consult source associations; use explicit/saved binding | CLI/resume/two-session wake tests |
 | Launcher provisioning | Existing provisioner reused | Dry-run then confirmation, zero MCP, no Profile/source overwrite | Empty-list creation/cancellation/asset checks |
