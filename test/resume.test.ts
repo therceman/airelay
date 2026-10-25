@@ -977,7 +977,11 @@ describe('resumeCommand', () => {
 });
 
 it('resumes the saved session Workspace without resolving it through the current global root', async () => {
-  const workspace = { selector: 'rsg.lead', root: '/saved/root', path: '/saved/root/rsg/lead' };
+  const workspace = {
+    selector: 'rsg.lead',
+    root: '/saved/root',
+    path: '/saved/root/rsg/agents/lead',
+  };
   (findSessionByKey as jest.Mock).mockReturnValue({
     profile: 'testprofile',
     session: {
@@ -1000,7 +1004,11 @@ it('resumes the saved session Workspace without resolving it through the current
 });
 
 it('keeps the Workspace selector out of native args when resuming from history', async () => {
-  const workspace = { selector: 'rsg.lead', root: '/saved/root', path: '/saved/root/rsg/lead' };
+  const workspace = {
+    selector: 'rsg.lead',
+    root: '/saved/root',
+    path: '/saved/root/rsg/agents/lead',
+  };
   (getLaunchHistory as jest.Mock).mockReturnValue([
     {
       id: 'workspace-history',

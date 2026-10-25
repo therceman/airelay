@@ -187,13 +187,13 @@ profiles:
 
 Use `airelay create <name> --executable <tool>` for guided profile creation, and `airelay config list` or `airelay which <profile>` to inspect settings. Harness authentication remains the responsibility of the installed CLI.
 
-## Project and role workspaces
+## Project and agent workspaces
 
 Workspace is an independent **session parameter**, not a generated profile:
 
 ```bash
 airelay start devin --key rsg-lead --workspace rsg.lead
-airelay start devin --key bb-worker-01 --workspace bb_splunk.instances.worker-01 --detached
+airelay start devin --key bb-worker-01 --workspace bb_splunk.worker1 --detached
 airelay resume bb-worker-01
 ```
 
@@ -201,16 +201,17 @@ One profile can run multiple Workspaces concurrently. Select a Workspace in the
 interactive **Start** launcher, or use `--workspace` (`-w`). Saved sessions keep
 their resolved directory even if `settings.workspaceRoot` changes. Fresh roots
 default to `~/.airelay/workspaces`; existing configured roots are preserved.
-The launcher browses projects first, then their folders/Roles, and can create a
-new Workspace with zero MCP. Optionally remember the source folder's project
-association so the next launch opens that branch without preselecting a Role.
+The launcher selects a project, then an agent, or creates one with a simple
+`<project>.<agent>` selector. For example, `agentvm.lead` maps to
+`<workspaceRoot>/agentvm/agents/lead`. The storage root is a global config setting,
+not a launcher action. Optionally remember the source folder's project association.
 
-`airelay workspace` provisions reusable Role instructions/Skills and optional
-Agent instances without duplicating Role assets. Managed native Devin launches
-verify discovery fail-closed; other harnesses are not claimed verified. The
-current migration target is **zero MCP**, not automatic reconnection. See
-[Agent Workspaces](docs/WORKSPACES.md) for provisioning, environment policy and
-safe migration. Launching without `--workspace` keeps ordinary profile behavior.
+Airelay does not create or assign Roles. Agents/users maintain their own
+`AGENTS.md` and Skills; edits do not require reprovisioning. Managed native Devin
+launches still verify discovery fail-closed and require zero MCP. Other harnesses
+are not claimed verified. See [Agent Workspaces](docs/WORKSPACES.md) for the
+layout, customization guide, environment policy and security limitations.
+Launching without `--workspace` keeps ordinary profile behavior.
 
 ## Command reference
 
@@ -226,7 +227,7 @@ safe migration. Launching without `--workspace` keeps ordinary profile behavior.
 | `airelay attach <session>` | Attach to an existing detached runtime |
 | `airelay list` / `airelay which <profile>` | List or inspect profiles |
 | `airelay doctor [profile]` | Check configured runtimes |
-| `airelay workspace provision` / `inspect` / `verify` | Manage project/role workspaces |
+| `airelay workspace provision` / `inspect` / `verify` | Manage project/agent workspaces |
 | `airelay run <profile> -- <args>` | Execute with inherited terminal (not promptable) |
 | `airelay config list` / `set` / `unset` | Inspect and change configuration |
 

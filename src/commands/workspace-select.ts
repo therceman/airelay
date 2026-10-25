@@ -53,7 +53,7 @@ async function createWorkspace(
     withAirelayPromptSymbols({
       type: 'input',
       name: 'selector',
-      message: 'New Workspace selector (project.role or project.folder.role)',
+      message: 'New Workspace selector (<project>.<agent>)',
       initial: `${prefix || suggestedProject || 'project'}.lead`,
       validate: (value: string) => {
         try {
@@ -67,18 +67,10 @@ async function createWorkspace(
   )) as { selector: string };
   // Validate outside the prompt too; prompt adapters are not a trust boundary.
   selectorPath(result.selector, root);
-  const instructions = (await Enquirer.prompt(
-    withAirelayPromptSymbols({
-      type: 'input',
-      name: 'instructions',
-      message: 'Instructions file (relative to source; empty creates a minimal AGENTS.md)',
-    })
-  )) as { instructions: string };
   const options = {
     selector: result.selector,
     root,
     source,
-    instructions: instructions.instructions || undefined,
   };
   const plan = createLauncherWorkspace({ ...options, dryRun: true });
   const confirm = (await Enquirer.prompt(
@@ -86,7 +78,7 @@ async function createWorkspace(
       type: 'confirm',
       name: 'create',
       initial: false,
-      message: `Create ${plan.directory} for ${source} with empty Skills and zero MCP?`,
+      message: `Create agent Workspace ${plan.directory} for ${source} with zero MCP?`,
     })
   )) as { create: boolean };
   if (!confirm.create) return undefined;

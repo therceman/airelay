@@ -18,20 +18,16 @@ import {
 } from '../src/commands/sessions';
 import { recordLaunchHistory, getLaunchHistory } from '../src/commands/history';
 import { fetchControllerInfo, sendControllerRequest } from '../src/commands/session-ipc';
-import { migrateWorkspaceProfiles } from '../src/workspace/migrate-profiles';
-import { loadConfig } from '../src/config/load';
 import { startDetachedCommand } from '../src/commands/detached';
 import { useTestEnv } from './test-utils';
 
 const env = useTestEnv();
-let directory: string, root: string, instructions: string;
+let directory: string, root: string;
 let index = 0;
 beforeEach(() => {
   directory = path.join(env.testDir, `binding-${index++}`);
   fs.mkdirSync(directory);
   root = path.join(directory, 'workspaces');
-  instructions = path.join(directory, 'instructions.md');
-  fs.writeFileSync(instructions, '# Canonical role\n');
   for (const file of [env.sessionsPath, env.historyPath, env.detachedPath])
     fs.rmSync(file, { force: true });
   fs.writeFileSync(
@@ -43,60 +39,46 @@ beforeEach(() => {
     })
   );
 });
-function role(selector = 'rsg.lead') {
+function agentWorkspace(selector = 'rsg.lead') {
   const parts = selector.split('.');
   provisionWorkspace({
     project: parts[0],
-    role: parts[parts.length - 1],
+    agent: parts[parts.length - 1],
     root,
-    selector,
-    instructions,
   });
   return resolveSessionWorkspace(selector, root);
 }
 
-it('resolves dot paths and shares canonical Role assets with regular per-agent identity files', () => {
-  const canonical = role('bb_splunk.roles.worker');
-  provisionWorkspace({
-    project: 'bb_splunk',
-    role: 'worker',
-    instance: 'worker1',
-    selector: 'bb_splunk.agents.worker1',
-    roleSelector: canonical.selector,
-    root,
-  });
-  const worker = resolveSessionWorkspace('bb_splunk.agents.worker1', root);
-  expect(worker.path).toBe(path.join(root, 'bb_splunk/agents/worker1'));
-  expect(fs.realpathSync(path.join(worker.path, 'AGENTS.md'))).toBe(
-    path.join(canonical.path, 'AGENTS.md')
-  );
-  expect(
-    fs.lstatSync(path.join(worker.path, '.devin/mcp_config.local.json')).isSymbolicLink()
-  ).toBe(false);
+it('resolves public project.agent selectors to independent agent directories', () => {
+  const first = agentWorkspace('bb_splunk.worker1'),
+    second = agentWorkspace('bb_splunk.worker2');
+  expect(first.path).toBe(path.join(root, 'bb_splunk/agents/worker1'));
+  expect(second.path).toBe(path.join(root, 'bb_splunk/agents/worker2'));
+  expect(fs.lstatSync(path.join(first.path, 'AGENTS.md')).isSymbolicLink()).toBe(false);
   expect(listWorkspaces(root).map((w) => w.selector)).toEqual([
-    'bb_splunk.agents.worker1',
-    'bb_splunk.roles.worker',
+    'bb_splunk.worker1',
+    'bb_splunk.worker2',
   ]);
 });
 
-it.each(['../lead', 'rsg..lead', 'rsg/lead', '.rsg.lead', 'rsg.lead.', 'rsg'])(
+it.each(['../lead', 'rsg..lead', 'rsg/agents/lead', '.rsg.lead', 'rsg.lead.', 'rsg'])(
   'rejects unsafe or ambiguous selector %s',
   (selector) => {
     expect(() => selectorPath(selector, root)).toThrow('Invalid workspace selector');
   }
 );
 
-it('rejects missing manifests, escaping symlinks and altered Role assets', () => {
-  const workspace = role();
+it('rejects missing manifests, escaping symlinks and allows agent-owned instructions', () => {
+  const workspace = agentWorkspace();
   expect(() => resolveSessionWorkspace('rsg.missing', root)).toThrow();
-  fs.symlinkSync(workspace.path, path.join(root, 'rsg/alias'));
+  fs.symlinkSync(workspace.path, path.join(root, 'rsg/agents/alias'));
   expect(() => resolveSessionWorkspace('rsg.alias', root)).toThrow('symlink');
   fs.writeFileSync(path.join(workspace.path, 'AGENTS.md'), 'modified');
-  expect(() => verifySessionWorkspace(workspace)).toThrow();
+  expect(() => verifySessionWorkspace(workspace)).not.toThrow();
 });
 
 it('keeps saved absolute binding stable after global root changes and refuses a different saved path', () => {
-  const workspace = role();
+  const workspace = agentWorkspace();
   const replacement = path.join(directory, 'different-root');
   fs.writeFileSync(
     env.configPath,
@@ -117,9 +99,16 @@ it('keeps saved absolute binding stable after global root changes and refuses a 
   );
 });
 
+it('never redirects a saved flat Workspace path even if a new agent has the same public selector', () => {
+  const workspace = agentWorkspace();
+  expect(() => verifySessionWorkspace({ ...workspace, path: path.join(root, 'rsg/lead') })).toThrow(
+    'Invalid saved workspace path'
+  );
+});
+
 it('preserves immutable key binding after runtime exit and liveness pruning', async () => {
-  const workspace = role(),
-    other = role('rsg.worker');
+  const workspace = agentWorkspace(),
+    other = agentWorkspace('rsg.worker');
   addSession(
     'devin',
     'old-runtime',
@@ -160,7 +149,7 @@ it('preserves immutable key binding after runtime exit and liveness pruning', as
 });
 
 it('checks history bindings independently of profile and does not reinterpret missing workspace as a match', () => {
-  const workspace = role();
+  const workspace = agentWorkspace();
   recordLaunchHistory({
     profile: 'devin',
     sessionKey: 'recorded',
@@ -181,63 +170,6 @@ it('checks history bindings independently of profile and does not reinterpret mi
   ).toThrow('different Workspace');
 });
 
-it('removes only unmodified unused generated profiles with backup and root pinning; dry-run writes nothing', () => {
-  role();
-  const configuration = {
-    version: 1,
-    profiles: {
-      devin: { executable: 'devin', env: { SAFE: 'preserved' } },
-      'workspace-rsg-lead': {
-        executable: 'devin',
-        cwd: path.join(root, 'rsg/lead'),
-        workspace: { project: 'rsg', role: 'lead' },
-      },
-    },
-    settings: { workspaceRoot: root },
-  };
-  fs.writeFileSync(env.configPath, JSON.stringify(configuration), { mode: 0o600 });
-  const before = fs.readFileSync(env.configPath);
-  expect(() => loadConfig()).toThrow('migrate-profiles');
-  expect(migrateWorkspaceProfiles(true).removed).toEqual(['workspace-rsg-lead']);
-  expect(fs.readFileSync(env.configPath)).toEqual(before);
-  const result = migrateWorkspaceProfiles(false);
-  expect(fs.readFileSync(path.join(result.backup!, '0.backup'))).toEqual(before);
-  expect(fs.statSync(result.backup!).mode & 0o777).toBe(0o700);
-  expect(loadConfig().profiles).toEqual({
-    devin: { executable: 'devin', env: { SAFE: 'preserved' } },
-  });
-  expect(loadConfig().settings.workspaceRoot).toBe(root);
-  expect(fs.existsSync(path.join(root, 'rsg/lead/AGENTS.md'))).toBe(true);
-});
-
-it.each(['modified', 'referenced'])(
-  'preserves %s generated profiles instead of silently rewriting them',
-  (condition) => {
-    role();
-    const profile = {
-      executable: 'devin',
-      cwd: path.join(root, 'rsg/lead'),
-      workspace: { project: 'rsg', role: 'lead' },
-      ...(condition === 'modified' ? { description: 'my edits' } : {}),
-    };
-    fs.writeFileSync(
-      env.configPath,
-      JSON.stringify({
-        version: 1,
-        settings: { workspaceRoot: root },
-        profiles: { devin: { executable: 'devin' }, 'workspace-rsg-lead': profile },
-      })
-    );
-    if (condition === 'referenced')
-      fs.writeFileSync(env.historyPath, JSON.stringify([{ profile: 'workspace-rsg-lead' }]));
-    const before = fs.readFileSync(env.configPath);
-    expect(() => migrateWorkspaceProfiles(false)).toThrow(
-      condition === 'modified' ? 'modified' : 'references'
-    );
-    expect(fs.readFileSync(env.configPath)).toEqual(before);
-  }
-);
-
 async function waitUntil(check: () => Promise<boolean>, timeout = 15000): Promise<void> {
   const deadline = performance.now() + timeout;
   while (performance.now() < deadline) {
@@ -248,8 +180,8 @@ async function waitUntil(check: () => Promise<boolean>, timeout = 15000): Promis
 }
 
 it('isolates two concurrent devin sessions through hibernate, independent wake, root change and restart', async () => {
-  const first = role('rsg.lead'),
-    second = role('bb_splunk.worker');
+  const first = agentWorkspace('rsg.lead'),
+    second = agentWorkspace('bb_splunk.worker');
   const binary = path.join(directory, 'devin');
   const launches = path.join(directory, 'launches.jsonl');
   writeNativeFixture(binary, launches);
@@ -298,18 +230,18 @@ it('isolates two concurrent devin sessions through hibernate, independent wake, 
       }).catch(() => undefined);
   };
   try {
-    start('role-one', first, 'native-one');
-    start('role-two', second, 'native-two');
+    start('agent-one', first, 'native-one');
+    start('agent-two', second, 'native-two');
     await waitUntil(
       async () =>
         endpoints.size === 2 &&
-        (await info('role-one')).runtime?.runtimeState === 'hibernated' &&
-        (await info('role-two')).runtime?.runtimeState === 'hibernated'
+        (await info('agent-one')).runtime?.runtimeState === 'hibernated' &&
+        (await info('agent-two')).runtime?.runtimeState === 'hibernated'
     );
     expect(getSessionBindingEntries().filter((s) => s.workspace)).toHaveLength(2);
     writeConfig(path.join(directory, 'new-global-root'));
     await new Promise<void>((resolve, reject) => {
-      const socket = net.createConnection(endpoints.get('role-one')!);
+      const socket = net.createConnection(endpoints.get('agent-one')!);
       socket.once('error', reject);
       socket.once('connect', () =>
         socket.end(
@@ -319,39 +251,39 @@ it('isolates two concurrent devin sessions through hibernate, independent wake, 
         )
       );
     });
-    await waitUntil(async () => (await info('role-one')).runtime?.runtimeState === 'running');
-    await waitUntil(async () => launchRecords().filter((r) => r.key === 'role-one').length === 2);
-    expect((await info('role-two')).runtime?.runtimeState).toBe('hibernated');
-    expect((await info('role-one')).runtime?.workspace).toEqual(first);
-    await stop('role-one');
+    await waitUntil(async () => (await info('agent-one')).runtime?.runtimeState === 'running');
+    await waitUntil(async () => launchRecords().filter((r) => r.key === 'agent-one').length === 2);
+    expect((await info('agent-two')).runtime?.runtimeState).toBe('hibernated');
+    expect((await info('agent-one')).runtime?.workspace).toEqual(first);
+    await stop('agent-one');
     await expect(runtimes[0]).resolves.toBe(0);
-    expect(findSessionByKey('role-one')?.session.workspace).toEqual(first);
+    expect(findSessionByKey('agent-one')?.session.workspace).toEqual(first);
     const restarted = start(
-      'role-one',
-      findSessionByKey('role-one')!.session.workspace!,
+      'agent-one',
+      findSessionByKey('agent-one')!.session.workspace!,
       'native-one'
     );
-    await waitUntil(async () => (await info('role-one')).runtime?.runtimeState === 'running');
-    await waitUntil(async () => launchRecords().filter((r) => r.key === 'role-one').length === 3);
-    await stop('role-one');
+    await waitUntil(async () => (await info('agent-one')).runtime?.runtimeState === 'running');
+    await waitUntil(async () => launchRecords().filter((r) => r.key === 'agent-one').length === 3);
+    await stop('agent-one');
     await restarted;
     const records = fs
       .readFileSync(launches, 'utf8')
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line));
-    expect(records.filter((r) => r.key === 'role-one')).toHaveLength(3);
-    expect(records.filter((r) => r.key === 'role-two')).toHaveLength(1);
+    expect(records.filter((r) => r.key === 'agent-one')).toHaveLength(3);
+    expect(records.filter((r) => r.key === 'agent-two')).toHaveLength(1);
     for (const record of records) {
-      expect(record.cwd).toBe(record.key === 'role-one' ? first.path : second.path);
+      expect(record.cwd).toBe(record.key === 'agent-one' ? first.path : second.path);
       expect(record.args).toEqual([
         '--resume',
-        record.key === 'role-one' ? 'native-one' : 'native-two',
+        record.key === 'agent-one' ? 'native-one' : 'native-two',
       ]);
     }
   } finally {
-    await stop('role-one');
-    await stop('role-two');
+    await stop('agent-one');
+    await stop('agent-two');
     await Promise.all(runtimes.map((runtime) => runtime.catch(() => undefined)));
   }
 }, 25000);
@@ -372,8 +304,8 @@ else { fs.appendFileSync(${JSON.stringify(launches)}, JSON.stringify({key: proce
 }
 
 it('passes the frozen Workspace through the detached supervisor and refuses key rebinding', async () => {
-  const first = role('rsg.lead'),
-    second = role('bb_splunk.worker');
+  const first = agentWorkspace('rsg.lead'),
+    second = agentWorkspace('bb_splunk.worker');
   const binary = path.join(directory, 'devin'),
     launches = path.join(directory, 'detached-launches.jsonl');
   writeNativeFixture(binary, launches);
@@ -422,8 +354,8 @@ it('passes the frozen Workspace through the detached supervisor and refuses key 
 }, 15000);
 
 it('rejects nested managed paths and non-native managed harnesses while leaving unmanaged profiles compatible', () => {
-  role();
-  expect(() => selectorPath('rsg.lead.nested', root)).toThrow('Nested managed');
+  agentWorkspace();
+  expect(() => selectorPath('rsg.lead.nested', root)).toThrow('Invalid workspace selector');
   fs.writeFileSync(
     env.configPath,
     JSON.stringify({
@@ -439,7 +371,7 @@ it('rejects nested managed paths and non-native managed harnesses while leaving 
 });
 
 it('cleans the controller/reservation when launch-history persistence fails before PTY spawn', async () => {
-  const workspace = role();
+  const workspace = agentWorkspace();
   const binary = path.join(directory, 'devin'),
     launches = path.join(directory, 'never-launched.jsonl');
   writeNativeFixture(binary, launches);
@@ -480,8 +412,8 @@ it('cleans the controller/reservation when launch-history persistence fails befo
 });
 
 it('rejects a history key rename onto a conflicting inactive Workspace binding', () => {
-  const first = role('rsg.lead'),
-    second = role('rsg.worker');
+  const first = agentWorkspace('rsg.lead'),
+    second = agentWorkspace('rsg.worker');
   addSession(
     'devin',
     'inactive-worker',
@@ -512,7 +444,7 @@ it('rejects a history key rename onto a conflicting inactive Workspace binding',
 });
 
 it('does not overwrite a syntactically valid but structurally invalid session/history store', () => {
-  const workspace = role();
+  const workspace = agentWorkspace();
   fs.writeFileSync(env.sessionsPath, '[]');
   expect(() =>
     addSession(
@@ -548,7 +480,7 @@ it('does not overwrite a syntactically valid but structurally invalid session/hi
 it.each([false, true])(
   're-reads after async pruning without losing concurrent metadata (refresh existing=%s)',
   async (refresh) => {
-    const workspace = role();
+    const workspace = agentWorkspace();
     const endpoint = path.join(directory, 'prune.sock');
     addSession(
       'devin',

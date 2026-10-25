@@ -31,8 +31,8 @@ beforeEach(() => {
   caseDirectory = path.join(testEnv.testDir, `case-${caseIndex++}`);
   fs.mkdirSync(caseDirectory);
   root = path.join(caseDirectory, 'workspaces');
-  instructions = path.join(caseDirectory, 'role-instructions.md');
-  skillsDir = path.join(caseDirectory, 'role-skills');
+  instructions = path.join(caseDirectory, 'agent-instructions.md');
+  skillsDir = path.join(caseDirectory, 'agent-skills');
   fs.writeFileSync(instructions, '# Worker\nFollow the approved project instructions.\n');
   fs.mkdirSync(path.join(skillsDir, 'worker-guide'), { recursive: true });
   fs.writeFileSync(
@@ -49,10 +49,14 @@ beforeEach(() => {
   );
 });
 
-function provisionRole() {
-  return provisionWorkspace({ project: 'test', role: 'worker', root, instructions, skillsDir });
+function provisionAgent() {
+  const result = provisionWorkspace({ project: 'test', agent: 'worker', root });
+  if (result.changed.length) {
+    fs.copyFileSync(instructions, path.join(result.directory, 'AGENTS.md'));
+    fs.cpSync(skillsDir, path.join(result.directory, '.devin/skills'), { recursive: true });
+  }
+  return result;
 }
-
 function mcpFile(name: string, credential: string): string {
   const file = path.join(testEnv.testDir, `${name}.json`);
   fs.writeFileSync(
@@ -65,291 +69,213 @@ function mcpFile(name: string, credential: string): string {
   return file;
 }
 
-describe('project/role workspaces', () => {
-  it('backs up and restores configuration permissions, hashes, and symlinks without exposing values', () => {
-    const file = mcpFile('backup-fixture', 'dummy-backup-credential');
-    const link = path.join(caseDirectory, 'linked-config');
+describe('agent-only Workspace provisioning', () => {
+  it('backs up and restores permissions, hashes and links without exposing credentials', () => {
+    const file = mcpFile('backup-fixture', 'dummy-private-credential');
+    const link = path.join(caseDirectory, 'config-link');
     fs.symlinkSync(file, link);
-    const destination = path.join(caseDirectory, 'backup');
+    const backup = path.join(caseDirectory, 'backup');
     const before = fs.readFileSync(file);
-    const manifest = backupWorkspaceConfiguration([file, link], destination);
-    expect(fs.statSync(destination).mode & 0o777).toBe(0o700);
-    expect(fs.readFileSync(manifest, 'utf8')).not.toContain('dummy-backup-credential');
+    const manifest = backupWorkspaceConfiguration([file, link], backup);
+    expect(fs.statSync(backup).mode & 0o777).toBe(0o700);
+    expect(fs.readFileSync(manifest, 'utf8')).not.toContain('dummy-private-credential');
     fs.writeFileSync(file, '{}');
     fs.unlinkSync(link);
-    restoreWorkspaceConfiguration(destination);
+    restoreWorkspaceConfiguration(backup);
     expect(fs.readFileSync(file)).toEqual(before);
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
     expect(fs.readlinkSync(link)).toBe(file);
   });
-  it('creates a role-only layout, is idempotent, and does not copy source repositories', () => {
-    const result = provisionRole();
-    expect(result.directory).toBe(path.join(root, 'test/worker'));
-    expect(fs.existsSync(path.join(root, 'test/instances'))).toBe(false);
-    expect(fs.existsSync(path.join(root, 'test/sessions'))).toBe(false);
-    const before = fs.statSync(path.join(result.directory, 'AGENTS.md')).mtimeMs;
-    expect(provisionRole().changed).toEqual([]);
-    expect(fs.statSync(path.join(result.directory, 'AGENTS.md')).mtimeMs).toBe(before);
-    expect(
-      verifyWorkspaceFiles({ project: 'test', role: 'worker' }, root).manifest.allowedMcpServers
-    ).toEqual([]);
+  it('creates project/agents/agent, stays idempotent and never copies the source checkout', () => {
+    const source = path.join(caseDirectory, 'source');
+    fs.mkdirSync(source);
+    fs.writeFileSync(path.join(source, 'do-not-copy'), 'SOURCE');
+    const options = { project: 'test', agent: 'worker', root, source };
+    const created = provisionWorkspace(options);
+    expect(created.directory).toBe(path.join(root, 'test/agents/worker'));
+    expect(fs.existsSync(path.join(created.directory, 'do-not-copy'))).toBe(false);
+    expect(fs.readFileSync(path.join(created.directory, 'AGENTS.md'), 'utf8')).toContain(source);
+    expect(fs.existsSync(path.join(root, 'test/roles'))).toBe(false);
+    const before = fs.statSync(path.join(created.directory, 'AGENTS.md')).mtimeMs;
+    expect(provisionWorkspace(options).changed).toEqual([]);
+    expect(fs.statSync(path.join(created.directory, 'AGENTS.md')).mtimeMs).toBe(before);
+    expect(verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root).manifest).toEqual({
+      version: 2,
+      binding: { project: 'test', agent: 'worker' },
+      source,
+    });
   });
-
-  it('performs a dry run without writing workspace files or Airelay configuration', () => {
-    const config = fs.readFileSync(testEnv.configPath);
+  it('dry-run does not create Workspace directories or write configuration', () => {
+    const before = fs.readFileSync(testEnv.configPath);
     const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
     try {
-      expect(
-        workspaceCommand('provision', ['test.worker'], {
-          instructions,
-          'skills-dir': skillsDir,
-          'dry-run': true,
-        })
-      ).toBe(0);
-      expect(fs.existsSync(root)).toBe(false);
-      expect(fs.readFileSync(testEnv.configPath)).toEqual(config);
+      workspaceCommand('provision', ['test.worker'], { 'dry-run': true });
     } finally {
       log.mockRestore();
     }
+    expect(fs.existsSync(root)).toBe(false);
+    expect(fs.readFileSync(testEnv.configPath)).toEqual(before);
   });
-
-  it('rejects misspelled or valued dry-run flags before writing', () => {
-    expect(() =>
-      workspaceCommand('provision', ['test.worker'], { instructions, dryrun: true })
-    ).toThrow('Unknown workspace option');
-    expect(() =>
-      workspaceCommand('provision', ['test.worker'], { instructions, 'dry-run': 'true' })
-    ).toThrow('does not take a value');
+  it.each([
+    'role-workspace',
+    'principal',
+    'instructions',
+    'skills-dir',
+    'mcp-config',
+    'update',
+    'dryrun',
+  ])('rejects removed or misspelled provisioning flag --%s', (flag) => {
+    expect(() => workspaceCommand('provision', ['test.worker'], { [flag]: 'value' })).toThrow(
+      'Unknown workspace option'
+    );
     expect(fs.existsSync(root)).toBe(false);
   });
-
-  it('bounds directory traversal before materializing an oversized Skill tree', () => {
-    const directory = path.join(skillsDir, 'oversized');
-    fs.mkdirSync(directory);
-    for (let index = 0; index < 257; index += 1)
-      fs.writeFileSync(path.join(directory, `file-${index}`), 'x');
-    expect(() => provisionRole()).toThrow('entry limit');
-    expect(fs.existsSync(root)).toBe(false);
-  });
-
-  it('updates only managed, unchanged assets after explicit update approval', () => {
-    const role = provisionRole();
-    fs.writeFileSync(instructions, '# Updated worker\n');
-    expect(() => provisionRole()).toThrow('--update');
-    provisionWorkspace({
-      project: 'test',
-      role: 'worker',
-      root,
-      instructions,
-      skillsDir,
-      update: true,
-    });
-    expect(fs.readFileSync(path.join(role.directory, 'AGENTS.md'), 'utf8')).toBe(
-      '# Updated worker\n'
+  it('rejects valued dry-run flags and obsolete migration actions', () => {
+    expect(() => workspaceCommand('provision', ['test.worker'], { 'dry-run': 'true' })).toThrow(
+      'does not take'
     );
-    fs.writeFileSync(path.join(role.directory, 'AGENTS.md'), 'USER EDIT');
-    expect(() =>
-      provisionWorkspace({
-        project: 'test',
-        role: 'worker',
-        root,
-        instructions,
-        skillsDir,
-        update: true,
-      })
-    ).toThrow('asset changed');
-    expect(fs.readFileSync(path.join(role.directory, 'AGENTS.md'), 'utf8')).toBe('USER EDIT');
+    expect(() => workspaceCommand('migrate-profiles', [], {})).toThrow('Usage');
   });
-
-  it('refuses unmanaged contents, path traversal, and symlinked destinations', () => {
-    expect(() => workspacePath({ project: '../foreign', role: 'lead' }, root)).toThrow();
-    fs.mkdirSync(path.join(root, 'test/worker'), { recursive: true });
-    fs.writeFileSync(path.join(root, 'test/worker/AGENTS.md'), 'EXISTING USER CONTENT');
-    expect(() => provisionRole()).toThrow('unmanaged');
-    const foreign = path.join(testEnv.testDir, 'foreign');
-    fs.mkdirSync(foreign);
-    fs.symlinkSync(foreign, path.join(root, 'escape'));
-    expect(() =>
-      provisionWorkspace({ project: 'escape', role: 'lead', root, instructions })
-    ).toThrow('symlink');
-    expect(fs.readdirSync(foreign)).toEqual([]);
-  });
-
-  it('refuses a nested unmanaged Skill symlink before creating anything outside the workspace', () => {
-    const role = provisionRole();
-    const foreign = path.join(caseDirectory, 'foreign-skill-directory');
-    fs.mkdirSync(foreign);
-    fs.symlinkSync(foreign, path.join(role.directory, '.devin/skills/new-guide'));
-    fs.mkdirSync(path.join(skillsDir, 'new-guide'));
-    fs.writeFileSync(path.join(skillsDir, 'new-guide/SKILL.md'), 'New approved source asset');
-    expect(() =>
-      provisionWorkspace({
-        project: 'test',
-        role: 'worker',
-        root,
-        instructions,
-        skillsDir,
-        update: true,
-      })
-    ).toThrow('symlink');
-    expect(fs.readdirSync(foreign)).toEqual([]);
-  });
-
-  it('shares canonical role assets while keeping worker credentials in distinct regular files', () => {
-    const role = provisionRole();
-    const workers = ['worker-01', 'worker-02'].map((instance, index) =>
-      provisionWorkspace({
-        project: 'test',
-        role: 'worker',
-        instance,
-        root,
-        principalRef: instance,
-        mcpConfig: mcpFile(instance, `dummy-${index}`),
-      })
+  it('allows agent-owned instruction and Skill edits without updating a manifest or reprovisioning', () => {
+    const agent = provisionAgent();
+    const manifest = fs.readFileSync(path.join(agent.directory, '.airelay-workspace.json'));
+    fs.writeFileSync(path.join(agent.directory, 'AGENTS.md'), '# User configured instructions');
+    fs.writeFileSync(
+      path.join(agent.directory, '.devin/skills/worker-guide/SKILL.md'),
+      '# Edited Skill'
     );
-    for (const worker of workers) {
-      expect(fs.realpathSync(path.join(worker.directory, 'AGENTS.md'))).toBe(
-        path.join(role.directory, 'AGENTS.md')
-      );
-      expect(
-        fs.realpathSync(path.join(worker.directory, '.devin/skills/worker-guide/SKILL.md'))
-      ).toBe(path.join(role.directory, '.devin/skills/worker-guide/SKILL.md'));
-      expect(
-        fs.lstatSync(path.join(worker.directory, '.devin/mcp_config.local.json')).isSymbolicLink()
-      ).toBe(false);
-      expect(
-        fs.statSync(path.join(worker.directory, '.devin/mcp_config.local.json')).mode & 0o777
-      ).toBe(0o600);
-      expect(
-        fs.readFileSync(path.join(worker.directory, '.airelay-workspace.json'), 'utf8')
-      ).not.toContain('dummy-');
-    }
-    expect(
-      fs.readFileSync(path.join(workers[0].directory, '.devin/mcp_config.local.json'))
-    ).not.toEqual(fs.readFileSync(path.join(workers[1].directory, '.devin/mcp_config.local.json')));
-    verifyWorkspaceFiles({ project: 'test', role: 'worker', instance: 'worker-01' }, root);
-  });
-
-  it('cuts roles and instances over to zero MCP with protected rollback and unchanged shared assets', () => {
-    const binding = { project: 'test', role: 'worker' };
-    const roleOptions = { ...binding, root, instructions, skillsDir };
-    const role = provisionWorkspace({
-      ...roleOptions,
-      mcpConfig: mcpFile('zero-role', 'dummy-role-credential'),
-    });
-    const bindings: Array<typeof binding & { instance?: string }> = [
-      binding,
-      ...['worker-01', 'worker-02'].map((instance) => ({ ...binding, instance })),
-    ];
-    for (const current of bindings.slice(1))
-      provisionWorkspace({
-        ...current,
-        root,
-        mcpConfig: mcpFile(current.instance!, `dummy-${current.instance}`),
-      });
-    const directories = bindings.map((current) => workspacePath(current, root));
-    const files = directories.flatMap((directory) =>
-      ['.airelay-workspace.json', '.devin/mcp_config.local.json'].map((name) =>
-        path.join(directory, name)
-      )
+    fs.writeFileSync(
+      path.join(agent.directory, '.devin/skills/worker-guide/notes.md'),
+      'Extra agent notes'
     );
-    const originals = files.map((file) => fs.readFileSync(file));
-    const backup = path.join(caseDirectory, 'zero-mcp-backup');
-    backupWorkspaceConfiguration(files, backup);
-    const roleAssets = ['AGENTS.md', '.devin/skills/worker-guide/SKILL.md'].map((name) =>
-      fs.readFileSync(path.join(role.directory, name))
+    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).not.toThrow();
+    expect(provisionWorkspace({ project: 'test', agent: 'worker', root }).changed).toEqual([]);
+    expect(fs.readFileSync(path.join(agent.directory, '.airelay-workspace.json'))).toEqual(
+      manifest
     );
-
-    const dryRun = provisionWorkspace({ ...roleOptions, update: true, dryRun: true });
-    expect(dryRun.changed).toEqual(['.devin/mcp_config.local.json', '.airelay-workspace.json']);
-    files.forEach((file, index) => expect(fs.readFileSync(file)).toEqual(originals[index]));
-    provisionWorkspace({ ...roleOptions, update: true });
-    for (const current of bindings.slice(1)) provisionWorkspace({ ...current, root, update: true });
-
-    for (const current of bindings) {
-      const { manifest, directory } = verifyWorkspaceFiles(current, root);
-      expect(manifest.allowedMcpServers).toEqual([]);
-      for (const name of ['mcp_config.json', 'mcp_config.local.json'])
-        expect(JSON.parse(fs.readFileSync(path.join(directory, '.devin', name), 'utf8'))).toEqual({
-          mcpServers: {},
-        });
-      expect(fs.statSync(path.join(directory, '.devin/mcp_config.local.json')).mode & 0o777).toBe(
-        0o600
-      );
-      expect(fs.readFileSync(path.join(directory, 'AGENTS.md'))).toEqual(roleAssets[0]);
-      expect(fs.readFileSync(path.join(directory, '.devin/skills/worker-guide/SKILL.md'))).toEqual(
-        roleAssets[1]
-      );
-      if ('instance' in current)
-        expect(fs.realpathSync(path.join(directory, '.devin/skills'))).toBe(
-          path.join(role.directory, '.devin/skills')
-        );
-    }
-    expect(provisionWorkspace({ ...roleOptions, update: true }).changed).toEqual([]);
-    expect(fs.statSync(backup).mode & 0o777).toBe(0o700);
-    restoreWorkspaceConfiguration(backup, files);
-    files.forEach((file, index) => expect(fs.readFileSync(file)).toEqual(originals[index]));
-    bindings.forEach((current) =>
-      expect(verifyWorkspaceFiles(current, root).manifest.allowedMcpServers).toEqual(['test-mcp'])
+    expect(fs.readFileSync(path.join(agent.directory, 'AGENTS.md'), 'utf8')).toBe(
+      '# User configured instructions'
     );
   });
-
-  it('rejects added configuration imports and unapproved Skill files', () => {
-    const role = provisionRole();
-    fs.writeFileSync(path.join(role.directory, '.devin/config.json'), '{}');
-    expect(() => verifyWorkspaceFiles({ project: 'test', role: 'worker' }, root)).toThrow(
+  it('refuses unmanaged directories, traversal and symlinked Workspace paths', () => {
+    expect(() => workspacePath({ project: '../foreign', agent: 'lead' }, root)).toThrow();
+    const target = path.join(root, 'test/agents/worker');
+    fs.mkdirSync(target, { recursive: true });
+    fs.writeFileSync(path.join(target, 'user.txt'), 'KEEP');
+    expect(() => provisionAgent()).toThrow('unmanaged');
+    expect(fs.readFileSync(path.join(target, 'user.txt'), 'utf8')).toBe('KEEP');
+    fs.symlinkSync(caseDirectory, path.join(root, 'escape'));
+    expect(() => provisionWorkspace({ project: 'escape', agent: 'lead', root })).toThrow('symlink');
+  });
+  it('allows explicit internal asset sharing without any Role assignment but rejects escaping links and cycles', () => {
+    const agent = provisionAgent();
+    const other = provisionWorkspace({ project: 'test', agent: 'other', root });
+    const file = path.join(other.directory, 'AGENTS.md');
+    fs.unlinkSync(file);
+    fs.symlinkSync(path.join(agent.directory, 'AGENTS.md'), file);
+    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'other' }, root)).not.toThrow();
+    fs.unlinkSync(file);
+    fs.symlinkSync(instructions, file);
+    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'other' }, root)).toThrow(
+      'escapes'
+    );
+    fs.unlinkSync(file);
+    fs.writeFileSync(file, '# Other');
+    const skills = path.join(other.directory, '.devin/skills');
+    fs.symlinkSync(skills, path.join(skills, 'cycle'));
+    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'other' }, root)).toThrow('cycle');
+  });
+  it('keeps credentials regular/private, rejects local MCP and config imports', () => {
+    const agent = provisionAgent();
+    const local = path.join(agent.directory, '.devin/mcp_config.local.json');
+    fs.chmodSync(local, 0o644);
+    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).toThrow('0600');
+    fs.chmodSync(local, 0o600);
+    fs.writeFileSync(local, '{"mcpServers":{"foreign":{"command":"/bin/false"}}}');
+    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).toThrow(
+      'zero MCP'
+    );
+    fs.writeFileSync(local, '{"mcpServers":{}}');
+    fs.unlinkSync(local);
+    fs.symlinkSync('../AGENTS.md', local);
+    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).toThrow(
+      'symlink'
+    );
+    fs.unlinkSync(local);
+    fs.writeFileSync(local, '{"mcpServers":{}}', { mode: 0o600 });
+    fs.writeFileSync(path.join(agent.directory, '.devin/config.json'), '{}');
+    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).toThrow(
       'Unmanaged configuration'
     );
-    fs.unlinkSync(path.join(role.directory, '.devin/config.json'));
-    fs.writeFileSync(path.join(role.directory, '.devin/skills/worker-guide/foreign.md'), 'FOREIGN');
-    expect(() => verifyWorkspaceFiles({ project: 'test', role: 'worker' }, root)).toThrow(
-      'Unmanaged file'
+  });
+  it('bounds asset scans and file sizes', () => {
+    const agent = provisionAgent();
+    const skills = path.join(agent.directory, '.devin/skills');
+    for (let i = 0; i < 257; i++) fs.writeFileSync(path.join(skills, 'extra-' + i), 'x');
+    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).toThrow(
+      'entry limit'
+    );
+    fs.rmSync(skills, { recursive: true });
+    fs.mkdirSync(skills);
+    fs.writeFileSync(path.join(skills, 'huge'), Buffer.alloc(4 * 1024 * 1024 + 1));
+    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).toThrow(
+      'asset limit'
     );
   });
-
-  it('rejects credential symlinks even when a manifest has been rewritten to accept one', () => {
-    const role = provisionRole();
-    const credential = path.join(role.directory, '.devin/mcp_config.local.json');
-    const manifestPath = path.join(role.directory, '.airelay-workspace.json');
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-    fs.unlinkSync(credential);
-    fs.symlinkSync('../AGENTS.md', credential);
-    manifest.files['.devin/mcp_config.local.json'].link = '../AGENTS.md';
-    fs.writeFileSync(manifestPath, JSON.stringify(manifest));
-    expect(() => verifyWorkspaceFiles({ project: 'test', role: 'worker' }, root)).toThrow(
-      'credential files'
+  it('fails closed on obsolete manifests and mismatched Agent identity', () => {
+    const agent = provisionAgent();
+    const file = path.join(agent.directory, '.airelay-workspace.json');
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ version: 1, binding: { project: 'test', role: 'worker' } })
+    );
+    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).toThrow(
+      'unsupported'
+    );
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ version: 2, binding: { project: 'test', agent: 'other' } })
+    );
+    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).toThrow(
+      'does not match'
     );
   });
-
-  it('rolls back a failed update without changing the last verified role', () => {
-    const role = provisionRole();
-    const before = fs.readFileSync(path.join(role.directory, 'AGENTS.md'));
-    fs.writeFileSync(instructions, '# New instructions\n');
-    const rename = fs.renameSync;
-    let failed = false;
-    const spy = jest.spyOn(fs, 'renameSync').mockImplementation((source, destination) => {
-      if (!failed && String(destination).endsWith('.airelay-workspace.json')) {
-        failed = true;
-        throw new Error('simulated write failure');
-      }
-      rename(source, destination);
+  it('cleans staged files and the lock if atomic publication fails', () => {
+    const rename = jest.spyOn(fs, 'renameSync').mockImplementation(() => {
+      throw new Error('simulated publication failure');
     });
     try {
-      expect(() =>
-        provisionWorkspace({
-          project: 'test',
-          role: 'worker',
-          root,
-          instructions,
-          skillsDir,
-          update: true,
-        })
-      ).toThrow('simulated');
+      expect(() => provisionAgent()).toThrow('simulated');
     } finally {
-      spy.mockRestore();
+      rename.mockRestore();
     }
-    expect(fs.readFileSync(path.join(role.directory, 'AGENTS.md'))).toEqual(before);
-    verifyWorkspaceFiles({ project: 'test', role: 'worker' }, root);
+    expect(fs.existsSync(path.join(root, 'test/agents/worker'))).toBe(false);
+    expect(fs.readdirSync(path.join(root, 'test/agents'))).toEqual([]);
+    expect(() => provisionAgent()).not.toThrow();
+  });
+  it('does not expose malformed secret-bearing MCP contents', () => {
+    const agent = provisionAgent();
+    fs.writeFileSync(
+      path.join(agent.directory, '.devin/mcp_config.local.json'),
+      '{"token":"dummy-private-secret", invalid'
+    );
+    try {
+      verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root);
+      throw new Error('Expected failure');
+    } catch (error) {
+      expect((error as Error).message).toContain('Invalid MCP configuration');
+      expect((error as Error).message).not.toContain('dummy-private-secret');
+    }
+  });
+  it('fails closed during an external Workspace maintenance lock without creating a directory', () => {
+    const lock = path.join(path.dirname(root), `.${path.basename(root)}.workspace.lock`);
+    fs.mkdirSync(lock);
+    try {
+      expect(() => provisionAgent()).toThrow('operation in progress');
+    } finally {
+      fs.rmdirSync(lock);
+    }
+    expect(fs.existsSync(path.join(root, 'test/agents/worker'))).toBe(false);
   });
 });
 
@@ -390,7 +316,7 @@ describe('managed environment and launch binding', () => {
     const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
     const config = fs.readFileSync(testEnv.configPath);
     try {
-      workspaceCommand('provision', ['test.worker'], { instructions, 'skills-dir': skillsDir });
+      workspaceCommand('provision', ['test.worker'], {});
     } finally {
       log.mockRestore();
     }
@@ -463,7 +389,7 @@ describe('native workspace preflight', () => {
   });
 
   it('verifies native discovery and rejects foreign global MCP without invoking any service', () => {
-    provisionRole();
+    provisionAgent();
     const executable = fakeDevin();
     const profile: Profile = { executable };
     expect(
@@ -490,12 +416,12 @@ describe('native workspace preflight', () => {
         executable,
         buildEnv(profile, undefined, true)
       )
-    ).toThrow('MCP inventory differs');
+    ).toThrow('zero MCP');
     expect(fs.existsSync(path.join(testEnv.testDir, 'launch.json'))).toBe(false);
   });
 
   it('does not surface secret-bearing native failure output', () => {
-    provisionRole();
+    provisionAgent();
     const executable = fakeDevin();
     fs.writeFileSync(
       executable,
@@ -516,8 +442,8 @@ describe('native workspace preflight', () => {
     }
   });
 
-  it('starts the actual child in its role workspace with sanitized env and native resume args', async () => {
-    provisionRole();
+  it('starts the actual child in its agent workspace with sanitized env and native resume args', async () => {
+    provisionAgent();
     const executable = fakeDevin();
     fs.writeFileSync(
       testEnv.configPath,
@@ -527,7 +453,7 @@ describe('native workspace preflight', () => {
         profiles: {
           managed: {
             executable,
-            cwd: path.join(root, 'test/worker'),
+            cwd: path.join(root, 'test/agents/worker'),
           },
         },
       })
@@ -545,7 +471,7 @@ describe('native workspace preflight', () => {
       const launch = JSON.parse(
         fs.readFileSync(path.join(testEnv.testDir, 'launch.json'), 'utf8')
       ) as { cwd: string; args: string[]; envKeys: string[] };
-      expect(launch.cwd).toBe(path.join(root, 'test/worker'));
+      expect(launch.cwd).toBe(path.join(root, 'test/agents/worker'));
       expect(launch.args).toEqual(['--resume', 'disposable-native-session']);
       expect(launch.envKeys).not.toContain('BB_MCP_TOKEN');
     } finally {
@@ -554,8 +480,8 @@ describe('native workspace preflight', () => {
     }
   });
 
-  it('revalidates the same role workspace and native resume arguments across hibernate/wake generations', async () => {
-    provisionRole();
+  it('revalidates the same agent workspace and native resume arguments across hibernate/wake generations', async () => {
+    provisionAgent();
     const executable = fakeDevin(true);
     fs.writeFileSync(
       testEnv.configPath,
@@ -565,7 +491,7 @@ describe('native workspace preflight', () => {
         profiles: {
           managed: {
             executable,
-            cwd: path.join(root, 'test/worker'),
+            cwd: path.join(root, 'test/agents/worker'),
           },
         },
       })
@@ -619,7 +545,7 @@ describe('native workspace preflight', () => {
         .map((line) => JSON.parse(line));
       expect(launches).toHaveLength(2);
       for (const launch of launches) {
-        expect(launch.cwd).toBe(path.join(root, 'test/worker'));
+        expect(launch.cwd).toBe(path.join(root, 'test/agents/worker'));
         expect(launch.args).toEqual(['--resume', 'disposable-native-session']);
       }
     } finally {

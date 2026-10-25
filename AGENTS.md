@@ -45,7 +45,7 @@ Config schema (`src/config/schema.ts`):
 - `settings.mousePassthrough`: allow click/wheel/drag input while suppressing unsolicited pointer-motion reports; defaults to `true`
 - `settings.workspaceRoot`: optional managed workspace root; fresh default `~/.airelay/workspaces`; preserve explicitly configured existing roots
 - `settings.workspaceProjects`: optional bounded `{source, root, project}[]` launcher hints; canonical source directory/longest ancestor opens a project branch only, never changes saved session bindings
-- `start --workspace <dot.selector>`: session-owned `{selector, root, path}` binding; NOT a Profile field; see `docs/WORKSPACES.md` for native fail-closed verification and migration
+- `start --workspace <dot.selector>`: `<project>.<agent>` maps to `<root>/<project>/agents/<agent>`; session-owned `{selector, root, path}`, NOT a Profile field; see `docs/WORKSPACES.md` for native fail-closed verification and migration
 - `profiles: { <name>: { executable, cwd?, args?, env?, description?, createDirs? } }`
 
 `airelay config set <key> <value>` updates every schema-defined setting and

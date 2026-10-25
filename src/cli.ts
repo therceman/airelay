@@ -255,7 +255,7 @@ Commands:
   help                  Show this help message
   guide                 Show setup instructions for a new machine
   config                Read or update airelay settings
-  workspace             Provision/inspect/verify project role workspaces
+  workspace             Provision/inspect/verify project agent workspaces
 
 Examples:
   airelay init

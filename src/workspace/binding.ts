@@ -49,7 +49,7 @@ export function verifySessionWorkspace(input: SessionWorkspace) {
   if (!stat.isFile() || stat.size > 4 * 1024 * 1024)
     throw new Error('Missing or invalid workspace manifest.');
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  const result = verifyWorkspaceFiles(manifest.binding, workspace.root, workspace.selector);
+  const result = verifyWorkspaceFiles(manifest.binding, workspace.root);
   return { ...result, workspace };
 }
 
@@ -80,7 +80,12 @@ export function listWorkspaces(root?: string): SessionWorkspace[] {
   const walk = (directory: string, depth: number): void => {
     if (++visited > 1024 || depth > 8) throw new Error('Workspace discovery limit exceeded.');
     if (fs.existsSync(path.join(directory, '.airelay-workspace.json'))) {
-      const selector = path.relative(base, directory).split(path.sep).join('.');
+      const parts = path.relative(base, directory).split(path.sep);
+      if (parts.length !== 3 || parts[1] !== 'agents')
+        throw new Error(
+          'Unsupported Workspace layout; explicitly migrate or remove unused old directories after backup.'
+        );
+      const selector = `${parts[0]}.${parts[2]}`;
       selectorParts(selector);
       result.push(resolveSessionWorkspace(selector, base));
       return;

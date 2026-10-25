@@ -35,7 +35,7 @@ export function loadConfig(configPath?: string): Config {
       Object.values(profiles).some((p) => p && typeof p === 'object' && 'workspace' in p)
     )
       throw new Error(
-        'Profile-bound workspaces are retired. Run airelay workspace migrate-profiles --dry-run, then migrate unused generated profiles; use start --workspace.'
+        'Profile-bound workspaces are not supported. Back up and remove obsolete profile entries; use a normal profile with start --workspace <project>.<agent>.'
       );
   }
   const result = ConfigSchema.safeParse(parsed);

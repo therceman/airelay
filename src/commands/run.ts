@@ -54,6 +54,7 @@ import {
   verifySessionWorkspace,
   type SessionWorkspace,
 } from '../workspace/binding';
+import { withWorkspaceLock } from '../workspace/provision';
 import {
   validateWorkspaceArgs,
   validateWorkspaceProfile,
@@ -852,21 +853,24 @@ export async function runCommand(
   let controllerStarted = false;
   try {
     if (workspace)
-      addSession(
-        profileName,
-        runtimeId,
-        cwd,
-        sessionKey,
-        controller.endpointPath,
-        undefined,
-        getAirelayVersion(),
-        CONTROLLER_PROTOCOL_VERSION,
-        Date.now(),
-        detectedProfileSessionId,
-        extraArgs.length ? extraArgs : undefined,
-        workspace,
-        runtime
-      );
+      withWorkspaceLock(workspace.root, () => {
+        verifySessionWorkspace(workspace);
+        addSession(
+          profileName,
+          runtimeId,
+          cwd,
+          sessionKey,
+          controller.endpointPath,
+          undefined,
+          getAirelayVersion(),
+          CONTROLLER_PROTOCOL_VERSION,
+          Date.now(),
+          detectedProfileSessionId,
+          extraArgs.length ? extraArgs : undefined,
+          workspace,
+          runtime
+        );
+      });
   } catch (error) {
     await controller.stop();
     throw error;

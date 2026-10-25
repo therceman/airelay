@@ -1,5 +1,49 @@
 # Zero-MCP Cutover: Linux Host
 
+## Agent-Only Layout Update: 2026-10-25
+
+The Role/Instance provisioning described below is historical, not the current
+Workspace API. See [Agent Workspaces](WORKSPACES.md) for `project.agent` ->
+`<root>/<project>/agents/<agent>`. Version-1 manifests and Role provisioning
+are no longer a runtime compatibility path.
+
+The Owner approved retiring unused generated Workspace folders rather than
+migrating artificial placeholders. Before cleanup, all nine directories were
+verified against their original manifest digests, modes and link targets;
+there were no extra files/directories, saved Workspace references, Workspace
+process cwds/environments or pending matching Workspace launch arguments.
+Checks were repeated under the same filesystem lock used by new provisioning
+and runtime reservation. No processes were stopped and no session/config store
+was written.
+
+Removed from the active root: `rsg/lead`, `bb_splunk/{lead,worker,advisor,dev,
+research,watcher}`, and `bb_splunk/instances/{worker-01,worker-02}`. The configured
+root `/home/therceman/agent-workspaces` is unchanged and now contains no prepared
+Workspaces. No replacement agent/profile was invented.
+
+Original directories, contents, modes, ownership and links are retained under:
+
+```text
+/home/therceman/agent-workspace-backups/2026-10-25T14-37-55-974Z-retire-generated-workspaces/
+  cleanup.json
+  workspaces/<original-relative-path>/
+```
+
+Backup directory mode is 0700; `cleanup.json` is 0600 and records source paths,
+hashes/link metadata and completed moves, not credential contents. Empty generated
+parent folders were removed only after all original directories were preserved.
+
+Rollback is an explicit offline operation: confirm each recorded destination is
+absent, recreate its original parents, and rename the corresponding backed-up
+directory to its recorded source. Do not overwrite a new agent Workspace.
+Version-1 layout requires its previous Airelay version for execution; alternatively
+recover selected instructions/Skills into a newly provisioned agent directory.
+Keep the backup until the Owner decides it is no longer needed.
+
+Global MCP registrations, MCP daemons, identities, Jobs, credentials and unrelated
+active sessions were not changed by this cleanup. The historical global zero-MCP
+cutover blockers below are not claimed resolved or re-audited here.
+
 ## Current Owner Decision
 
 **Temporary target: zero MCP connections everywhere.** This supersedes the

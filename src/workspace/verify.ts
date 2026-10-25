@@ -80,11 +80,7 @@ export function verifyNativeWorkspace(
   env: Record<string, string>
 ): NativeWorkspaceInventory {
   validateWorkspaceProfile(profile);
-  const { directory, manifest } = verifySessionWorkspace(workspace);
-  if (manifest.allowedMcpServers.length)
-    throw new Error(
-      'Managed workspace requires zero MCP registrations during the current migration.'
-    );
+  const { directory } = verifySessionWorkspace(workspace);
   const deadline = Date.now() + 10000;
   const mcpOutput = nativeRead(executable, ['mcp', 'list'], directory, env, deadline);
   if (!/Configured MCP servers|No MCP servers/i.test(mcpOutput))
@@ -93,18 +89,10 @@ export function verifyNativeWorkspace(
   const mcpServers = entries.map((match) => match[1]).sort();
   if (!mcpServers.length && !mcpOutput.trim().startsWith('No MCP servers configured.'))
     throw new Error('Unrecognized empty MCP inventory; refusing workspace launch.');
-  if (JSON.stringify(mcpServers) !== JSON.stringify(manifest.allowedMcpServers)) {
+  if (mcpServers.length) {
     throw new Error(
-      `Workspace MCP inventory differs from its approved manifest (${mcpServers.length} discovered, ${manifest.allowedMcpServers.length} approved); inspect global, project, and imported configuration.`
+      `Workspace requires zero MCP registrations (${mcpServers.length} discovered); inspect global, project, and imported configuration.`
     );
-  }
-  for (let index = 0; index < entries.length; index += 1) {
-    const block = mcpOutput.slice(entries[index].index, entries[index + 1]?.index);
-    const source = block.match(/^[ \t]+Source:[ \t]+(.+)$/m)?.[1].trim();
-    if (source !== path.join(directory, '.devin/mcp_config.local.json'))
-      throw new Error(
-        'Native MCP configuration did not resolve from the approved workspace identity file.'
-      );
   }
   let skills: Array<{ name: string; provider: string; base_dir: string; errors?: unknown[] }>;
   try {
@@ -131,7 +119,7 @@ export function verifyNativeWorkspace(
       throw new Error('Invalid native Skill inventory.');
     if (
       !expected.includes(skill.name) ||
-      fs.realpathSync(skill.base_dir) !== path.join(skillsRoot, skill.name)
+      fs.realpathSync(skill.base_dir) !== fs.realpathSync(path.join(skillsRoot, skill.name))
     ) {
       throw new Error(
         'Workspace discovered a foreign or unexpected Skill; inspect global Skills and imports.'
@@ -155,6 +143,6 @@ export function verifyNativeWorkspace(
     throw new Error('Workspace discovered foreign or unexpected always-on instructions.');
   const ruleOutput = nativeRead(executable, ['rules', 'show', 'AGENTS'], directory, env, deadline);
   if (!instructions || !ruleOutput.includes(instructions))
-    throw new Error('Native CLI did not load the canonical role instructions.');
+    throw new Error("Native CLI did not load this agent Workspace's instructions.");
   return { directory, mcpServers, skills: discovered, instructionsVerified: true };
 }

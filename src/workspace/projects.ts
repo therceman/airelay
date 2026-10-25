@@ -32,10 +32,9 @@ export function createLauncherWorkspace(options: {
   selector: string;
   root: string;
   source: string;
-  instructions?: string;
   dryRun?: boolean;
 }) {
-  const parts = selectorParts(options.selector);
+  const [project, agent] = selectorParts(options.selector);
   const directory = selectorPath(options.selector, options.root);
   if (fs.existsSync(directory))
     throw new Error(
@@ -43,16 +42,10 @@ export function createLauncherWorkspace(options: {
     );
   const source = sourceDirectory(options.source);
   const plan = provisionWorkspace({
-    project: parts[0],
-    role: parts[parts.length - 1],
-    selector: options.selector,
+    project,
+    agent,
     root: options.root,
     source,
-    ...(options.instructions
-      ? { instructions: path.resolve(source, options.instructions) }
-      : {
-          instructionsText: `# ${options.selector}\n\nSource repository: ${JSON.stringify(source)}\n\nWork only on the requested task in that repository.\nRead its project instructions before editing.\nNo MCP servers are configured for this Workspace.\n`,
-        }),
     dryRun: options.dryRun,
   });
   return plan;

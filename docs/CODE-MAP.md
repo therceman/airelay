@@ -16,7 +16,7 @@ has materially changed.
 | Resume hydration/reveal or terminal queries | `src/runtime/resume-presentation.ts`                  | `src/runtime/terminal-query.ts`, `src/controller/index.ts`, `test/resume-presentation.test.ts`, `test/terminal-query.test.ts`                                                                   |
 | Prompt submission and retries               | `src/runtime/delivery-sequence.ts`                    | `src/runtime/input-submit-watcher.ts`, `src/runtime/delivery-marker.ts`, `src/commands/run.ts`, `test/delivery-sequence.test.ts`, `test/input-submit-watcher.test.ts`, `test/run-input.test.ts` |
 | Busy/idle and direct user-input status       | `src/runtime/activity.ts`                             | `src/commands/run.ts`, `src/types/controller.ts`, `src/commands/session-status.ts`, `src/commands/status.ts`, `test/activity.test.ts`, `test/controller-e2e.test.ts`, `test/status.test.ts` |
-| Project/role workspaces and managed launch policy | `src/workspace/{binding,projects,provision,verify,backup,migrate-profiles}.ts`, `src/commands/{workspace,workspace-select}.ts` | `src/runtime/env.ts`, `src/commands/{run,resume,detached}.ts`, `test/workspace.test.ts`, `scripts/verify-workspace-devin.cjs`, `docs/WORKSPACES.md` |
+| Project/agent workspaces and managed launch policy | `src/workspace/{binding,projects,provision,verify,backup}.ts`, `src/commands/{workspace,workspace-select}.ts` | `src/runtime/env.ts`, `src/commands/{run,resume,detached}.ts`, `test/workspace.test.ts`, `scripts/verify-workspace-devin.cjs`, `docs/WORKSPACES.md` |
 | Harness-specific arguments/capabilities     | `src/utils/harness.ts`                                | `src/commands/run.ts`, `test/harness.test.ts`, `test/workspace-trust.test.ts`                                                                                                                   |
 | Mouse tracking policy and config default    | `src/config/schema.ts`, `src/runtime/mouse-filter.ts`, `src/controller/index.ts`, `src/runtime/pty.ts` | `test/config-command.test.ts`, `test/init.test.ts`, `test/mouse-filter.test.ts` |
 | Config parsing/defaults/paths               | `src/config/schema.ts`                                | `src/config/load.ts`, `src/config/paths.ts`, `src/config/defaults.ts`, `test/config.test.ts`, `test/paths.test.ts`                                                                              |
@@ -117,22 +117,20 @@ terminal parser or serializer without first checking the controller/xterm APIs.
 
 ### Configuration, Harnesses, and State
 
-- `src/workspace/provision.ts` owns bounded, digest-checked canonical Role
-  assets/Agent links and rollback. `binding.ts` owns dot selectors, immutable
-  session binding validation and saved real paths; `verify.ts` owns native
-  Devin fail-closed zero-MCP/Skill/instruction discovery. `backup.ts` owns
-  private backup/restore; `migrate-profiles.ts` only removes unused unmodified
-  retired generated profiles. It is not a second live configuration model.
-- `commands/workspace.ts` provisions/inspects without generating profiles;
-  `workspace-select.ts` owns hierarchical launcher browsing, confirmed creation
-  and source-folder association prompts. It only reads the global storage root;
-  root changes belong to `commands/config.ts`, not the launcher. `projects.ts`
-  owns source realpath/ancestor matching and creation through the existing
-  provisioner. `settings.workspaceProjects` is a bounded launcher hint, not
-  session authority; it opens a project branch, never silently selects a Role.
-  `run.ts` verifies and reserves a session binding before startup, then
-  revalidates it before wake. `resume.ts` passes the saved binding across
-  same-harness account changes. Detached supervision transfers the frozen path.
+- `src/workspace/provision.ts` owns the strict `project.agent` selector,
+  `project/agents/agent` layout, version-2 binding manifest, atomic creation and
+  path/zero-MCP safety checks. Agent/user-owned instructions and Skills are not
+  frozen by digests. `binding.ts` owns immutable saved absolute paths and
+  discovery; `verify.ts` owns native Devin zero-MCP/local asset discovery.
+  `backup.ts` owns protected configuration backup/restore. There is no Role
+  assignment, instance inheritance, or runtime legacy-layout fallback.
+- `commands/workspace.ts` provisions/inspects agent directories without generating
+  profiles. `workspace-select.ts` owns project -> agent selection, simple creation
+  and confirmed source-folder associations; global root changes belong to config.
+  `projects.ts` owns source realpath/ancestor hints. Provisioning and runtime
+  reservation share the short Workspace filesystem lock, so offline maintenance
+  cannot race a cooperating new launch. `run.ts` verifies before startup and wake;
+  `resume.ts` and detached supervision transfer the saved path unchanged.
 - Session/history/runtime metadata, not Profile, owns optional
   `{selector, root, path}`. Managed binding survives runtime exit/pruning;
   `runtime/env.ts` filters only explicitly managed launches. `spawn.ts` passes

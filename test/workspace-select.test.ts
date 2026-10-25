@@ -31,16 +31,12 @@ const menu = (index: number) =>
     initial: string;
   };
 const names = (index: number) => menu(index).choices.map((choice) => choice.name);
-function role(selector: string) {
-  const instructions = path.join(env.testDir, 'launcher-instructions.md');
-  fs.writeFileSync(instructions, '# Role\n');
+function agentWorkspace(selector: string) {
   const parts = selector.split('.');
   provisionWorkspace({
     project: parts[0],
-    role: parts[parts.length - 1],
-    selector,
+    agent: parts[parts.length - 1],
     root,
-    instructions,
   });
 }
 function associate(directory = source, project = 'rsg', storageRoot = root) {
@@ -67,47 +63,38 @@ beforeEach(() => {
 });
 afterEach(() => log.mockRestore());
 
-it('shows projects first, then immediate children, without flat leaf choices or Profile changes', async () => {
-  role('rsg.lead');
-  role('bb_splunk.roles.worker');
-  role('bb_splunk.agents.worker1');
+it('shows projects first, then agents, without roles or storage-root settings', async () => {
+  agentWorkspace('rsg.lead');
+  agentWorkspace('bb_splunk.worker');
+  agentWorkspace('bb_splunk.worker1');
   const before = fs.readFileSync(env.configPath);
   answer(
     { workspace: 'node:bb_splunk' },
-    { workspace: 'node:bb_splunk.roles' },
-    { workspace: 'node:bb_splunk.roles.worker' },
+    { workspace: 'node:bb_splunk.worker1' },
     { remember: false }
   );
   expect(await chooseSessionWorkspace(source)).toEqual(
-    resolveSessionWorkspace('bb_splunk.roles.worker', root)
+    resolveSessionWorkspace('bb_splunk.worker1', root)
   );
   expect(names(0)).toEqual(['node:bb_splunk', 'node:rsg', 'create', 'none']);
   expect(names(1)).toEqual([
-    'node:bb_splunk.agents',
-    'node:bb_splunk.roles',
+    'node:bb_splunk.worker',
+    'node:bb_splunk.worker1',
     'create',
     'back',
     'none',
   ]);
-  expect(names(2)).toContain('node:bb_splunk.roles.worker');
   expect(fs.readFileSync(env.configPath)).toEqual(before);
 });
-it('navigates Back through intermediate directories and all projects', async () => {
-  role('bb_splunk.instances.worker-01');
-  role('rsg.lead');
-  answer(
-    { workspace: 'node:bb_splunk' },
-    { workspace: 'node:bb_splunk.instances' },
-    { workspace: 'back' },
-    { workspace: 'back' },
-    { workspace: 'none' }
-  );
+it('navigates Back from agent choices to all projects', async () => {
+  agentWorkspace('bb_splunk.worker');
+  agentWorkspace('rsg.lead');
+  answer({ workspace: 'node:bb_splunk' }, { workspace: 'back' }, { workspace: 'none' });
   expect(await chooseSessionWorkspace(source)).toBeUndefined();
-  expect(names(1)).toEqual(names(3));
-  expect(names(0)).toEqual(names(4));
+  expect(names(0)).toEqual(names(2));
 });
 it('does not treat reserved-looking project names as menu actions', async () => {
-  role('create.lead');
+  agentWorkspace('create.lead');
   answer({ workspace: 'node:create' }, { workspace: 'node:create.lead' }, { remember: false });
   expect((await chooseSessionWorkspace(source))?.selector).toBe('create.lead');
 });
@@ -127,12 +114,11 @@ it('rejects the removed root-settings action without prompting or changing confi
   expect(prompt).toHaveBeenCalledTimes(1);
   expect(fs.readFileSync(env.configPath)).toEqual(before);
 });
-it('creates a new zero-MCP Role from an empty launcher without generating a profile', async () => {
+it('creates a new zero-MCP agent from an empty launcher without generating a profile', async () => {
   const sourceBefore = fs.readdirSync(source);
   answer(
     { workspace: 'create' },
     { selector: 'agentvm.lead' },
-    { instructions: '' },
     { create: true },
     { remember: true }
   );
@@ -150,29 +136,32 @@ it('creates a new zero-MCP Role from an empty launcher without generating a prof
   expect(loadConfig().profiles).toEqual({ devin: { executable: 'devin' } });
   expect(fs.readdirSync(source)).toEqual(sourceBefore);
 });
-it('can create within an existing project using an explicitly selected instructions file', async () => {
-  role('rsg.worker');
-  const instructions = path.join(source, 'role.md');
-  fs.writeFileSync(instructions, '# Approved role\n');
+it('creates within an existing project without asking for instructions or a role', async () => {
+  agentWorkspace('rsg.worker');
   answer(
     { workspace: 'node:rsg' },
     { workspace: 'create' },
     { selector: 'rsg.lead' },
-    { instructions: 'role.md' },
     { create: true },
     { remember: false }
   );
   const selected = await chooseSessionWorkspace(source);
   expect(menu(2).initial).toBe('rsg.lead');
-  expect(fs.readFileSync(path.join(selected!.path, 'AGENTS.md'), 'utf8')).toBe('# Approved role\n');
-  expect(fs.readFileSync(instructions, 'utf8')).toBe('# Approved role\n');
+  expect(menu(2).message).toBe('New Workspace selector (<project>.<agent>)');
+  expect(fs.existsSync(path.join(selected!.path, 'AGENTS.md'))).toBe(true);
+  expect(prompt.mock.calls.map((call) => call[0].name)).toEqual([
+    'workspace',
+    'workspace',
+    'selector',
+    'create',
+    'remember',
+  ]);
 });
 it('cancelled creation performs no Workspace or configuration writes', async () => {
   const before = fs.readFileSync(env.configPath);
   answer(
     { workspace: 'create' },
     { selector: 'agentvm.lead' },
-    { instructions: '' },
     { create: false },
     { workspace: 'none' }
   );
@@ -185,33 +174,37 @@ it('rejects traversal, escaping links, existing directories and altered managed 
   expect(() => createLauncherWorkspace({ ...options, selector: '../outside' })).toThrow(
     'Invalid workspace selector'
   );
-  fs.mkdirSync(path.join(root, 'rsg/lead'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'rsg/lead/user.txt'), 'preserve');
+  fs.mkdirSync(path.join(root, 'rsg/agents/lead'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'rsg/agents/lead/user.txt'), 'preserve');
   expect(() => createLauncherWorkspace(options)).toThrow('already exists');
-  expect(fs.readFileSync(path.join(root, 'rsg/lead/user.txt'), 'utf8')).toBe('preserve');
+  expect(fs.readFileSync(path.join(root, 'rsg/agents/lead/user.txt'), 'utf8')).toBe('preserve');
   fs.symlinkSync(source, path.join(root, 'escape'));
   expect(() => createLauncherWorkspace({ ...options, selector: 'escape.lead' })).toThrow('symlink');
   fs.unlinkSync(path.join(root, 'escape'));
-  role('rsg.worker');
-  fs.appendFileSync(path.join(root, 'rsg/worker/AGENTS.md'), 'changed');
-  await expect(chooseSessionWorkspace(source)).rejects.toThrow('Workspace asset changed');
+  agentWorkspace('rsg.worker');
+  const asset = path.join(root, 'rsg/agents/worker/AGENTS.md');
+  fs.unlinkSync(asset);
+  fs.symlinkSync(path.join(source, 'outside.md'), asset);
+  fs.writeFileSync(path.join(source, 'outside.md'), 'outside');
+  await expect(chooseSessionWorkspace(source)).rejects.toThrow('escapes');
 });
-it('revalidates a selected Workspace after an interactive pause', async () => {
-  role('rsg.lead');
+it('accepts updated instructions after an interactive pause', async () => {
+  agentWorkspace('rsg.lead');
   answer({ workspace: 'node:rsg' });
   prompt.mockImplementationOnce(async () => {
-    fs.appendFileSync(path.join(root, 'rsg/lead/AGENTS.md'), 'changed');
+    fs.appendFileSync(path.join(root, 'rsg/agents/lead/AGENTS.md'), 'changed');
     return { workspace: 'node:rsg.lead' };
   });
-  await expect(chooseSessionWorkspace(source)).rejects.toThrow('Workspace asset changed');
+  answer({ remember: false });
+  expect((await chooseSessionWorkspace(source))?.selector).toBe('rsg.lead');
 });
 it('rejects an unavailable choice instead of silently selecting another Workspace', async () => {
-  role('rsg.lead');
+  agentWorkspace('rsg.lead');
   answer({ workspace: 'node:rsg.lead' });
   await expect(chooseSessionWorkspace(source)).rejects.toThrow('not available');
 });
 it('saves a confirmed folder association and opens only its project branch on later starts', async () => {
-  role('rsg.lead');
+  agentWorkspace('rsg.lead');
   answer({ workspace: 'node:rsg' }, { workspace: 'node:rsg.lead' }, { remember: true });
   await chooseSessionWorkspace(source);
   prompt.mockClear();
@@ -222,7 +215,7 @@ it('saves a confirmed folder association and opens only its project branch on la
   expect(prompt).toHaveBeenCalledTimes(1);
 });
 it('detects an explicitly associated project from a child source directory', async () => {
-  role('rsg.lead');
+  agentWorkspace('rsg.lead');
   associate();
   const child = path.join(source, 'src');
   fs.mkdirSync(child, { recursive: true });
@@ -232,7 +225,7 @@ it('detects an explicitly associated project from a child source directory', asy
   expect(prompt).toHaveBeenCalledTimes(1);
 });
 it('ignores stale projects and associations for a different storage root', async () => {
-  role('bb_splunk.lead');
+  agentWorkspace('bb_splunk.lead');
   associate();
   answer({ workspace: 'none' });
   await chooseSessionWorkspace(source);
@@ -244,8 +237,8 @@ it('ignores stale projects and associations for a different storage root', async
   expect(menu(0).message).toContain('Select a Workspace project');
 });
 it('allows leaving the detected branch and explicitly replacing a source association', async () => {
-  role('rsg.lead');
-  role('bb_splunk.worker');
+  agentWorkspace('rsg.lead');
+  agentWorkspace('bb_splunk.worker');
   associate();
   answer(
     { workspace: 'back' },
@@ -259,7 +252,7 @@ it('allows leaving the detected branch and explicitly replacing a source associa
 it('resolves a symlinked invocation directory to its real project source', async () => {
   const alias = path.join(env.testDir, 'source-alias');
   fs.symlinkSync(source, alias);
-  role('rsg.lead');
+  agentWorkspace('rsg.lead');
   associate();
   expect(sourceDirectory(alias)).toBe(source);
   answer({ workspace: 'none' });
@@ -297,8 +290,8 @@ it('bounds and validates global associations and preserves private config permis
   expect(loadConfig().settings.workspaceProjects).toEqual([]);
 });
 
-it('browses real Enquirer project and Role menus in a disposable terminal without launching an agent', async () => {
-  role('rsg.lead');
+it('browses real Enquirer project and agent menus in a disposable terminal without launching an agent', async () => {
+  agentWorkspace('rsg.lead');
   const repository = path.join(__dirname, '..');
   execFileSync('npm', ['run', '-s', 'build'], { cwd: repository, stdio: 'pipe' });
   const script = `require(${JSON.stringify(path.join(repository, 'dist/commands/workspace-select.js'))}).chooseSessionWorkspace().then(w => {console.log('SELECTED:' + w.selector); process.exit(0)}).catch(e => {console.error(e.message); process.exit(1)});`;
@@ -346,6 +339,60 @@ it('browses real Enquirer project and Role menus in a disposable terminal withou
     expect(output).not.toContain('Change workspace root...');
     expect(output).toContain('SELECTED:rsg.lead');
     expect(stage).toBe(3);
+  } finally {
+    clearTimeout(timeout);
+    terminal.kill();
+  }
+}, 20000);
+
+it('creates an agent through the real Enquirer selector and confirmation without instruction prompts', async () => {
+  const repository = path.join(__dirname, '..');
+  execFileSync('npm', ['run', '-s', 'build'], { cwd: repository, stdio: 'pipe' });
+  const script = `require(${JSON.stringify(path.join(repository, 'dist/commands/workspace-select.js'))}).chooseSessionWorkspace().then(w => {console.log('CREATED:' + w.selector); process.exit(0)}).catch(e => {console.error(e.message); process.exit(1)});`;
+  let stage = 0,
+    frame = '',
+    output = '';
+  const steps = [
+    ['Without workspace (normal profile/current directory)', '\r'],
+    ['New Workspace selector (<project>.<agent>)', '\r'],
+    ['with zero MCP?', 'y\r'],
+    ['for future launcher selections?', 'n\r'],
+  ];
+  const terminal = createPty({
+    file: process.execPath,
+    args: ['-e', script],
+    cwd: source,
+    detached: true,
+    env: { AIRELAY_CONFIG: env.configPath },
+    onOutput: (chunk) => {
+      output += chunk;
+      frame += chunk;
+      if (stage < steps.length && frame.includes(steps[stage][0])) {
+        const input = steps[stage++][1];
+        frame = '';
+        terminal.write(input);
+      }
+    },
+  });
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    expect(
+      await Promise.race([
+        terminal.exitCode,
+        new Promise((_, reject) => {
+          timeout = setTimeout(() => reject(new Error('Creation fixture did not exit')), 10000);
+        }),
+      ])
+    ).toBe(0);
+    expect(output).toContain('CREATED:agentvm.lead');
+    expect(output).not.toContain('Instructions file');
+    expect(stage).toBe(4);
+    const selected = resolveSessionWorkspace('agentvm.lead', root);
+    expect(selected.path).toBe(path.join(root, 'agentvm/agents/lead'));
+    expect(
+      JSON.parse(fs.readFileSync(path.join(selected.path, '.airelay-workspace.json'), 'utf8'))
+        .binding
+    ).toEqual({ project: 'agentvm', agent: 'lead' });
   } finally {
     clearTimeout(timeout);
     terminal.kill();

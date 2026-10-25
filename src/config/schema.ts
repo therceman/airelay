@@ -63,11 +63,7 @@ export const SettingsSchema = z.object({
 export const WorkspaceBindingSchema = z
   .object({
     project: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/),
-    role: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/),
-    instance: z
-      .string()
-      .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/)
-      .optional(),
+    agent: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/),
   })
   .strict();
 
