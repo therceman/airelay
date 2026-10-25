@@ -11,7 +11,6 @@ import {
   verifyWorkspaceFiles,
   workspacePath,
 } from '../src/workspace/provision';
-import { validateWorkspaceArgs, verifyNativeWorkspace } from '../src/workspace/verify';
 import { useTestEnv } from './test-utils';
 import { getSameHarnessProfiles } from '../src/commands/resume';
 import { fetchControllerInfo, sendControllerRequest } from '../src/commands/session-ipc';
@@ -53,6 +52,12 @@ function provisionAgent() {
   const result = provisionWorkspace({ project: 'test', agent: 'worker', root });
   if (result.changed.length) {
     fs.copyFileSync(instructions, path.join(result.directory, 'AGENTS.md'));
+    // Native assets are authored by the fixture, not by Airelay.
+    fs.mkdirSync(path.join(result.directory, '.devin'), { recursive: true });
+    for (const name of ['mcp_config.json', 'mcp_config.local.json'])
+      fs.writeFileSync(path.join(result.directory, '.devin', name), '{"mcpServers":{}}', {
+        mode: 0o600,
+      });
     fs.cpSync(skillsDir, path.join(result.directory, '.devin/skills'), { recursive: true });
   }
   return result;
@@ -96,6 +101,7 @@ describe('agent-only Workspace provisioning', () => {
     expect(fs.existsSync(path.join(created.directory, 'do-not-copy'))).toBe(false);
     expect(fs.readFileSync(path.join(created.directory, 'AGENTS.md'), 'utf8')).toContain(source);
     expect(fs.existsSync(path.join(root, 'test/roles'))).toBe(false);
+    expect(fs.existsSync(path.join(created.directory, '.devin'))).toBe(false);
     const before = fs.statSync(path.join(created.directory, 'AGENTS.md')).mtimeMs;
     expect(provisionWorkspace(options).changed).toEqual([]);
     expect(fs.statSync(path.join(created.directory, 'AGENTS.md')).mtimeMs).toBe(before);
@@ -182,31 +188,21 @@ describe('agent-only Workspace provisioning', () => {
     fs.unlinkSync(file);
     fs.writeFileSync(file, '# Other');
     const skills = path.join(other.directory, '.devin/skills');
+    fs.mkdirSync(skills, { recursive: true });
     fs.symlinkSync(skills, path.join(skills, 'cycle'));
     expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'other' }, root)).toThrow('cycle');
   });
-  it('keeps credentials regular/private, rejects local MCP and config imports', () => {
+  it('treats native MCP and import configuration as opaque user-owned files', () => {
     const agent = provisionAgent();
     const local = path.join(agent.directory, '.devin/mcp_config.local.json');
-    fs.chmodSync(local, 0o644);
-    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).toThrow('0600');
+    const configured = '{"mcpServers":{"project-tool":{"command":"/bin/false"}}}';
+    fs.writeFileSync(local, configured);
     fs.chmodSync(local, 0o600);
-    fs.writeFileSync(local, '{"mcpServers":{"foreign":{"command":"/bin/false"}}}');
-    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).toThrow(
-      'zero MCP'
-    );
-    fs.writeFileSync(local, '{"mcpServers":{}}');
-    fs.unlinkSync(local);
-    fs.symlinkSync('../AGENTS.md', local);
-    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).toThrow(
-      'symlink'
-    );
-    fs.unlinkSync(local);
-    fs.writeFileSync(local, '{"mcpServers":{}}', { mode: 0o600 });
-    fs.writeFileSync(path.join(agent.directory, '.devin/config.json'), '{}');
-    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).toThrow(
-      'Unmanaged configuration'
-    );
+    fs.writeFileSync(path.join(agent.directory, '.devin/config.json'), '{"imports":[]}');
+    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).not.toThrow();
+    expect(provisionWorkspace({ project: 'test', agent: 'worker', root }).changed).toEqual([]);
+    expect(fs.readFileSync(local, 'utf8')).toBe(configured);
+    expect(fs.statSync(local).mode & 0o777).toBe(0o600);
   });
   it('bounds asset scans and file sizes', () => {
     const agent = provisionAgent();
@@ -253,19 +249,14 @@ describe('agent-only Workspace provisioning', () => {
     expect(fs.readdirSync(path.join(root, 'test/agents'))).toEqual([]);
     expect(() => provisionAgent()).not.toThrow();
   });
-  it('does not expose malformed secret-bearing MCP contents', () => {
+  it('does not parse native configuration or require an instructions file', () => {
     const agent = provisionAgent();
-    fs.writeFileSync(
-      path.join(agent.directory, '.devin/mcp_config.local.json'),
-      '{"token":"dummy-private-secret", invalid'
-    );
-    try {
-      verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root);
-      throw new Error('Expected failure');
-    } catch (error) {
-      expect((error as Error).message).toContain('Invalid MCP configuration');
-      expect((error as Error).message).not.toContain('dummy-private-secret');
-    }
+    const file = path.join(agent.directory, '.devin/mcp_config.local.json');
+    const nativeConfig = '{"token":"dummy-private-secret", invalid';
+    fs.writeFileSync(file, nativeConfig);
+    fs.unlinkSync(path.join(agent.directory, 'AGENTS.md'));
+    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).not.toThrow();
+    expect(fs.readFileSync(file, 'utf8')).toBe(nativeConfig);
   });
   it('fails closed during an external Workspace maintenance lock without creating a directory', () => {
     const lock = path.join(path.dirname(root), `.${path.basename(root)}.workspace.lock`);
@@ -294,22 +285,20 @@ describe('managed environment and launch binding', () => {
     );
     expect(getSameHarnessProfiles('devin')).toEqual(['second']);
   });
-  it('filters foreign credentials only for managed sessions and preserves native login paths', () => {
-    const original = process.env.BB_MCP_TOKEN;
-    process.env.BB_MCP_TOKEN = 'dummy-foreign';
+  it('uses normal profile environment semantics instead of a Workspace allowlist', () => {
+    const previous = process.env.WORKSPACE_APP_TOKEN;
+    process.env.WORKSPACE_APP_TOKEN = 'dummy-parent';
     try {
-      expect(buildEnv({ executable: 'node' }).BB_MCP_TOKEN).toBe('dummy-foreign');
-      const managed = buildEnv({ executable: 'devin' }, undefined, true);
-      expect(managed.BB_MCP_TOKEN).toBeUndefined();
-      expect(managed.AIRELAY_SESSION_KEY).toBeUndefined();
-      expect(managed.HOME).toBe(process.env.HOME);
-      expect(managed.PATH).toBe(process.env.PATH);
-      expect(() =>
-        buildEnv({ executable: 'devin', env: { BB_MCP_TOKEN: 'dummy' } }, undefined, true)
-      ).toThrow('not supported');
+      const profile: Profile = {
+        executable: 'node',
+        env: { WORKSPACE_APP_TOKEN: 'dummy-profile', HOME: '~/app' },
+      };
+      expect(buildEnv({ executable: 'node' }).WORKSPACE_APP_TOKEN).toBe('dummy-parent');
+      expect(buildEnv(profile).WORKSPACE_APP_TOKEN).toBe('dummy-profile');
+      expect(buildEnv(profile).HOME).not.toContain('~');
     } finally {
-      if (original === undefined) delete process.env.BB_MCP_TOKEN;
-      else process.env.BB_MCP_TOKEN = original;
+      if (previous === undefined) delete process.env.WORKSPACE_APP_TOKEN;
+      else process.env.WORKSPACE_APP_TOKEN = previous;
     }
   });
   it('provisions without creating profiles and resolves a session-level workspace', () => {
@@ -341,26 +330,27 @@ describe('managed environment and launch binding', () => {
       'cwd differs'
     );
     expect(buildProfileEnv('existing', [], testEnv.testDir).cwd).toBe(testEnv.testDir);
-    expect(() => validateWorkspaceArgs(['--config', '/foreign/config.json'])).toThrow(
-      'Unsupported'
-    );
+    expect(
+      buildProfileEnv(
+        'devin',
+        ['--config', '/native/config.json'],
+        undefined,
+        undefined,
+        false,
+        binding
+      ).args
+    ).toEqual(['--config', '/native/config.json']);
   });
 });
 
 function fakeDevin(hibernateOnce = false): string {
-  const binary = path.join(testEnv.testDir, 'devin');
+  const binary = path.join(testEnv.testDir, hibernateOnce ? 'devin' : 'custom-agent');
   fs.writeFileSync(
     binary,
     `#!/usr/bin/env node
 const fs = require('node:fs'); const path = require('node:path');
 const args = process.argv.slice(2); const cwd = process.cwd();
-if (args[0] === 'mcp') {
- const files = [path.join(process.env.HOME, '.config/devin/mcp_config.json'), path.join(cwd, '.devin/mcp_config.local.json')];
- const servers = Object.assign({}, ...files.map(file => fs.existsSync(file) ? JSON.parse(fs.readFileSync(file)).mcpServers : {}));
- console.log(Object.keys(servers).length ? 'Configured MCP servers' : 'No MCP servers configured.'); for (const name of Object.keys(servers)) console.log('  • ' + name + '\\n    Source: ' + path.join(cwd, '.devin/mcp_config.local.json'));
-} else if (args[0] === 'skills') {
- const root = path.join(cwd, '.devin/skills'); console.log(JSON.stringify(fs.readdirSync(root).map(name => ({name, provider: 'Devin', base_dir: path.join(root, name)}))));
-} else if (args[0] === 'rules') console.log(args[1] === 'list' ? 'Available rules\\n\\n  AGENTS [Standard] always-on' : fs.readFileSync(path.join(cwd, 'AGENTS.md'), 'utf8'));
+if (['mcp', 'skills', 'rules'].includes(args[0])) process.exit(99);
 else {
  const log = ${JSON.stringify(path.join(testEnv.testDir, 'launch.json'))};
  const history = ${JSON.stringify(path.join(caseDirectory, 'launches.jsonl'))};
@@ -376,7 +366,7 @@ else {
   return binary;
 }
 
-describe('native workspace preflight', () => {
+describe('generic Workspace launch', () => {
   let previousHome: string | undefined;
   beforeEach(() => {
     previousHome = process.env.HOME;
@@ -388,62 +378,49 @@ describe('native workspace preflight', () => {
     else process.env.HOME = previousHome;
   });
 
-  it('verifies native discovery and rejects foreign global MCP without invoking any service', () => {
+  it('verifies the filesystem without invoking or inspecting the harness', () => {
     provisionAgent();
-    const executable = fakeDevin();
-    const profile: Profile = { executable };
-    expect(
-      verifyNativeWorkspace(
-        profile,
-        resolveSessionWorkspace('test.worker', root),
-        executable,
-        buildEnv(profile, undefined, true)
-      )
-    ).toMatchObject({
-      mcpServers: [],
-      skills: ['worker-guide'],
-      instructionsVerified: true,
-    });
-    fs.mkdirSync(path.join(process.env.HOME!, '.config/devin'), { recursive: true });
+    const profile = {
+      executable: '/not-installed/custom-agent',
+      args: ['--native-config', 'custom.json'],
+    };
     fs.writeFileSync(
-      path.join(process.env.HOME!, '.config/devin/mcp_config.json'),
-      '{"mcpServers":{"foreign-project":{"command":"/bin/false"}}}'
+      testEnv.configPath,
+      JSON.stringify({
+        version: 1,
+        settings: { workspaceRoot: root },
+        profiles: { custom: profile },
+      })
     );
-    expect(() =>
-      verifyNativeWorkspace(
-        profile,
-        resolveSessionWorkspace('test.worker', root),
-        executable,
-        buildEnv(profile, undefined, true)
-      )
-    ).toThrow('zero MCP');
+    const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      expect(workspaceCommand('verify', ['test.worker'], { profile: 'custom', json: true })).toBe(
+        0
+      );
+      const result = JSON.parse(log.mock.calls[0][0]);
+      expect(result.verification).toBe('filesystem');
+      expect(result.profile).toBe('custom');
+      expect(result).not.toHaveProperty('instructionsVerified');
+      expect(workspaceCommand('verify', ['test.worker'], { json: true })).toBe(0);
+      expect(JSON.parse(log.mock.calls[1][0])).not.toHaveProperty('profile');
+      expect(() => workspaceCommand('verify', ['test.worker'], { profile: 'missing' })).toThrow(
+        'Profile not found'
+      );
+      expect(() => workspaceCommand('verify', ['test.worker'], { profile: '' })).toThrow(
+        'Profile not found'
+      );
+    } finally {
+      log.mockRestore();
+    }
     expect(fs.existsSync(path.join(testEnv.testDir, 'launch.json'))).toBe(false);
   });
 
-  it('does not surface secret-bearing native failure output', () => {
-    provisionAgent();
-    const executable = fakeDevin();
+  it('starts the actual child with configured MCP, its workspace cwd, normal profile env and native resume args', async () => {
+    const agent = provisionAgent();
     fs.writeFileSync(
-      executable,
-      '#!/usr/bin/env node\nprocess.stderr.write("dummy-native-secret"); process.exit(1);\n'
+      path.join(agent.directory, '.devin/mcp_config.local.json'),
+      '{"mcpServers":{"project-tool":{"command":"/bin/false"}}}'
     );
-    const profile: Profile = { executable };
-    try {
-      verifyNativeWorkspace(
-        profile,
-        resolveSessionWorkspace('test.worker', root),
-        executable,
-        buildEnv(profile, undefined, true)
-      );
-      throw new Error('Preflight unexpectedly passed');
-    } catch (error) {
-      expect((error as Error).message).toContain('Workspace preflight failed');
-      expect((error as Error).message).not.toContain('dummy-native-secret');
-    }
-  });
-
-  it('starts the actual child in its agent workspace with sanitized env and native resume args', async () => {
-    provisionAgent();
     const executable = fakeDevin();
     fs.writeFileSync(
       testEnv.configPath,
@@ -473,7 +450,7 @@ describe('native workspace preflight', () => {
       ) as { cwd: string; args: string[]; envKeys: string[] };
       expect(launch.cwd).toBe(path.join(root, 'test/agents/worker'));
       expect(launch.args).toEqual(['--resume', 'disposable-native-session']);
-      expect(launch.envKeys).not.toContain('BB_MCP_TOKEN');
+      expect(launch.envKeys).toContain('BB_MCP_TOKEN');
     } finally {
       if (previousToken === undefined) delete process.env.BB_MCP_TOKEN;
       else process.env.BB_MCP_TOKEN = previousToken;
@@ -481,7 +458,10 @@ describe('native workspace preflight', () => {
   });
 
   it('revalidates the same agent workspace and native resume arguments across hibernate/wake generations', async () => {
-    provisionAgent();
+    const agent = provisionAgent();
+    const local = path.join(agent.directory, '.devin/mcp_config.local.json');
+    const configured = '{"mcpServers":{"project-tool":{"command":"/bin/false"}}}';
+    fs.writeFileSync(local, configured);
     const executable = fakeDevin(true);
     fs.writeFileSync(
       testEnv.configPath,
@@ -544,6 +524,7 @@ describe('native workspace preflight', () => {
         .split('\n')
         .map((line) => JSON.parse(line));
       expect(launches).toHaveLength(2);
+      expect(fs.readFileSync(local, 'utf8')).toBe(configured);
       for (const launch of launches) {
         expect(launch.cwd).toBe(path.join(root, 'test/agents/worker'));
         expect(launch.args).toEqual(['--resume', 'disposable-native-session']);

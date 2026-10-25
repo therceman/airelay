@@ -1,17 +1,10 @@
-import { loadConfig, getConfigPath } from '../config/load';
+import { loadConfig } from '../config/load';
 import { provisionWorkspace, selectorParts, workspaceRoot } from '../workspace/provision';
 import {
   listWorkspaces,
   resolveSessionWorkspace,
   verifySessionWorkspace,
 } from '../workspace/binding';
-import { buildEnv } from '../runtime/env';
-import { resolveExecutable } from '../runtime/resolveExecutable';
-import {
-  validateWorkspaceProfile,
-  validateWorkspaceArgs,
-  verifyNativeWorkspace,
-} from '../workspace/verify';
 
 export function workspaceCommand(
   action: string | undefined,
@@ -27,7 +20,7 @@ export function workspaceCommand(
         'airelay workspace list [--json]',
         'Launch: airelay start <profile> --key <session-key> --workspace <project>.<agent>',
         'Directory: <settings.workspaceRoot>/<project>/agents/<agent> (fresh root: ~/.airelay/workspaces).',
-        'Instructions and Skills are agent/user-owned. No roles or profiles are generated. Managed native verification currently supports Devin; zero MCP is required.',
+        'Workspace selects the session directory for any profile. Native instructions, Skills and MCP configuration are owned by the agent/user and interpreted by the harness.',
       ].join('\n')
     );
     return 0;
@@ -77,23 +70,14 @@ export function workspaceCommand(
     else {
       const workspace = resolveSessionWorkspace(selector, root);
       if (action === 'verify') {
-        const profileName = value('profile') || 'devin',
-          profile = config.profiles[profileName];
-        if (!profile) throw new Error(`Profile not found: ${profileName}; run airelay list.`);
-        validateWorkspaceProfile(profile);
-        validateWorkspaceArgs(profile.args || []);
-        const executable = resolveExecutable(profile.executable);
-        if (!executable)
-          throw new Error('Workspace harness executable not found; run airelay doctor.');
+        const profileName = value('profile');
+        if (profileName !== undefined && !config.profiles[profileName])
+          throw new Error(`Profile not found: ${profileName}; run airelay list.`);
         result = {
           profile: profileName,
           workspace,
-          ...verifyNativeWorkspace(
-            profile,
-            workspace,
-            executable,
-            buildEnv(profile, getConfigPath(), true)
-          ),
+          manifest: verifySessionWorkspace(workspace).manifest,
+          verification: 'filesystem',
         };
       } else result = { workspace, manifest: verifySessionWorkspace(workspace).manifest };
     }

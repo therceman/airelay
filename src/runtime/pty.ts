@@ -9,7 +9,7 @@ export interface PtyOptions {
   rows?: number;
   cwd?: string;
   env?: Record<string, string>;
-  /** False when env is an already-filtered complete managed environment. */
+  /** False when env is already the complete child environment. */
   inheritEnv?: boolean;
   onOutput?: (chunk: string) => void;
   /** Optional foreground writer; onOutput remains the authoritative ingest path. */

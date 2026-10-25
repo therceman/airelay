@@ -434,8 +434,7 @@ describe('runCli', () => {
 
   it('reports Workspace launch rejection instead of terminal-reset advice', async () => {
     const { selectCommand } = require('../src/commands/select');
-    const message =
-      'Workspace requires zero MCP registrations (8 discovered); inspect global, project, and imported configuration.';
+    const message = 'Workspace asset link escapes its root.';
     selectCommand.mockRejectedValueOnce(new Error(message));
     process.argv = ['node', 'cli.js'];
 

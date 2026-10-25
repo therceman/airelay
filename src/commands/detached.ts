@@ -3,8 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { spawn } from 'cross-spawn';
 import { runCommand, DetachedReadyInfo } from './run';
-import { loadConfig, getConfigPath } from '../config/load';
-import { buildEnv } from '../runtime/env';
+import { loadConfig } from '../config/load';
 import {
   resolveSessionWorkspace,
   SessionWorkspaceSchema,
@@ -151,13 +150,10 @@ export async function startDetachedCommand(
 ): Promise<number> {
   const key = options?.key;
   const config = loadConfig();
-  const selectedProfile = config.profiles[profile];
   const workspace =
     options?.workspace !== undefined
       ? resolveSessionWorkspace(options.workspace, config.settings.workspaceRoot)
       : undefined;
-  const runtimeEnv =
-    workspace && selectedProfile ? buildEnv(selectedProfile, getConfigPath(), true) : process.env;
   const launchArgv = [
     'start',
     profile,
@@ -199,7 +195,7 @@ export async function startDetachedCommand(
       stdio: 'ignore',
       windowsHide: true,
       env: {
-        ...runtimeEnv,
+        ...process.env,
         AIRELAY_DETACHED_RECEIPT: receiptPath,
         AIRELAY_DETACHED_LAUNCH_ARGV: JSON.stringify(launchArgv),
         ...(workspace ? { AIRELAY_DETACHED_WORKSPACE: JSON.stringify(workspace) } : {}),

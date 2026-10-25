@@ -112,7 +112,7 @@ it('rejects the removed root-settings action without prompting or changing confi
   expect(prompt).toHaveBeenCalledTimes(1);
   expect(fs.readFileSync(env.configPath)).toEqual(before);
 });
-it('creates a new zero-MCP agent from an empty launcher without generating a profile', async () => {
+it('creates a harness-neutral agent directory without generating native configuration or a profile', async () => {
   const sourceBefore = fs.readdirSync(source);
   answer(
     { workspace: 'create' },
@@ -129,12 +129,7 @@ it('creates a new zero-MCP agent from an empty launcher without generating a pro
   expect(menu(3).initial).toBe(false);
   expect(log).not.toHaveBeenCalled();
   expect(fs.readFileSync(path.join(selected!.path, 'AGENTS.md'), 'utf8')).toContain(source);
-  expect(fs.readdirSync(path.join(selected!.path, '.devin/skills'))).toEqual([]);
-  for (const file of ['mcp_config.json', 'mcp_config.local.json']) {
-    expect(JSON.parse(fs.readFileSync(path.join(selected!.path, '.devin', file), 'utf8'))).toEqual({
-      mcpServers: {},
-    });
-  }
+  expect(fs.readdirSync(selected!.path).sort()).toEqual(['.airelay-workspace.json', 'AGENTS.md']);
   expect(loadConfig().settings.workspaceProjects).toEqual([{ source, root, project: 'agentvm' }]);
   expect(loadConfig().profiles).toEqual({ devin: { executable: 'devin' } });
   expect(fs.readdirSync(source)).toEqual(sourceBefore);

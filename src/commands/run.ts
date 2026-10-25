@@ -56,12 +56,6 @@ import {
 } from '../workspace/binding';
 import { withWorkspaceLock } from '../workspace/provision';
 import {
-  validateWorkspaceArgs,
-  validateWorkspaceProfile,
-  verifyNativeWorkspace,
-} from '../workspace/verify';
-import { resolveExecutable } from '../runtime/resolveExecutable';
-import {
   MOUSE_TRACKING_RESET,
   stripAnyEventMouseSequences,
   stripMouseTrackingSequences,
@@ -147,7 +141,6 @@ export function buildProfileEnv(
     typeof requestedWorkspace === 'string'
       ? resolveSessionWorkspace(requestedWorkspace, config.settings.workspaceRoot)
       : requestedWorkspace && verifySessionWorkspace(requestedWorkspace).workspace;
-  if (workspace) validateWorkspaceProfile(profile);
   if (bypass && !applyHarnessBypass(harness, [])) {
     throw new Error(
       `--bypass is not supported for the ${harness} harness. Supported harnesses: codex, devin.`
@@ -166,7 +159,7 @@ export function buildProfileEnv(
     throw new Error('Saved or configured cwd differs from the managed workspace; refusing launch.');
   }
   ensureDirectories(profile, cwd);
-  const env = buildEnv(profile, configPath, !!workspace);
+  const env = buildEnv(profile, configPath);
   if (harness === 'codex' && env.CODEX_HOME) {
     ensureCodexProfileStandalone(env.CODEX_HOME);
   }
@@ -179,7 +172,6 @@ export function buildProfileEnv(
 
   const args = [...(profile.args || []), ...selfUpdateOverrides.args, ...extraArgs];
   const launchArgs = bypass ? applyHarnessBypass(harness, args) : args;
-  if (workspace) validateWorkspaceArgs(launchArgs || args);
 
   return {
     profile,
@@ -381,9 +373,7 @@ export async function runCommand(
   ]);
   const verifyManaged = (): void => {
     if (!workspace) return;
-    const executable = resolveExecutable(profile.executable);
-    if (!executable) throw new Error('Workspace harness executable not found; run airelay doctor.');
-    verifyNativeWorkspace(profile, workspace, executable, env);
+    verifySessionWorkspace(workspace);
   };
   verifyManaged();
   const runtimeId = runtime.runtimeId;
@@ -957,7 +947,6 @@ export async function runCommand(
     args,
     cwd,
     env,
-    inheritEnv: !workspace,
     profile: profileName,
     trackPID: true,
     usePty,

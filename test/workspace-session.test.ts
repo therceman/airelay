@@ -297,7 +297,7 @@ const args = process.argv.slice(2), cwd = process.cwd();
 if (args[0] === 'mcp') console.log('No MCP servers configured.');
 else if (args[0] === 'skills') console.log('[]');
 else if (args[0] === 'rules') console.log(args[1] === 'list' ? '  AGENTS [Standard] always-on' : fs.readFileSync(path.join(cwd, 'AGENTS.md'), 'utf8'));
-else { fs.appendFileSync(${JSON.stringify(launches)}, JSON.stringify({key: process.env.AIRELAY_SESSION_KEY, cwd, args}) + '\\n'); process.stdout.write('Ask Devin to build features, fix bugs, or work on your code\\n'); process.stdin.resume(); }
+else { fs.appendFileSync(${JSON.stringify(launches)}, JSON.stringify({key: process.env.AIRELAY_SESSION_KEY, cwd, args, home: process.env.HOME, config: process.env.AIRELAY_CONFIG}) + '\\n'); process.stdout.write('Ask Devin to build features, fix bugs, or work on your code\\n'); process.stdin.resume(); }
 `,
     { mode: 0o755 }
   );
@@ -309,12 +309,16 @@ it('passes the frozen Workspace through the detached supervisor and refuses key 
   const binary = path.join(directory, 'devin'),
     launches = path.join(directory, 'detached-launches.jsonl');
   writeNativeFixture(binary, launches);
+  const nativeHome = path.join(directory, 'native-home');
+  const nativeConfig = path.join(directory, 'native-config.json');
   fs.writeFileSync(
     env.configPath,
     JSON.stringify({
       version: 1,
       settings: { workspaceRoot: root, hibernateAfter: 'off' },
-      profiles: { devin: { executable: binary } },
+      profiles: {
+        devin: { executable: binary, env: { HOME: nativeHome, AIRELAY_CONFIG: nativeConfig } },
+      },
     })
   );
   const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -331,7 +335,11 @@ it('passes the frozen Workspace through the detached supervisor and refuses key 
     endpoint = findSessionByKey('detached-role')!.session.controllerEndpoint;
     expect((await fetchControllerInfo(endpoint!)).runtime?.workspace).toEqual(first);
     await waitUntil(async () => fs.existsSync(launches));
-    expect(JSON.parse(fs.readFileSync(launches, 'utf8').trim()).cwd).toBe(first.path);
+    expect(JSON.parse(fs.readFileSync(launches, 'utf8').trim())).toMatchObject({
+      cwd: first.path,
+      home: nativeHome,
+      config: nativeConfig,
+    });
     expect(
       await startDetachedCommand('devin', [], {
         key: 'detached-role',
@@ -353,22 +361,43 @@ it('passes the frozen Workspace through the detached supervisor and refuses key 
   }
 }, 15000);
 
-it('rejects nested managed paths and non-native managed harnesses while leaving unmanaged profiles compatible', () => {
-  agentWorkspace();
-  expect(() => selectorPath('rsg.lead.nested', root)).toThrow('Invalid workspace selector');
-  fs.writeFileSync(
-    env.configPath,
-    JSON.stringify({
-      version: 1,
-      settings: { workspaceRoot: root },
-      profiles: { other: { executable: 'node', cwd: directory } },
-    })
-  );
-  expect(() => buildProfileEnv('other', [], undefined, undefined, false, 'rsg.lead')).toThrow(
-    'native devin'
-  );
-  expect(buildProfileEnv('other', []).cwd).toBe(directory);
-});
+it.each(['codex', 'devin', 'opencode', 'custom-agent'])(
+  'supports profile %s with native args/env and optional Workspace',
+  (executable) => {
+    agentWorkspace();
+    expect(() => selectorPath('rsg.lead.nested', root)).toThrow('Invalid workspace selector');
+    fs.writeFileSync(
+      env.configPath,
+      JSON.stringify({
+        version: 1,
+        settings: { workspaceRoot: root },
+        profiles: {
+          other: {
+            executable,
+            cwd: directory,
+            args: ['--native-option'],
+            env: { CODEX_HOME: '', APP_VALUE: 'profile-value' },
+          },
+        },
+      })
+    );
+    expect(buildProfileEnv('other', [], undefined, undefined, false, 'rsg.lead').cwd).toBe(
+      path.join(root, 'rsg/agents/lead')
+    );
+    expect(buildProfileEnv('other', []).cwd).toBe(directory);
+    const managed = buildProfileEnv(
+      'other',
+      ['--custom-flag'],
+      undefined,
+      undefined,
+      false,
+      'rsg.lead'
+    );
+    expect(managed.args).toContain('--native-option');
+    expect(managed.args).toContain('--custom-flag');
+    expect(managed.env.APP_VALUE).toBe('profile-value');
+  }
+);
 
 it('cleans the controller/reservation when launch-history persistence fails before PTY spawn', async () => {
   const workspace = agentWorkspace();

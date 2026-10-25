@@ -170,8 +170,8 @@ describe('start confirmation', () => {
   });
 
   it.each([
-    'Workspace requires zero MCP registrations (8 discovered); inspect global, project, and imported configuration.',
-    'Workspace harness executable not found; run airelay doctor.',
+    'Workspace asset link escapes its root.',
+    'Workspace operation in progress; inspect the workspace lock before retrying.',
   ])('passes the real launch error to the CLI: %s', async (message) => {
     const root = path.join(env.testDir, 'workspaces');
     chooseWorkspace.mockResolvedValue({

@@ -1,5 +1,14 @@
 # Zero-MCP Cutover: Linux Host
 
+## Policy Clarification: 2026-10-25
+
+Zero MCP is an operational/project policy, not a built-in Airelay Workspace
+launch requirement. Workspaces now provide a filesystem/session binding for
+any profile, without native MCP/Skills/AGENTS preflight or a special env/args
+allowlist. Native configuration belongs to the harness/user. The procedures
+below record the earlier host-migration request, not current product policy.
+This clarification does not change registrations or perform that cutover.
+
 ## Agent-Only Layout Update: 2026-10-25
 
 The Role/Instance provisioning described below is historical, not the current

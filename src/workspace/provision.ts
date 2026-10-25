@@ -155,30 +155,7 @@ export function verifyWorkspaceFiles(
         throw new Error('Workspace asset limit exceeded.');
     }
   };
-  walk(path.join(result.directory, 'AGENTS.md'), new Set());
-  walk(path.join(result.directory, '.devin/skills'), new Set());
-  for (const name of ['mcp_config.json', 'mcp_config.local.json']) {
-    const file = path.join(result.directory, '.devin', name);
-    assertNoSymlink(file);
-    const stat = fs.lstatSync(file);
-    if (!stat.isFile() || (name.endsWith('.local.json') && (stat.mode & 0o777) !== 0o600))
-      throw new Error('Private MCP configuration must be a regular file with mode 0600.');
-    let config: { mcpServers: Record<string, unknown> };
-    try {
-      config = z
-        .object({ mcpServers: z.record(z.string(), z.unknown()) })
-        .strict()
-        .parse(JSON.parse(readBounded(file).toString()));
-    } catch {
-      throw new Error('Invalid MCP configuration; expected an object with empty mcpServers.');
-    }
-    if (Object.keys(config.mcpServers).length)
-      throw new Error('Managed Workspace requires zero MCP registrations.');
-  }
-  for (const name of ['.devin/config.json', '.devin/config.local.json']) {
-    if (fs.lstatSync(path.join(result.directory, name), { throwIfNoEntry: false }))
-      throw new Error(`Unmanaged configuration in workspace: ${name}`);
-  }
+  walk(result.directory, new Set());
   return result;
 }
 
@@ -203,13 +180,7 @@ export function provisionWorkspace(options: WorkspaceOptions): {
       );
     return { directory, changed: [], dryRun: !!options.dryRun };
   }
-  const changed = [
-    'AGENTS.md',
-    '.devin/skills',
-    '.devin/mcp_config.json',
-    '.devin/mcp_config.local.json',
-    MANIFEST,
-  ];
+  const changed = ['AGENTS.md', MANIFEST];
   if (options.dryRun) return { directory, changed, dryRun: true };
   return withWorkspaceLock(options.root, () => {
     if (fs.existsSync(directory)) throw new Error('Workspace appeared while provisioning; retry.');
@@ -218,17 +189,12 @@ export function provisionWorkspace(options: WorkspaceOptions): {
     assertNoSymlink(parent);
     const staging = path.join(parent, `.workspace-${randomUUID()}`);
     try {
-      fs.mkdirSync(path.join(staging, '.devin/skills'), { recursive: true, mode: 0o700 });
+      fs.mkdirSync(staging, { mode: 0o700 });
       fs.writeFileSync(
         path.join(staging, 'AGENTS.md'),
-        `# ${binding.project}.${binding.agent}\n\n${source ? `Source repository: ${JSON.stringify(source)}\n\n` : ''}Read the source project's instructions before editing.\nInstructions and Skills in this Workspace are maintained by the agent/user.\nNo MCP servers are configured.\n`,
+        `# ${binding.project}.${binding.agent}\n\n${source ? `Source repository: ${JSON.stringify(source)}\n\n` : ''}Read the source project's instructions before editing.\nInstructions and Skills in this Workspace are maintained by the agent/user.\n`,
         { mode: 0o644, flag: 'wx' }
       );
-      for (const name of ['mcp_config.json', 'mcp_config.local.json'])
-        fs.writeFileSync(path.join(staging, '.devin', name), '{"mcpServers":{}}\n', {
-          mode: name.endsWith('.local.json') ? 0o600 : 0o644,
-          flag: 'wx',
-        });
       fs.writeFileSync(
         path.join(staging, MANIFEST),
         JSON.stringify({ version: 2, binding, ...(source ? { source } : {}) }, null, 2) + '\n',

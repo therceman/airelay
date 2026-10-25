@@ -55,7 +55,7 @@ Create new Workspace and Without workspace.
 ```
 
 No Role or instructions-file question follows. Creation scaffolds minimal
-`AGENTS.md`, empty `.devin/skills/`, empty public/private MCP files and a small
+`AGENTS.md` and a small
 version-2 `.airelay-workspace.json` containing `{project, agent}` and optional
 source checkout. It does not copy source repositories or create profiles.
 Creation is atomic and idempotent; existing unmanaged files are never overwritten.
@@ -87,7 +87,9 @@ supported. Use a normal profile plus the session `--workspace` parameter.
 
 ## Agent/User Customization Guide
 
-Airelay provides the directory; the agent/user maintains its native CLI files:
+Airelay creates only `AGENTS.md` and its binding manifest, never provider config.
+The agent/user may add native CLI files. This is a manually configured Devin
+example, not a mandatory or generated layout:
 
 ```text
 agentvm/agents/lead/
@@ -120,45 +122,47 @@ Use /home/user/git/agentvm. Follow its build and review instructions.
 ```
 
 Edit/add instructions and Skills directly: no digest registration or
-reprovisioning is required. Native CLI discovery is checked again on each
-managed launch/wake. Changes do not promise that an already-running harness
+reprovisioning is required. The selected harness discovers its own native
+configuration on launch/resume. Airelay does not inspect its MCP/Skills/rules. Changes do not promise that an already-running harness
 reloads configuration; restart/resume according to that CLI's own rules.
 
 Manual sharing of instruction/Skill assets may use links within the configured
 Workspace root; escaping links, cycles and oversized trees are rejected. MCP
-configuration files must never be credential symlinks. Airelay does not
+credentials should be protected by the operator. Airelay does not
 interpret a folder, filename or instruction label as a Role or permission grant.
 Do not edit identity fields to rebind a saved session silently.
 
-## Native Verification and Security
+## Filesystem Verification and Security
 
-Managed verification currently supports native Devin only. Unsupported harnesses
-fail closed rather than claiming verification. Without `--workspace`, normal
-profile cwd/env/lifecycle behavior remains unchanged.
+Workspaces support any profile, including arbitrary configured executables.
+Profile args and environment work as on a normal launch. No provider-only flag
+allowlist, native preflight commands, global Skill/AGENTS restrictions, or MCP
+registration-count policy is imposed. Native configuration is opaque to
+Airelay: imports, authentication and discovery belong to the harness/user.
+Existing native files are not rewritten or removed during reprovisioning.
 
-**Current policy is zero MCP.** Both local MCP files must be empty, and actual
-native `devin mcp list` must report zero registrations, including global/imported
-configuration. Local instructions and discovered Skills must match this agent's
-current files; product built-ins are allowed, foreign global resources are not.
-Additional `.devin/config*.json` imports are rejected. Native checks share a
-10-second budget with bounded output; secret-bearing failure output is not echoed.
+`workspace verify` reports `verification: "filesystem"`: it checks manifest,
+paths, bounded file-tree safety and session binding, not authentication or
+successful loading of instructions/tools. Optional `--profile` checks only
+that the named Airelay profile exists. Use `airelay doctor <profile>` and the
+harness's native diagnostics to inspect its installation/configuration.
 
-Managed launches use the existing environment allowlist and real HOME/native
-login, not an XDG overlay. Parent credentials are not re-merged at the PTY boundary.
-Selecting a Workspace does not authorize tools. Same-UID shells can still read
-one another's files; use real backend authorization for security boundaries.
-No MCP daemon, identity, Job, credential or global registration is removed by
-Workspace provisioning. Removing unused generated folders is a separately
-approved host maintenance action, recorded in the migration runbook.
+Filesystem checks still reject traversal, escaping symlinks, cycles, excessive
+trees and changed saved absolute bindings. A global-root change never redirects
+an existing session. These checks run again on wake; they do not spawn native
+inspection commands or parse provider configuration.
 
-## Future BB-MCP Reconnection (Not Implemented or Approved)
+**A Workspace is not a sandbox or an environment/credential isolation boundary.**
+Parent environment and explicit profile overrides are inherited normally.
+Profile overrides apply to the harness, not Airelay's detached supervisor.
+Global MCP/Skills/instructions may be discovered according to the native CLI.
+A project may request zero MCP or particular Skills in its instructions, but
+Airelay does not enforce those product-specific policies. Use real backend
+credentials, authorization and OS-level isolation where required.
 
-The future target remains one HTTP daemon/endpoint and local alias `bb-mcp`,
-with a unique header Bearer credential per authorized agent. Server-side
-authentication owns immutable identity, backend role and entitlements; never
-authorize by alias, directory, session key or a client role query parameter.
-Never place credentials in URLs. No global/unrelated-project registration or
-automatic reconnection is introduced by the agent-only Workspace layout.
+No daemon, identity, Job, credential, global registration or active process is
+changed by Workspace provisioning/verification. Historical host cleanup is
+separate from this launch contract; see the migration runbook.
 
 ## Audit and Verification
 
@@ -168,8 +172,8 @@ automatic reconnection is introduced by the agent-only Workspace layout.
 | Provisioner | Agent directory initializer | No Role schema, inheritance, asset import or digest freezing |
 | Launcher | Project -> agent | No Role/instructions prompt and no root-setting action |
 | Runtime/resume/detached | Existing session authority | Preserve saved absolute path; lock reservation against maintenance |
-| Instructions/Skills | Agent/user-owned | Validate current bounded filesystem state and native discovery |
-| MCP/auth/environment | Preserved safety policy | Zero MCP; native login and existing managed env filtering |
+| Instructions/Skills | Agent/user-owned | Native harness owns content/discovery; Airelay checks bounded filesystem safety |
+| MCP/auth/environment | Project-owned MCP policy | No preflight policy; use ordinary profile args/env and native configuration |
 | Version-1 layout | Explicit hard cut | Reject; approved unused generated host folders backed up/removed |
 | Profile-bound Workspace | Unsupported | Reject without rewriting user configuration |
 | Unmanaged profiles | Compatibility contract | Keep normal launch behavior |
@@ -182,7 +186,8 @@ node scripts/verify-workspace-devin.cjs
 ```
 
 The native script uses disposable HOME/Workspaces, makes no model/service calls,
-and verifies edits without reprovisioning plus foreign-resource rejection.
+and demonstrates native discovery with local/global MCP, Skills and AGENTS
+without an Airelay policy gate. It does not connect to MCP services.
 Runtime fixtures cover two same-profile sessions, independent wake/restart,
 root stability and detached transfer. These do not prove the real HOME is free
 of global MCP registrations; host-wide MCP cutover is a separate operation.

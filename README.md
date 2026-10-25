@@ -207,10 +207,11 @@ The launcher selects a project, then an agent, or creates one with a simple
 not a launcher action. Optionally remember the source folder's project association.
 
 Airelay does not create or assign Roles. Agents/users maintain their own
-`AGENTS.md` and Skills; edits do not require reprovisioning. Managed native Devin
-launches still verify discovery fail-closed and require zero MCP. Other harnesses
-are not claimed verified. See [Agent Workspaces](docs/WORKSPACES.md) for the
-layout, customization guide, environment policy and security limitations.
+`AGENTS.md`, Skills and native MCP configuration; edits do not require
+reprovisioning. Workspaces work with any profile using its normal args/env.
+Airelay verifies filesystem paths and the session binding, not native tool
+discovery, global instructions or MCP policy. A Workspace is not a sandbox.
+See [Agent Workspaces](docs/WORKSPACES.md) for the layout and security limits.
 Launching without `--workspace` keeps ordinary profile behavior.
 
 ## Command reference
