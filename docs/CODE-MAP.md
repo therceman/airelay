@@ -232,6 +232,9 @@ reset code, and `test/hibernate.test.ts` before changing lifecycle behavior.
 
 Use `test/utils.ts` and `test/TEST-UTILS.md` for test isolation. Never point
 tests at the real `~/.airelay` state.
+Use monotonic elapsed-time/deadline measurements and event-driven fixture
+readiness as described in `test/TEST-UTILS.md`; wall-clock timestamps are not
+latency clocks.
 
 ## Contracts Worth Preserving
 

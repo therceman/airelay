@@ -193,9 +193,9 @@ describe('SessionController raw stream bootstrap and broadcast over a real socke
     const attached = await transport.requestAttach();
     expect(attached).toBe(1);
 
-    const start = Date.now();
+    const start = performance.now();
     await controller.stop();
-    expect(Date.now() - start).toBeLessThan(5000);
+    expect(performance.now() - start).toBeLessThan(5000);
     expect(controller.getAttachedClientCount()).toBe(0);
     await until(() => socket.destroyed);
   });
@@ -615,11 +615,11 @@ function sessionInfo(endpoint: string): Promise<{ attached?: number }> {
 }
 
 function waitForAttached(endpoint: string, expected: number): Promise<void> {
-  const start = Date.now();
+  const start = performance.now();
   return new Promise((resolve) => {
     const loop = (): void => {
       void sessionInfo(endpoint).then((info) => {
-        if ((info.attached ?? 0) === expected || Date.now() - start > 5000) {
+        if ((info.attached ?? 0) === expected || performance.now() - start > 5000) {
           resolve();
         } else {
           setTimeout(loop, 50);
@@ -631,8 +631,8 @@ function waitForAttached(endpoint: string, expected: number): Promise<void> {
 }
 
 async function until(cond: () => boolean, timeoutMs = 4000, intervalMs = 20): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
+  const start = performance.now();
+  while (performance.now() - start < timeoutMs) {
     if (cond()) return;
     await new Promise((r) => setTimeout(r, intervalMs));
   }

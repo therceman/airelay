@@ -195,8 +195,8 @@ const MOUSE_BURST =
 const MOUSE_ENABLE_PATTERN = /\?10(?:00|02|03|05|06|07|15|16)h|\?9h/;
 
 async function waitForEndpoint(get: () => string): Promise<string> {
-  const deadline = Date.now() + 3000;
-  while (Date.now() < deadline) {
+  const deadline = performance.now() + 3000;
+  while (performance.now() < deadline) {
     const endpoint = get();
     if (endpoint) return endpoint;
     await new Promise((resolve) => setTimeout(resolve, 10));

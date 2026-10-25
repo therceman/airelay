@@ -200,7 +200,6 @@ export async function selectCommand(): Promise<void> {
   }
 
   const currentCwd = process.cwd();
-  let exitCode: number;
   const sessionStartInfo: {
     sessionKey: string;
     controllerEndpoint: string;
@@ -210,27 +209,19 @@ export async function selectCommand(): Promise<void> {
     controllerEndpoint: '',
   };
 
-  try {
-    exitCode = await runCommand(profileName, [], {
-      workspace,
-      usePty: true,
-      recordLaunch: true,
-      invocationCwd: currentCwd,
-      onSessionStart: (info) => {
-        sessionStartInfo.sessionKey = info.sessionKey;
-        sessionStartInfo.controllerEndpoint = info.controllerEndpoint;
-        sessionStartInfo.workspace = info.workspace;
-        console.log(`\n✨ Session active — key: ${info.sessionKey}`);
-        console.log(`   Use: airelay prompt ${info.sessionKey} "your message"\n`);
-      },
-    });
-  } catch (e: unknown) {
-    console.error('\nHarness exited with error.');
-    console.error('If the terminal display is corrupted, try:');
-    console.error('  • Run `reset` command');
-    console.error('  • Restart the terminal');
-    return;
-  }
+  const exitCode = await runCommand(profileName, [], {
+    workspace,
+    usePty: true,
+    recordLaunch: true,
+    invocationCwd: currentCwd,
+    onSessionStart: (info) => {
+      sessionStartInfo.sessionKey = info.sessionKey;
+      sessionStartInfo.controllerEndpoint = info.controllerEndpoint;
+      sessionStartInfo.workspace = info.workspace;
+      console.log(`\n✨ Session active — key: ${info.sessionKey}`);
+      console.log(`   Use: airelay prompt ${info.sessionKey} "your message"\n`);
+    },
+  });
 
   console.log('\n');
   const sessionPrompt = withAirelayPromptSymbols({

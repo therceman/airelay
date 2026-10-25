@@ -71,8 +71,8 @@ function sendRawInput(endpoint: string, data: string): Promise<void> {
 }
 
 async function waitForUserInputStatus(endpoint: string): Promise<void> {
-  const deadline = Date.now() + 1000;
-  while (Date.now() < deadline) {
+  const deadline = performance.now() + 1000;
+  while (performance.now() < deadline) {
     const info = await fetchControllerInfo(endpoint);
     if (info.userInputState === 'in_progress') return;
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -119,8 +119,8 @@ setTimeout(() => process.exit(2), 1500);
       },
     });
 
-    const deadline = Date.now() + 1000;
-    while (!endpoint && Date.now() < deadline) {
+    const deadline = performance.now() + 1000;
+    while (!endpoint && performance.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     expect(endpoint).toBeTruthy();
@@ -184,8 +184,8 @@ setTimeout(() => process.exit(2), 1500);
       },
     });
 
-    const deadline = Date.now() + 1000;
-    while (!endpoint && Date.now() < deadline) {
+    const deadline = performance.now() + 1000;
+    while (!endpoint && performance.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     expect(endpoint).toBeTruthy();
@@ -233,8 +233,8 @@ setTimeout(() => process.exit(2), 5000);
       },
     });
 
-    const deadline = Date.now() + 1000;
-    while (!endpoint && Date.now() < deadline) {
+    const deadline = performance.now() + 1000;
+    while (!endpoint && performance.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     expect(endpoint).toBeTruthy();

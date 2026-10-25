@@ -55,8 +55,8 @@ async function waitFor(
   timeoutMs: number,
   intervalMs = 100
 ): Promise<boolean> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
+  const start = performance.now();
+  while (performance.now() - start < timeoutMs) {
     if (await cond()) return true;
     await sleep(intervalMs);
   }
@@ -257,21 +257,28 @@ describe('detached lifecycle, attach, prompt routing (E2E)', () => {
     }, 5000);
   });
 
-  it('attach raw input is immediate, exact, and never appends Enter (not poll-gated)', async () => {
+  it('attach raw input is immediate, exact, and never appends Enter despite a wall-clock jump', async () => {
     await waitFor(() => viewportContains(runtime.controllerEndpoint, 'READY'), 5000);
     const before = await outputLines(runtime.controllerEndpoint);
     expect(before.filter((l) => l.includes('E:"')).length).toBe(0);
 
     const echo = 'QUICK-' + Date.now().toString(36);
-    const sendStart = Date.now();
-    await rawWrite(runtime.controllerEndpoint, echo);
-    await viewportContains(runtime.controllerEndpoint, 'E:"' + echo + '"', 4000);
-    const latency = Date.now() - sendStart;
+    const wallTime = Date.now();
+    const wallClock = jest.spyOn(Date, 'now').mockReturnValue(wallTime);
+    try {
+      const sendStart = performance.now();
+      wallClock.mockReturnValue(wallTime + 60000);
+      await rawWrite(runtime.controllerEndpoint, echo);
+      await viewportContains(runtime.controllerEndpoint, 'E:"' + echo + '"', 4000);
+      const latency = performance.now() - sendStart;
 
-    const afterRaw = await outputLines(runtime.controllerEndpoint);
-    const echoes = afterRaw.filter((l) => l === 'E:"' + echo + '"');
-    expect(echoes.length).toBe(1);
-    expect(latency).toBeLessThan(4000);
+      const afterRaw = await outputLines(runtime.controllerEndpoint);
+      const echoes = afterRaw.filter((l) => l === 'E:"' + echo + '"');
+      expect(echoes.length).toBe(1);
+      expect(latency).toBeLessThan(4000);
+    } finally {
+      wallClock.mockRestore();
+    }
   });
 
   it('attach raw input is forwarded by the AttachClient immediately without waiting for a poll', async () => {
@@ -280,10 +287,10 @@ describe('detached lifecycle, attach, prompt routing (E2E)', () => {
     const attach = attachFor(runtime, stdin, res);
     await sleep(400);
     // Feed raw input; the client must deliver it synchronously via IPC.
-    const tBefore = Date.now();
+    const tBefore = performance.now();
     stdin.emit('SYNC');
     await viewportContains(runtime.controllerEndpoint, 'E:"SYNC"', 4000);
-    const elapsed = Date.now() - tBefore;
+    const elapsed = performance.now() - tBefore;
     expect(elapsed).toBeLessThan(4000);
     stdin.emit(Buffer.from([0x04]));
     expect(await attach).toBe(0);

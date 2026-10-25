@@ -431,6 +431,20 @@ describe('runCli', () => {
     expect(console.error).toHaveBeenCalledWith('Error: Test error');
     expect(process.exit).toHaveBeenCalledWith(1);
   });
+
+  it('reports Workspace launch rejection instead of terminal-reset advice', async () => {
+    const { selectCommand } = require('../src/commands/select');
+    const message =
+      'Workspace requires zero MCP registrations (8 discovered); inspect global, project, and imported configuration.';
+    selectCommand.mockRejectedValueOnce(new Error(message));
+    process.argv = ['node', 'cli.js'];
+
+    await runCli();
+
+    expect(console.error).toHaveBeenCalledWith(`Error: ${message}`);
+    expect(console.error).toHaveBeenCalledTimes(1);
+    expect(process.exit).toHaveBeenCalledWith(1);
+  });
 });
 
 describe('parseArgs', () => {

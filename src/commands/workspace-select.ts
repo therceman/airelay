@@ -120,17 +120,12 @@ export async function chooseSessionWorkspace(
             message: name,
           })),
           { name: 'create', message: 'Create new Workspace...' },
-          ...(prefix ? [{ name: 'back', message: 'Back to parent / all projects' }] : []),
           { name: 'none', message: 'Without workspace (normal profile/current directory)' },
         ],
         initial: 0,
       })
     )) as { workspace: string };
     if (result.workspace === 'none') return undefined;
-    if (result.workspace === 'back' && prefix) {
-      prefix = prefix.split('.').slice(0, -1).join('.');
-      continue;
-    }
     if (result.workspace === 'create') {
       const created = await createWorkspace(root, prefix, source);
       if (created) {

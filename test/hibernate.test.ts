@@ -119,8 +119,8 @@ function sendResize(endpoint: string, cols: number, rows: number): Promise<void>
 }
 
 async function waitForHibernatedScreen(endpoint: string): Promise<void> {
-  const deadline = Date.now() + 15000;
-  while (Date.now() < deadline) {
+  const deadline = performance.now() + 15000;
+  while (performance.now() < deadline) {
     const response = await request(endpoint, 'session.viewport');
     if (response.data?.lines?.some((line) => line.includes('Agent hibernated'))) return;
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -141,8 +141,8 @@ async function waitForStoredRuntimeState(
   expectedState: string,
   timeoutMs = 15000
 ): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
+  const deadline = performance.now() + timeoutMs;
+  while (performance.now() < deadline) {
     try {
       const sessions = JSON.parse(fs.readFileSync(testEnv.sessionsPath, 'utf8')) as Record<
         string,
@@ -219,8 +219,8 @@ setInterval(() => {}, 50);
       },
     });
 
-    const deadline = Date.now() + 2000;
-    while (!endpoint && Date.now() < deadline) {
+    const deadline = performance.now() + 2000;
+    while (!endpoint && performance.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     expect(endpoint).toBeTruthy();
@@ -252,8 +252,8 @@ setInterval(() => {}, 50);
     expect(readStoredRuntime().runtimeState).toBe('hibernated');
 
     await sendRaw(endpoint, ' ');
-    const argsDeadline = Date.now() + 2000;
-    while (Date.now() < argsDeadline) {
+    const argsDeadline = performance.now() + 2000;
+    while (performance.now() < argsDeadline) {
       if (
         fs.existsSync(argsLogPath) &&
         fs.readFileSync(argsLogPath, 'utf-8').trim().split('\n').length >= 2
@@ -262,8 +262,8 @@ setInterval(() => {}, 50);
       }
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    const sizeDeadline = Date.now() + 2000;
-    while (Date.now() < sizeDeadline) {
+    const sizeDeadline = performance.now() + 2000;
+    while (performance.now() < sizeDeadline) {
       if (
         fs.existsSync(sizeLogPath) &&
         fs.readFileSync(sizeLogPath, 'utf-8').trim().split('\n').length >= 2
@@ -381,8 +381,8 @@ setInterval(() => {}, 50);
         runCompleted = true;
       });
 
-      const endpointDeadline = Date.now() + 2000;
-      while (!endpoint && Date.now() < endpointDeadline) {
+      const endpointDeadline = performance.now() + 2000;
+      while (!endpoint && performance.now() < endpointDeadline) {
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
       expect(endpoint).toBeTruthy();

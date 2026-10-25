@@ -51,8 +51,8 @@ function sendInput(endpoint: string, text: string, deliveryId: string): Promise<
 }
 
 async function waitForEndpoint(get: () => string): Promise<string> {
-  const deadline = Date.now() + 3000;
-  while (Date.now() < deadline) {
+  const deadline = performance.now() + 3000;
+  while (performance.now() < deadline) {
     const endpoint = get();
     if (endpoint) return endpoint;
     await new Promise((resolve) => setTimeout(resolve, 10));

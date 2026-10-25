@@ -187,6 +187,12 @@ describe('CustomTest', () => {
 
 ## Debugging
 
+Use `performance.now()` for elapsed-time assertions and real-time polling
+deadlines: wall-clock adjustments in a VM/WSL must not change a test's timeout
+or measured latency. Keep `Date.now()` for epoch timestamps and unique fixture
+names. Wait for observable readiness before asking a fixture child to exit;
+use timers as bounded watchdogs, not as proof that an event already occurred.
+
 If a test is still touching your real config:
 
 1. Check that `useTestEnv()` is called at the top of the describe block

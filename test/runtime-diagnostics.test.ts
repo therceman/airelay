@@ -13,7 +13,6 @@ import { sessionDebugCommand } from '../src/commands/session-debug';
 import { useTestEnv } from './test-utils';
 
 const testEnv = useTestEnv();
-const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 function readTraceFile(traceFile: string): Array<Record<string, unknown>> {
   return fs
@@ -148,21 +147,43 @@ describe('runtime PTY diagnostics', () => {
 
   it('records authoritative PTY spawn/output/resize/exit transitions without content', async () => {
     const diagnostics = RuntimeDiagnostics.start('trace_pty');
+    let noteOutput!: () => void;
+    let noteResize!: () => void;
+    const output = new Promise<void>((resolve) => (noteOutput = resolve));
+    const resized = new Promise<void>((resolve) => (noteResize = resolve));
     const pty = createPty({
       file: 'node',
-      args: ['-e', "process.stdout.write('SECRET-OUTPUT'); setTimeout(() => process.exit(0), 450)"],
+      args: [
+        '-e',
+        "process.stdin.setRawMode(true); process.stdin.once('data', () => process.exit(0)); process.stdout.write('SECRET-OUTPUT');",
+      ],
       detached: true,
       resizeStartupGraceMs: 100,
       resizeStartupQuietMs: 50,
       resizeStartupMaxMs: 300,
       diagnostics,
+      onOutput: () => noteOutput(),
+      onResizeTrace: (trace) => {
+        if (trace.kind === 'forwarded') noteResize();
+      },
     });
-
-    pty.requestExternalResize(143, 41);
-    await wait(200);
-    await pty.exitCode;
-    diagnostics.recordRuntimeStop('exited');
-    diagnostics.close();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      pty.requestExternalResize(143, 41);
+      await Promise.race([
+        Promise.all([output, resized]),
+        new Promise((_, reject) => {
+          timeout = setTimeout(() => reject(new Error('PTY did not emit output and resize')), 3000);
+        }),
+      ]);
+      pty.write('x');
+      expect(await pty.exitCode).toBe(0);
+      diagnostics.recordRuntimeStop('exited');
+    } finally {
+      clearTimeout(timeout);
+      pty.kill();
+      diagnostics.close();
+    }
 
     const trace = readLatestRuntimeDiagnostic('trace_pty')!;
     const names = trace.events.map((event) => event.event);

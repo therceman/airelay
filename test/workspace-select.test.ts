@@ -77,21 +77,19 @@ it('shows projects first, then agents, without roles or storage-root settings', 
     resolveSessionWorkspace('bb_splunk.worker1', root)
   );
   expect(names(0)).toEqual(['node:bb_splunk', 'node:rsg', 'create', 'none']);
-  expect(names(1)).toEqual([
-    'node:bb_splunk.worker',
-    'node:bb_splunk.worker1',
-    'create',
-    'back',
-    'none',
-  ]);
+  expect(names(1)).toEqual(['node:bb_splunk.worker', 'node:bb_splunk.worker1', 'create', 'none']);
   expect(fs.readFileSync(env.configPath)).toEqual(before);
 });
-it('navigates Back from agent choices to all projects', async () => {
+it('rejects the removed Back action without navigating or changing configuration', async () => {
   agentWorkspace('bb_splunk.worker');
   agentWorkspace('rsg.lead');
-  answer({ workspace: 'node:bb_splunk' }, { workspace: 'back' }, { workspace: 'none' });
-  expect(await chooseSessionWorkspace(source)).toBeUndefined();
-  expect(names(0)).toEqual(names(2));
+  const before = fs.readFileSync(env.configPath);
+  answer({ workspace: 'node:bb_splunk' }, { workspace: 'back' });
+  await expect(chooseSessionWorkspace(source)).rejects.toThrow('not available');
+  expect(names(0)).not.toContain('back');
+  expect(names(1)).not.toContain('back');
+  expect(prompt).toHaveBeenCalledTimes(2);
+  expect(fs.readFileSync(env.configPath)).toEqual(before);
 });
 it('does not treat reserved-looking project names as menu actions', async () => {
   agentWorkspace('create.lead');
@@ -242,17 +240,18 @@ it('ignores stale projects and associations for a different storage root', async
   await chooseSessionWorkspace(source);
   expect(menu(0).message).toContain('Select a Workspace project');
 });
-it('allows leaving the detected branch and explicitly replacing a source association', async () => {
+it('can create in another project and explicitly replace a source association', async () => {
   agentWorkspace('rsg.lead');
   agentWorkspace('bb_splunk.worker');
   associate();
   answer(
-    { workspace: 'back' },
-    { workspace: 'node:bb_splunk' },
-    { workspace: 'node:bb_splunk.worker' },
+    { workspace: 'create' },
+    { selector: 'bb_splunk.worker2' },
+    { create: true },
     { remember: true }
   );
-  expect((await chooseSessionWorkspace(source))?.selector).toBe('bb_splunk.worker');
+  expect((await chooseSessionWorkspace(source))?.selector).toBe('bb_splunk.worker2');
+  expect(names(0)).toEqual(['node:rsg.lead', 'create', 'none']);
   expect(loadConfig().settings.workspaceProjects).toEqual([{ source, root, project: 'bb_splunk' }]);
 });
 it('resolves a symlinked invocation directory to its real project source', async () => {

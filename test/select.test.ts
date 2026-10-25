@@ -168,4 +168,28 @@ describe('start confirmation', () => {
     expect(console.log).toHaveBeenCalledWith('Cancelled');
     expect(prompt).toHaveBeenCalledTimes(3);
   });
+
+  it.each([
+    'Workspace requires zero MCP registrations (8 discovered); inspect global, project, and imported configuration.',
+    'Workspace harness executable not found; run airelay doctor.',
+  ])('passes the real launch error to the CLI: %s', async (message) => {
+    const root = path.join(env.testDir, 'workspaces');
+    chooseWorkspace.mockResolvedValue({
+      selector: 'agentvm.lead-win',
+      root,
+      path: path.join(root, 'agentvm/agents/lead-win'),
+    });
+    prompt
+      .mockResolvedValueOnce({ action: 'Start' })
+      .mockResolvedValueOnce({ profile: 'devin' })
+      .mockResolvedValueOnce({ confirm: true });
+    const error = new Error(message);
+    run.mockRejectedValue(error);
+
+    await expect(selectCommand()).rejects.toBe(error);
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(prompt).toHaveBeenCalledTimes(3);
+    expect(exit).not.toHaveBeenCalled();
+  });
 });

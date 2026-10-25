@@ -45,7 +45,7 @@ Old flat/version-1 paths are not automatically reinterpreted or redirected.
 
 Run `airelay` from the source checkout, then choose Start and a normal profile.
 The Workspace picker shows projects first, then their agents. It also offers
-Create new Workspace, Back, and Without workspace.
+Create new Workspace and Without workspace.
 
 ```text
 ? New Workspace selector (<project>.<agent>) > agentvm.lead
