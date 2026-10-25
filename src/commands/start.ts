@@ -8,6 +8,7 @@ export interface StartOptions {
   harnessSelfUpdate?: boolean;
   invocationCwd?: string;
   launchArgv?: string[];
+  workspace?: string;
 }
 
 export async function startCommand(
@@ -21,6 +22,7 @@ export async function startCommand(
       bypass: options.bypass,
       harnessSelfUpdate: options.harnessSelfUpdate,
       invocationCwd: options.invocationCwd,
+      workspace: options.workspace,
     });
     process.exit(exitCode);
     return;
@@ -34,6 +36,7 @@ export async function startCommand(
     recordLaunch: true,
     invocationCwd: options?.invocationCwd,
     launchArgv: options?.launchArgv,
+    workspace: options?.workspace,
   });
   process.exit(exitCode);
   return;

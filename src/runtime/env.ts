@@ -44,22 +44,23 @@ function isWorkspaceEnvKey(key: string): boolean {
   return WORKSPACE_ENV_KEYS.has(key);
 }
 
-export function buildEnv(profile: Profile, configPath?: string): Record<string, string> {
+export function buildEnv(
+  profile: Profile,
+  configPath?: string,
+  managed = false
+): Record<string, string> {
   const configDir = getConfigDir(configPath);
   const resolvedEnv: Record<string, string> = {};
 
   for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && (!profile.workspace || isWorkspaceEnvKey(key))) {
+    if (value !== undefined && (!managed || isWorkspaceEnvKey(key))) {
       resolvedEnv[key] = value;
     }
   }
 
   if (profile.env) {
     for (const [key, value] of Object.entries(profile.env)) {
-      if (
-        profile.workspace &&
-        (!isWorkspaceEnvKey(key) || ['HOME', 'USER', 'LOGNAME'].includes(key))
-      ) {
+      if (managed && (!isWorkspaceEnvKey(key) || ['HOME', 'USER', 'LOGNAME'].includes(key))) {
         throw new Error(
           `Environment override ${key} is not supported for managed workspaces; use native provider login.`
         );

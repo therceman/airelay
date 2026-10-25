@@ -1,6 +1,6 @@
 {
   "name": "airelay",
-  "version": "0.1.170",
+  "version": "0.1.171",
   "description": "Cross-platform CLI for launching profile-isolated AI harness instances",
   "main": "./dist/index.js",
   "bin": {
@@ -26,7 +26,7 @@
     "enquirer": "^2.4.1",
     "node-pty": "^1.0.0",
     "yaml": "2.8.3",
-    "zod": "4.3.6"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/cross-spawn": "6.0.6",

@@ -4,9 +4,10 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { WorkspaceBindingSchema } from '../config/schema';
+import { DEFAULT_CONFIG_DIR } from '../config/defaults';
 
 export type WorkspaceBinding = z.infer<typeof WorkspaceBindingSchema>;
-export const DEFAULT_WORKSPACE_ROOT = '~/agent-workspaces';
+export const DEFAULT_WORKSPACE_ROOT = path.join(DEFAULT_CONFIG_DIR, 'workspaces');
 const MANIFEST = '.airelay-workspace.json';
 const MAX_ASSET_BYTES = 4 * 1024 * 1024;
 const MAX_ASSET_FILES = 256;
@@ -22,6 +23,7 @@ const ManifestSchema = z
   .object({
     version: z.literal(1),
     binding: WorkspaceBindingSchema,
+    roleSelector: z.string().optional(),
     source: z.string().optional(),
     principalRef: z
       .string()
@@ -34,8 +36,11 @@ const ManifestSchema = z
 export type WorkspaceManifest = z.infer<typeof ManifestSchema>;
 
 export interface WorkspaceOptions extends WorkspaceBinding {
+  selector?: string;
+  roleSelector?: string;
   root?: string;
   instructions?: string;
+  instructionsText?: string;
   skillsDir?: string;
   mcpConfig?: string;
   source?: string;
@@ -73,12 +78,40 @@ export function assertNoSymlink(target: string): void {
   }
 }
 
-export function workspacePath(binding: WorkspaceBinding, root?: string): string {
+export function selectorParts(selector: string): string[] {
+  const parts = selector.split('.');
+  if (
+    parts.length < 2 ||
+    parts.length > 8 ||
+    parts.some((p) => !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(p))
+  )
+    throw new Error('Invalid workspace selector; use dot-separated names such as rsg.lead.');
+  return parts;
+}
+
+export function selectorPath(selector: string, root?: string): string {
+  const base = workspaceRoot(root);
+  const result = path.join(base, ...selectorParts(selector));
+  assertNoSymlink(result);
+  for (let parent = path.dirname(result); parent !== base; parent = path.dirname(parent)) {
+    if (fs.existsSync(path.join(parent, MANIFEST)))
+      throw new Error(
+        'Nested managed workspaces are ambiguous; use sibling Role/Agent directories.'
+      );
+  }
+  return result;
+}
+
+export function workspacePath(binding: WorkspaceBinding, root?: string, selector?: string): string {
   WorkspaceBindingSchema.parse(binding);
   const base = workspaceRoot(root);
-  const result = binding.instance
-    ? path.join(base, binding.project, 'instances', binding.instance)
-    : path.join(base, binding.project, binding.role);
+  if (selector && selectorParts(selector)[0] !== binding.project)
+    throw new Error('Workspace selector and manifest project differ.');
+  const result = selector
+    ? selectorPath(selector, root)
+    : binding.instance
+      ? path.join(base, binding.project, 'instances', binding.instance)
+      : path.join(base, binding.project, binding.role);
   if (binding.role === 'instances') throw new Error('The role name "instances" is reserved.');
   assertNoSymlink(result);
   return result;
@@ -130,12 +163,13 @@ function directoryHasEntries(directory: string): boolean {
 
 export function readWorkspace(
   binding: WorkspaceBinding,
-  root?: string
+  root?: string,
+  selector?: string
 ): {
   directory: string;
   manifest: WorkspaceManifest;
 } {
-  const directory = workspacePath(binding, root);
+  const directory = workspacePath(binding, root, selector);
   const manifest = ManifestSchema.parse(
     JSON.parse(readBounded(path.join(directory, MANIFEST)).toString())
   );
@@ -185,15 +219,23 @@ export function readWorkspace(
 
 export function verifyWorkspaceFiles(
   binding: WorkspaceBinding,
-  root?: string
+  root?: string,
+  selector?: string
 ): ReturnType<typeof readWorkspace> {
-  const result = readWorkspace(binding, root);
+  const result = readWorkspace(binding, root, selector);
   if (fs.existsSync(path.join(workspaceRoot(root), binding.project, '.airelay-provision.lock'))) {
     throw new Error('Workspace provisioning is in progress; retry after it completes.');
   }
   if (!binding.instance) assertNoSymlink(path.join(result.directory, '.devin/skills'));
   if (binding.instance) {
-    const role = verifyWorkspaceFiles({ project: binding.project, role: binding.role }, root);
+    const roleSelector = result.manifest.roleSelector || `${binding.project}.${binding.role}`;
+    if (selectorParts(roleSelector)[0] !== binding.project)
+      throw new Error('Role reference must remain in the same project.');
+    const role = verifyWorkspaceFiles(
+      { project: binding.project, role: binding.role },
+      root,
+      roleSelector
+    );
     for (const name of ['AGENTS.md', '.devin/skills']) {
       const expected = path.join(role.directory, name);
       if (fs.realpathSync(path.join(result.directory, name)) !== expected) {
@@ -234,7 +276,7 @@ export function provisionWorkspace(options: WorkspaceOptions): {
     role: options.role,
     ...(options.instance ? { instance: options.instance } : {}),
   });
-  const directory = workspacePath(binding, options.root);
+  const directory = workspacePath(binding, options.root, options.selector);
   const assets = new Map<string, Asset>();
   let totalBytes = 0;
   const add = (name: string, asset: Asset): void => {
@@ -244,11 +286,17 @@ export function provisionWorkspace(options: WorkspaceOptions): {
     assets.set(name, asset);
   };
   if (binding.instance) {
-    if (options.instructions || options.skillsDir || options.source)
+    if (
+      options.instructions ||
+      options.instructionsText !== undefined ||
+      options.skillsDir ||
+      options.source
+    )
       throw new Error('Instance instructions, Skills, and source come from the canonical role.');
     const role = verifyWorkspaceFiles(
       { project: binding.project, role: binding.role },
-      options.root
+      options.root,
+      options.roleSelector
     );
     for (const name of ['AGENTS.md', '.devin/skills']) {
       add(name, {
@@ -260,8 +308,16 @@ export function provisionWorkspace(options: WorkspaceOptions): {
       });
     }
   } else {
-    if (!options.instructions) throw new Error('Role provisioning requires --instructions <file>.');
-    add('AGENTS.md', { contents: readBounded(path.resolve(options.instructions)), mode: 0o644 });
+    if (options.instructions && options.instructionsText !== undefined)
+      throw new Error('Provide an instructions file or text, not both.');
+    if (!options.instructions && options.instructionsText === undefined)
+      throw new Error('Role provisioning requires --instructions <file>.');
+    add('AGENTS.md', {
+      contents: options.instructions
+        ? readBounded(path.resolve(options.instructions))
+        : Buffer.from(options.instructionsText!),
+      mode: 0o644,
+    });
     if (options.skillsDir) {
       let entriesSeen = 0;
       const copy = (source: string, relative: string, depth = 0): void => {
@@ -300,6 +356,7 @@ export function provisionWorkspace(options: WorkspaceOptions): {
   const manifest: WorkspaceManifest = {
     version: 1,
     binding,
+    ...(options.roleSelector ? { roleSelector: options.roleSelector } : {}),
     ...(options.source ? { source: fs.realpathSync(options.source) } : {}),
     ...(options.principalRef ? { principalRef: options.principalRef } : {}),
     allowedMcpServers: Object.keys(mcp.mcpServers).sort(),
@@ -317,7 +374,8 @@ export function provisionWorkspace(options: WorkspaceOptions): {
   const manifestPath = path.join(directory, MANIFEST);
   ManifestSchema.parse(manifest);
   let previous: WorkspaceManifest | undefined;
-  if (fs.existsSync(manifestPath)) previous = readWorkspace(binding, options.root).manifest;
+  if (fs.existsSync(manifestPath))
+    previous = readWorkspace(binding, options.root, options.selector).manifest;
   else if (fs.existsSync(directory) && directoryHasEntries(directory))
     throw new Error('Existing workspace directory is unmanaged; nothing was overwritten.');
   const changed = [...assets]
@@ -370,7 +428,7 @@ export function provisionWorkspace(options: WorkspaceOptions): {
   };
   try {
     // Recheck under the project lock before writing anything.
-    if (previous) readWorkspace(binding, options.root);
+    if (previous) readWorkspace(binding, options.root, options.selector);
     else if (fs.existsSync(directory) && directoryHasEntries(directory))
       throw new Error('Workspace appeared while provisioning.');
     fs.mkdirSync(path.join(directory, '.devin'), { recursive: true, mode: 0o700 });

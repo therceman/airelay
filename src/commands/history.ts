@@ -1,6 +1,9 @@
 import os from 'os';
+import fs from 'node:fs';
 import path from 'path';
 import { createJsonStore } from '../utils/json-store';
+import { assertWorkspaceBinding, type SessionWorkspace } from '../workspace/binding';
+import { getSessionBindingEntries } from './sessions';
 
 export interface LaunchHistoryEntry {
   id: string;
@@ -11,6 +14,7 @@ export interface LaunchHistoryEntry {
   lastUsed?: number;
   argv: string[];
   command: string;
+  workspace?: SessionWorkspace;
 }
 
 const store = createJsonStore<LaunchHistoryEntry[]>({
@@ -28,6 +32,7 @@ function getHistoryEntryIdentity(entry: LaunchHistoryEntry): string {
     entry.sessionKey,
     path.resolve(entry.invocationCwd),
     entry.argv,
+    entry.workspace,
   ]);
 }
 
@@ -44,16 +49,20 @@ function deduplicateHistory(entries: LaunchHistoryEntry[]): LaunchHistoryEntry[]
 }
 
 function loadHistory(): LaunchHistoryEntry[] {
-  const loaded = store.load();
-  if (!Array.isArray(loaded)) {
-    return [];
-  }
+  return store.transaction(() => {
+    const loaded = store.load();
+    if (!Array.isArray(loaded)) {
+      if (fs.existsSync(store.getPath()))
+        throw new Error('Invalid launch history; restore a reviewed backup before launching.');
+      return [];
+    }
 
-  const deduplicated = deduplicateHistory(loaded);
-  if (deduplicated.length !== loaded.length) {
-    store.save(deduplicated);
-  }
-  return deduplicated;
+    const deduplicated = deduplicateHistory(loaded);
+    if (deduplicated.length !== loaded.length) {
+      store.save(deduplicated);
+    }
+    return deduplicated;
+  });
 }
 
 function shellQuote(value: string): string {
@@ -78,20 +87,29 @@ export function recordLaunchHistory(input: {
   invocationCwd: string;
   argv: string[];
   startedAt?: number;
+  workspace?: SessionWorkspace;
 }): LaunchHistoryEntry {
-  const entry: LaunchHistoryEntry = {
-    id: createHistoryId(),
-    profile: input.profile,
-    sessionKey: input.sessionKey,
-    invocationCwd: path.resolve(input.invocationCwd),
-    startedAt: input.startedAt ?? Date.now(),
-    argv: [...input.argv],
-    command: renderLaunchCommand(input.argv),
-  };
+  return store.transaction(() => {
+    const entry: LaunchHistoryEntry = {
+      id: createHistoryId(),
+      profile: input.profile,
+      sessionKey: input.sessionKey,
+      invocationCwd: path.resolve(input.invocationCwd),
+      startedAt: input.startedAt ?? Date.now(),
+      argv: [...input.argv],
+      command: renderLaunchCommand(input.argv),
+      ...(input.workspace ? { workspace: input.workspace } : {}),
+    };
 
-  const history = [entry, ...loadHistory()];
-  store.save(deduplicateHistory(history).slice(0, 1000));
-  return entry;
+    const previous = loadHistory();
+    assertWorkspaceBinding(input.sessionKey, input.workspace, [
+      ...previous,
+      ...getSessionBindingEntries(),
+    ]);
+    const history = [entry, ...previous];
+    store.save(deduplicateHistory(history).slice(0, 1000));
+    return entry;
+  });
 }
 
 /** Replace a provisional TUI launch row once the harness native session is known. */
@@ -103,36 +121,50 @@ export function finalizeLaunchHistoryEntry(input: {
   profileArgs: string[];
   finishedAt?: number;
 }): boolean {
-  const currentCwd = path.resolve(input.invocationCwd);
-  const history = loadHistory();
-  const index = history.findIndex(
-    (entry) =>
-      entry.profile === input.profile &&
-      entry.sessionKey === input.provisionalSessionKey &&
-      path.resolve(entry.invocationCwd) === currentCwd
-  );
-  if (index === -1) {
-    return false;
-  }
+  return store.transaction(() => {
+    const currentCwd = path.resolve(input.invocationCwd);
+    const history = loadHistory();
+    const index = history.findIndex(
+      (entry) =>
+        entry.profile === input.profile &&
+        entry.sessionKey === input.provisionalSessionKey &&
+        path.resolve(entry.invocationCwd) === currentCwd
+    );
+    if (index === -1) {
+      return false;
+    }
 
-  const previous = history[index];
-  const argv = ['start', input.profile, '--key', input.sessionKey, '--', ...input.profileArgs];
-  const finalized: LaunchHistoryEntry = {
-    ...previous,
-    sessionKey: input.sessionKey,
-    argv,
-    command: renderLaunchCommand(argv),
-    lastUsed: input.finishedAt ?? Date.now(),
-  };
-  const remaining = history.filter(
-    (entry, entryIndex) =>
-      entryIndex !== index &&
-      (entry.profile !== input.profile ||
-        entry.sessionKey !== input.sessionKey ||
-        path.resolve(entry.invocationCwd) !== currentCwd)
-  );
-  store.save(deduplicateHistory([finalized, ...remaining]).slice(0, 1000));
-  return true;
+    const previous = history[index];
+    assertWorkspaceBinding(input.sessionKey, previous.workspace, [
+      ...history.filter((e) => e.id !== previous.id),
+      ...getSessionBindingEntries(),
+    ]);
+    const argv = [
+      'start',
+      input.profile,
+      '--key',
+      input.sessionKey,
+      ...(previous.workspace ? ['--workspace', previous.workspace.selector] : []),
+      '--',
+      ...input.profileArgs,
+    ];
+    const finalized: LaunchHistoryEntry = {
+      ...previous,
+      sessionKey: input.sessionKey,
+      argv,
+      command: renderLaunchCommand(argv),
+      lastUsed: input.finishedAt ?? Date.now(),
+    };
+    const remaining = history.filter(
+      (entry, entryIndex) =>
+        entryIndex !== index &&
+        (entry.profile !== input.profile ||
+          entry.sessionKey !== input.sessionKey ||
+          path.resolve(entry.invocationCwd) !== currentCwd)
+    );
+    store.save(deduplicateHistory([finalized, ...remaining]).slice(0, 1000));
+    return true;
+  });
 }
 
 export function getLaunchHistory(): LaunchHistoryEntry[] {
@@ -145,22 +177,24 @@ export function markLaunchHistoryUsed(
   lastUsed = Date.now(),
   profile?: string
 ): boolean {
-  const history = loadHistory();
-  const entry = history.find((candidate) => candidate.id === id);
-  if (!entry) {
-    return false;
-  }
-
-  if (profile !== undefined) {
-    entry.profile = profile;
-    if (entry.argv[0] === 'start' && entry.argv.length > 1) {
-      entry.argv[1] = profile;
-      entry.command = renderLaunchCommand(entry.argv);
+  return store.transaction(() => {
+    const history = loadHistory();
+    const entry = history.find((candidate) => candidate.id === id);
+    if (!entry) {
+      return false;
     }
-  }
-  entry.lastUsed = lastUsed;
-  store.save(history);
-  return true;
+
+    if (profile !== undefined) {
+      entry.profile = profile;
+      if (entry.argv[0] === 'start' && entry.argv.length > 1) {
+        entry.argv[1] = profile;
+        entry.command = renderLaunchCommand(entry.argv);
+      }
+    }
+    entry.lastUsed = lastUsed;
+    store.save(history);
+    return true;
+  });
 }
 
 /** Update the native resume ID while preserving the rest of a launch row. */
@@ -169,35 +203,37 @@ export function updateLaunchHistorySession(
   invocationCwd: string,
   sessionId: string
 ): boolean {
-  if (!sessionId.trim()) {
-    return false;
-  }
+  return store.transaction(() => {
+    if (!sessionId.trim()) {
+      return false;
+    }
 
-  const currentCwd = path.resolve(invocationCwd);
-  const history = loadHistory();
-  const entry = history.find(
-    (candidate) => candidate.id === id && path.resolve(candidate.invocationCwd) === currentCwd
-  );
-  if (!entry) {
-    return false;
-  }
+    const currentCwd = path.resolve(invocationCwd);
+    const history = loadHistory();
+    const entry = history.find(
+      (candidate) => candidate.id === id && path.resolve(candidate.invocationCwd) === currentCwd
+    );
+    if (!entry) {
+      return false;
+    }
 
-  const resumeFlags = new Set(['resume', '-r', '-s', '--resume']);
-  const separatorIndex = entry.argv.indexOf('--');
-  const argsStart = separatorIndex === -1 ? 2 : separatorIndex + 1;
-  const resumeIndex = entry.argv.findIndex(
-    (argument, index) =>
-      index >= argsStart && resumeFlags.has(argument) && index + 1 < entry.argv.length
-  );
-  if (resumeIndex === -1) {
-    return false;
-  }
+    const resumeFlags = new Set(['resume', '-r', '-s', '--resume']);
+    const separatorIndex = entry.argv.indexOf('--');
+    const argsStart = separatorIndex === -1 ? 2 : separatorIndex + 1;
+    const resumeIndex = entry.argv.findIndex(
+      (argument, index) =>
+        index >= argsStart && resumeFlags.has(argument) && index + 1 < entry.argv.length
+    );
+    if (resumeIndex === -1) {
+      return false;
+    }
 
-  entry.argv = [...entry.argv];
-  entry.argv[resumeIndex + 1] = sessionId;
-  entry.command = renderLaunchCommand(entry.argv);
-  store.save(history);
-  return true;
+    entry.argv = [...entry.argv];
+    entry.argv[resumeIndex + 1] = sessionId;
+    entry.command = renderLaunchCommand(entry.argv);
+    store.save(history);
+    return true;
+  });
 }
 
 /** Change the Airelay key for one saved launch while preserving its harness session. */
@@ -206,36 +242,42 @@ export function updateLaunchHistorySessionKey(
   invocationCwd: string,
   sessionKey: string
 ): boolean {
-  if (!sessionKey.trim()) {
-    return false;
-  }
+  return store.transaction(() => {
+    if (!sessionKey.trim()) {
+      return false;
+    }
 
-  const currentCwd = path.resolve(invocationCwd);
-  const history = loadHistory();
-  const entry = history.find(
-    (candidate) => candidate.id === id && path.resolve(candidate.invocationCwd) === currentCwd
-  );
-  if (!entry || entry.argv[0] !== 'start') {
-    return false;
-  }
+    const currentCwd = path.resolve(invocationCwd);
+    const history = loadHistory();
+    const entry = history.find(
+      (candidate) => candidate.id === id && path.resolve(candidate.invocationCwd) === currentCwd
+    );
+    if (!entry || entry.argv[0] !== 'start') {
+      return false;
+    }
 
-  const argv = [...entry.argv];
-  const separatorIndex = argv.indexOf('--');
-  const argsEnd = separatorIndex === -1 ? argv.length : separatorIndex;
-  const keyIndex = argv.findIndex(
-    (argument, index) => index >= 2 && index < argsEnd && argument === '--key'
-  );
-  if (keyIndex !== -1 && keyIndex + 1 < argsEnd) {
-    argv[keyIndex + 1] = sessionKey;
-  } else {
-    argv.splice(argsEnd, 0, '--key', sessionKey);
-  }
+    const argv = [...entry.argv];
+    assertWorkspaceBinding(sessionKey, entry.workspace, [
+      ...history.filter((e) => e.id !== entry.id),
+      ...getSessionBindingEntries(),
+    ]);
+    const separatorIndex = argv.indexOf('--');
+    const argsEnd = separatorIndex === -1 ? argv.length : separatorIndex;
+    const keyIndex = argv.findIndex(
+      (argument, index) => index >= 2 && index < argsEnd && argument === '--key'
+    );
+    if (keyIndex !== -1 && keyIndex + 1 < argsEnd) {
+      argv[keyIndex + 1] = sessionKey;
+    } else {
+      argv.splice(argsEnd, 0, '--key', sessionKey);
+    }
 
-  entry.sessionKey = sessionKey;
-  entry.argv = argv;
-  entry.command = renderLaunchCommand(argv);
-  store.save(history);
-  return true;
+    entry.sessionKey = sessionKey;
+    entry.argv = argv;
+    entry.command = renderLaunchCommand(argv);
+    store.save(history);
+    return true;
+  });
 }
 
 /** Replace one launch row's full argv while preserving its stable row identity. */
@@ -244,44 +286,50 @@ export function updateLaunchHistoryArgv(
   invocationCwd: string,
   argv: string[]
 ): boolean {
-  const currentCwd = path.resolve(invocationCwd);
-  const history = loadHistory();
-  const entry = history.find(
-    (candidate) => candidate.id === id && path.resolve(candidate.invocationCwd) === currentCwd
-  );
-  if (!entry) return false;
+  return store.transaction(() => {
+    const currentCwd = path.resolve(invocationCwd);
+    const history = loadHistory();
+    const entry = history.find(
+      (candidate) => candidate.id === id && path.resolve(candidate.invocationCwd) === currentCwd
+    );
+    if (!entry) return false;
 
-  entry.argv = [...argv];
-  entry.command = renderLaunchCommand(entry.argv);
-  store.save(history);
-  return true;
+    entry.argv = [...argv];
+    entry.command = renderLaunchCommand(entry.argv);
+    store.save(history);
+    return true;
+  });
 }
 
 export function removeLaunchHistory(sessionKey: string, invocationCwd = process.cwd()): number {
-  const currentCwd = path.resolve(invocationCwd);
-  const history = loadHistory();
-  const remaining = history.filter(
-    (entry) => entry.sessionKey !== sessionKey || path.resolve(entry.invocationCwd) !== currentCwd
-  );
-  const removed = history.length - remaining.length;
-  if (removed > 0) {
-    store.save(remaining);
-  }
-  return removed;
+  return store.transaction(() => {
+    const currentCwd = path.resolve(invocationCwd);
+    const history = loadHistory();
+    const remaining = history.filter(
+      (entry) => entry.sessionKey !== sessionKey || path.resolve(entry.invocationCwd) !== currentCwd
+    );
+    const removed = history.length - remaining.length;
+    if (removed > 0) {
+      store.save(remaining);
+    }
+    return removed;
+  });
 }
 
 export function removeLaunchHistoryEntry(id: string, invocationCwd = process.cwd()): boolean {
-  const currentCwd = path.resolve(invocationCwd);
-  const history = loadHistory();
-  const remaining = history.filter(
-    (entry) => entry.id !== id || path.resolve(entry.invocationCwd) !== currentCwd
-  );
-  if (remaining.length === history.length) {
-    return false;
-  }
+  return store.transaction(() => {
+    const currentCwd = path.resolve(invocationCwd);
+    const history = loadHistory();
+    const remaining = history.filter(
+      (entry) => entry.id !== id || path.resolve(entry.invocationCwd) !== currentCwd
+    );
+    if (remaining.length === history.length) {
+      return false;
+    }
 
-  store.save(remaining);
-  return true;
+    store.save(remaining);
+    return true;
+  });
 }
 
 export function removeHistoryCommand(sessionKey: string): void {

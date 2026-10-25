@@ -9,6 +9,8 @@ export interface PtyOptions {
   rows?: number;
   cwd?: string;
   env?: Record<string, string>;
+  /** False when env is an already-filtered complete managed environment. */
+  inheritEnv?: boolean;
   onOutput?: (chunk: string) => void;
   /** Optional foreground writer; onOutput remains the authoritative ingest path. */
   onForegroundOutput?: (chunk: string) => void;
@@ -75,7 +77,10 @@ export function createPty(options: PtyOptions): PtyInstance {
     cols,
     rows,
     cwd: options.cwd,
-    env: { ...process.env, ...options.env } as { [key: string]: string },
+    env: {
+      ...(options.inheritEnv === false ? {} : process.env),
+      ...options.env,
+    } as { [key: string]: string },
   });
   options.diagnostics?.recordPtySpawn(cols, rows);
   let currentCols = cols;

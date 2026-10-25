@@ -101,7 +101,8 @@ async function resumeSession(
   }
 
   return runCommand(profile, resumeArgs, {
-    cwd: session.cwd,
+    cwd: session.workspace?.path || session.cwd,
+    workspace: session.workspace,
     sessionKey: session.sessionKey,
     profileSessionId: session.profileSessionId,
     profileArgs: session.profileArgs,
@@ -120,10 +121,7 @@ export function getSameHarnessProfiles(profile: string): string[] {
   const harness = detectHarness(selectedProfile.executable);
   return Object.entries(config.profiles)
     .filter(
-      ([name, candidate]) =>
-        name !== profile &&
-        detectHarness(candidate.executable) === harness &&
-        JSON.stringify(candidate.workspace) === JSON.stringify(selectedProfile.workspace)
+      ([name, candidate]) => name !== profile && detectHarness(candidate.executable) === harness
     )
     .map(([name]) => name)
     .sort((a, b) => a.localeCompare(b));
@@ -150,7 +148,12 @@ function getHistoryAirelayArgs(entry: LaunchHistoryEntry): string[] {
   const prefix = entry.argv.slice(0, 2);
   let index = 2;
   while (index < entry.argv.length) {
-    if (entry.argv[index] === '--key' && index + 1 < entry.argv.length) {
+    if (
+      (entry.argv[index] === '--key' ||
+        entry.argv[index] === '--workspace' ||
+        entry.argv[index] === '-w') &&
+      index + 1 < entry.argv.length
+    ) {
       prefix.push(entry.argv[index], entry.argv[index + 1]);
       index += 2;
     } else if (entry.argv[index] === '--detached' || entry.argv[index] === '--bypass') {
@@ -325,7 +328,11 @@ function getHarnessArgs(entry: LaunchHistoryEntry): string[] {
   // so old and hand-written history rows can still be resumed.
   let index = 2; // `start <profile>`
   while (index < entry.argv.length) {
-    if (entry.argv[index] === '--key') {
+    if (
+      entry.argv[index] === '--key' ||
+      entry.argv[index] === '--workspace' ||
+      entry.argv[index] === '-w'
+    ) {
       index += 2;
       continue;
     }
@@ -495,6 +502,7 @@ async function resumeSavedHistoryEntry(entry: LaunchHistoryEntry): Promise<void>
       profile: entry.profile,
       lastUsed: getLastUsed(entry),
       cwd: entry.invocationCwd,
+      workspace: entry.workspace,
       sessionKey: entry.sessionKey,
       profileSessionId,
       profileArgs,
@@ -597,6 +605,7 @@ async function resumeFromFolder(targetCwd = process.cwd()): Promise<void> {
       profile: selected.profile,
       lastUsed: getLastUsed(selected),
       cwd: selected.invocationCwd,
+      workspace: selected.workspace,
       sessionKey: resumeSelection.sessionKey ?? selected.sessionKey,
       profileSessionId: launchSessionId,
       profileArgs: resumeSelection.sessionId
@@ -676,6 +685,7 @@ export async function switchLastSessionProfile(targetCwd = process.cwd()): Promi
       profile: selected.profile,
       lastUsed: getLastUsed(selected),
       cwd: selected.invocationCwd,
+      workspace: selected.workspace,
       sessionKey: selected.sessionKey,
       profileSessionId,
       profileArgs,

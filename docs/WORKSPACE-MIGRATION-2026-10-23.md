@@ -6,7 +6,9 @@
 previous plan to keep separate BB aliases in local Role/Instance files.
 Remove all eight global Devin registrations and every managed local
 registration, but only after dependent controllers and Jobs are safe to cut
-over. No cutover window has been approved. Do not interrupt running Jobs.
+over. The Owner subsequently authorized immediate cutover with no further
+approval required, subject to verified technical quiescence. Do not interrupt
+real active work or infer quiescence from an idle TUI.
 
 The future reconnection contract is in
 [WORKSPACES.md](WORKSPACES.md#future-bb-mcp-reconnection-not-implemented-or-approved):
@@ -73,17 +75,22 @@ IDs and directories are recorded privately. Re-inventory at the window:
 these observations are not permanent PID authority.
 
 Two BB-MCP listeners exist on loopback **8090 and 8190**; neither was changed.
-One durable snapshot (revision 14336) contained **5 RUNNING Jobs**, but its
-journal is newer. This is **not a current authoritative Job count** and cannot
-approve cutover. The other listener had no inspectable snapshot at its
-configured state root. Current Job/claim/lease quiescence is **unknown**, not
-zero. No MCP service calls were made by this audit.
+The subsequent Owner-authorized read-only audit (2026-10-23 19:40-19:46 UTC)
+queried both authoritative endpoints: 8090 revision 14381 remained stable,
+196 Jobs, campaign CLOSED, zero live claims/leases; five RUNNING records had no
+live claims. Port 8190 revision 9 had zero Jobs/leases. No Job was mutated.
+However, native activity sampling proved ongoing work in `rust-ui-lead`:
+11 new message nodes in 10 seconds. Disruptive global cutover therefore stopped
+on a **technical active-consumer blocker**, not missing Owner approval.
+Those are timestamped observations, not current quiescence authority.
+Protected evidence is in
+`~/agent-workspace-backups/2026-10-23T19-40-45-authorized-cutover/`.
 
 Additional blockers:
 
 - The detached Worker's registry locator is not proven to be its native Devin
   resume ID. Do not use a runtime UUID as a native session ID; verify/save it
-  with the session owner before stopping that consumer.
+  from durable native metadata before stopping that consumer.
 - Account-uploaded Skill `default:pwa-tablet-testing` still lacks an approved
   canonical destination. This decision is MCP-only; no Skill was deleted.
   Foreign Skills must still fail native workspace preflight after MCP cleanup.
@@ -140,7 +147,7 @@ whole session registries to undo an MCP edit.
 
 ## Exact Safe Cutover Procedure (Not Executed)
 
-1. **Owner approves a window and responsible consumer/Job owners.** Freeze
+1. **Owner authorization already exists; recheck technical quiescence.** Freeze
    new dispatch and automatic wake/prompt producers using their existing
    operator controls. Keep daemons running. If new claims/wakes cannot be
    prevented, STOP. Airelay idle/busy is not durable-Job quiescence.
@@ -154,7 +161,7 @@ whole session registries to undo an MCP edit.
    keys, profiles, original cwd/args and destination Role/Instance bindings.
    Validate PID identity. An absent harness is not an orphan. Resolve the
    detached Worker's native ID before shutdown.
-4. **Gracefully quiesce reviewed consumers in the approved window.** Exit
+4. **Gracefully quiesce reviewed consumers only when technical quiescence is verified.** Exit
    native CLIs/controllers through their normal owner-controlled shutdown.
    `airelay stop <key>` applies to detached runtimes only; do not blanket-kill
    PIDs. Confirm old controllers cannot wake with cached configuration.
@@ -163,8 +170,9 @@ whole session registries to undo an MCP edit.
 5. **Refresh private backups and review exact diffs.** Include current global
    MCP config, any new local/imported sources, managed manifests and launch
    metadata. Recheck hashes/permissions/ownership. Preserve credentials.
-   Reprovision local workspaces with full canonical Role inputs, `--update`,
-   and **without `--mcp-config`**. Instances retain their canonical links.
+   Use the current dot-selector provision command with full canonical Role inputs
+   and `--update`; MCP import is no longer a public provision option. Agents
+   retain their canonical Role links.
    Abort on unmanaged/user edits; never rerun the obsolete staging script.
 6. **Atomically clear all eight global aliases.** Preserve other top-level
    fields, ownership/mode, native auth and preferences. On this host the
@@ -284,3 +292,25 @@ snapshot/journal metadata. No global-zero claim comes from local files alone.
   test-suite risk, not a reason to claim production cutover acceptance.
 - This is verified preparation, **not** completed global-zero or real-session
   start/resume acceptance. The blocked statuses above are deliberate.
+
+## Session-Parameter Migration (2026-10-24)
+
+The nine unused, unmodified generated `workspace-*` profiles were removed after
+checking saved/history/detached references and live process arguments. Original
+configuration is protected at:
+
+`~/agent-workspace-backups/2026-10-24T09-57-27-246Z-remove-generated-profiles/`
+
+The existing root is now explicitly pinned to
+`/home/therceman/agent-workspaces`. Normal profiles
+`opencode, codex, opencode2, codex2, opencode3, devin` remain. No native IDs,
+workspace assets, credentials or active processes were changed. This profile
+cleanup is **not** global MCP cleanup: real-HOME native preflight still rejects
+the eight effective global registrations.
+
+Use `airelay start devin --key <new-key> --workspace rsg.lead` or
+`--workspace bb_splunk.instances.worker-01` after global/Skill blockers are
+resolved. Existing user sessions were not rebound. Restore the backed-up
+Airelay config only after reviewing intervening edits; that restores retired
+profiles, so the current CLI will request explicit profile migration again.
+Do not restore whole registry snapshots over active sessions.

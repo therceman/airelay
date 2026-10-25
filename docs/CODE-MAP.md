@@ -16,7 +16,7 @@ has materially changed.
 | Resume hydration/reveal or terminal queries | `src/runtime/resume-presentation.ts`                  | `src/runtime/terminal-query.ts`, `src/controller/index.ts`, `test/resume-presentation.test.ts`, `test/terminal-query.test.ts`                                                                   |
 | Prompt submission and retries               | `src/runtime/delivery-sequence.ts`                    | `src/runtime/input-submit-watcher.ts`, `src/runtime/delivery-marker.ts`, `src/commands/run.ts`, `test/delivery-sequence.test.ts`, `test/input-submit-watcher.test.ts`, `test/run-input.test.ts` |
 | Busy/idle and direct user-input status       | `src/runtime/activity.ts`                             | `src/commands/run.ts`, `src/types/controller.ts`, `src/commands/session-status.ts`, `src/commands/status.ts`, `test/activity.test.ts`, `test/controller-e2e.test.ts`, `test/status.test.ts` |
-| Project/role workspaces and managed launch policy | `src/workspace/{provision,verify,backup}.ts`, `src/commands/workspace.ts` | `src/runtime/env.ts`, `src/commands/{run,resume,detached}.ts`, `test/workspace.test.ts`, `scripts/verify-workspace-devin.cjs`, `docs/WORKSPACES.md` |
+| Project/role workspaces and managed launch policy | `src/workspace/{binding,projects,provision,verify,backup,migrate-profiles}.ts`, `src/commands/{workspace,workspace-select}.ts` | `src/runtime/env.ts`, `src/commands/{run,resume,detached}.ts`, `test/workspace.test.ts`, `scripts/verify-workspace-devin.cjs`, `docs/WORKSPACES.md` |
 | Harness-specific arguments/capabilities     | `src/utils/harness.ts`                                | `src/commands/run.ts`, `test/harness.test.ts`, `test/workspace-trust.test.ts`                                                                                                                   |
 | Mouse tracking policy and config default    | `src/config/schema.ts`, `src/runtime/mouse-filter.ts`, `src/controller/index.ts`, `src/runtime/pty.ts` | `test/config-command.test.ts`, `test/init.test.ts`, `test/mouse-filter.test.ts` |
 | Config parsing/defaults/paths               | `src/config/schema.ts`                                | `src/config/load.ts`, `src/config/paths.ts`, `src/config/defaults.ts`, `test/config.test.ts`, `test/paths.test.ts`                                                                              |
@@ -117,19 +117,35 @@ terminal parser or serializer without first checking the controller/xterm APIs.
 
 ### Configuration, Harnesses, and State
 
-- `src/workspace/provision.ts` owns bounded, digest-checked role assets,
-  optional instance links, manifests, and provisioning rollback. `verify.ts`
-  owns native Devin inventory validation; `backup.ts` owns private configuration
-  backup/selective restore. The workspace command registers normal profiles.
-  `docs/WORKSPACE-MIGRATION-2026-10-23.md` owns the temporary zero-MCP host
-  target and approved-window/rollback procedure, not a second runtime policy.
-  `test/workspace.test.ts` and `scripts/verify-workspace-devin.cjs` cover
-  zero-MCP reprovisioning without duplicating canonical Role assets.
-- Managed profiles opt in through `profile.workspace`. `run.ts` validates
-  their cwd/assets and rechecks native discovery before every generation;
-  `resume.ts` restricts account switching to the same workspace binding.
-  `runtime/env.ts` owns the managed allowlist, also used by detached startup.
-  Workspace files never replace the existing Airelay session/history stores.
+- `src/workspace/provision.ts` owns bounded, digest-checked canonical Role
+  assets/Agent links and rollback. `binding.ts` owns dot selectors, immutable
+  session binding validation and saved real paths; `verify.ts` owns native
+  Devin fail-closed zero-MCP/Skill/instruction discovery. `backup.ts` owns
+  private backup/restore; `migrate-profiles.ts` only removes unused unmodified
+  retired generated profiles. It is not a second live configuration model.
+- `commands/workspace.ts` provisions/inspects without generating profiles;
+  `workspace-select.ts` owns hierarchical launcher browsing, confirmed creation,
+  storage-root changes and source-folder association prompts. `projects.ts`
+  owns source realpath/ancestor matching and creation through the existing
+  provisioner. `settings.workspaceProjects` is a bounded launcher hint, not
+  session authority; it opens a project branch, never silently selects a Role.
+  `run.ts` verifies and reserves a session binding before startup, then
+  revalidates it before wake. `resume.ts` passes the saved binding across
+  same-harness account changes. Detached supervision transfers the frozen path.
+- Session/history/runtime metadata, not Profile, owns optional
+  `{selector, root, path}`. Managed binding survives runtime exit/pruning;
+  `runtime/env.ts` filters only explicitly managed launches. `spawn.ts` passes
+  the complete-environment flag to `pty.ts`, preventing parent-env re-merging
+  only for managed launches; ordinary PTY inheritance is unchanged. Existing stores
+  use `json-store.ts` atomic replacement/bounded transaction locks so two
+  same-profile sessions cannot lose one another's records. Async liveness
+  pruning re-reads current records after probes before removing stale runtime
+  fields. There is no workspace session database or workspace `sessions/` tree.
+- `test/workspace{,-session,-select}.test.ts`, `test/json-store.test.ts`,
+  CLI/resume tests and `scripts/verify-workspace-devin.cjs` cover these paths.
+  `docs/WORKSPACES.md` maps systemic invariants to proof;
+  `docs/WORKSPACE-MIGRATION-2026-10-23.md` records real-HOME exposure and
+  technically blocked cutover. Isolated native fixtures do not prove host clean.
 
 - `src/config/schema.ts` defines accepted config shape; `load.ts`, `paths.ts`,
   and `defaults.ts` own loading, canonical paths, and defaults.
@@ -206,7 +222,7 @@ reset code, and `test/hibernate.test.ts` before changing lifecycle behavior.
 | ------------------------------------ | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | CLI command/alias/menu               | `test/cli*.test.ts`, `test/select.test.ts`                                                                 | `npm test`                                                            |
 | Harness args, bypass, trust, resume  | `test/harness.test.ts`, `test/workspace-trust.test.ts`, `test/resume.test.ts`, `test/start.test.ts`        | `test/cli-integration.test.ts`                                        |
-| PTY spawn, input, resize, signals    | `test/spawn.test.ts`, `test/run-input.test.ts`, `test/signals.test.ts`                                     | `test/run.test.ts`, `test/detached.test.ts`                           |
+| PTY spawn, input, resize, signals    | `test/spawn.test.ts`, `test/pty-resize.test.ts` (fake-time startup boundaries), `test/run-input.test.ts`, `test/signals.test.ts` | `test/run.test.ts`, `test/detached.test.ts`                           |
 | Resume presentation/query extraction | `test/resume-presentation.test.ts`, `test/terminal-query.test.ts`                                          | `test/controller-presentation.test.ts`, `test/controller-e2e.test.ts` |
 | Controller IPC/socket/session info   | `test/controller-protocol.test.ts`, `test/controller-ipc-path.test.ts`, `test/unix-socket.test.ts`         | `test/controller-e2e.test.ts`, relevant `session-*.test.ts`           |
 | Prompt delivery/retry/status         | `test/delivery-sequence.test.ts`, `test/delivery-marker.test.ts`, `test/input-submit-watcher.test.ts`      | `test/run-input.test.ts`, `test/prompt.test.ts`                       |

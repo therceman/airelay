@@ -154,6 +154,7 @@ describe('interactive PTY handoff', () => {
 });
 
 describe('foreground PTY resize stabilization', () => {
+  // Exact startup timing is covered with fake time in pty-resize.test.ts.
   it('starts the PTY at the current terminal size', async () => {
     const source = new FakeResizeSource();
     let output = '';
@@ -225,73 +226,6 @@ describe('foreground PTY resize stabilization', () => {
     await pty.exitCode;
   });
 
-  it('holds spaced resize oscillation after early output until startup grace expires', async () => {
-    const source = new FakeResizeSource();
-    const forwarded: string[] = [];
-    const pty = createPty({
-      file: 'node',
-      args: [
-        '-e',
-        "setTimeout(() => { process.stdout.write('ready'); setTimeout(() => process.exit(0), 1000) }, 100)",
-      ],
-      resizeSource: source,
-      resizeStartupGraceMs: 700,
-      onResizeTrace: (trace) => {
-        if (trace.kind === 'forwarded') forwarded.push(`${trace.cols}x${trace.rows}`);
-      },
-    });
-
-    await wait(120);
-    source.rows = 41;
-    source.emit('resize');
-    await wait(100);
-    source.rows = 42;
-    source.emit('resize');
-    await wait(100);
-    source.rows = 41;
-    source.emit('resize');
-    await wait(100);
-    source.rows = 42;
-    source.emit('resize');
-    await wait(100);
-    source.rows = 41;
-    source.emit('resize');
-
-    expect(forwarded).toEqual([]);
-    await wait(350);
-    expect(forwarded).toEqual(['143x41']);
-    await pty.exitCode;
-  });
-
-  it('does not forward startup oscillation when the final size equals the initial size', async () => {
-    const source = new FakeResizeSource();
-    const forwarded: string[] = [];
-    const pty = createPty({
-      file: 'node',
-      args: [
-        '-e',
-        "setTimeout(() => { process.stdout.write('ready'); setTimeout(() => process.exit(0), 900) }, 100)",
-      ],
-      resizeSource: source,
-      resizeStartupGraceMs: 700,
-      onResizeTrace: (trace) => {
-        if (trace.kind === 'forwarded') forwarded.push(`${trace.cols}x${trace.rows}`);
-      },
-    });
-
-    await wait(120);
-    for (const row of [41, 42, 41, 42]) {
-      source.rows = row;
-      source.emit('resize');
-      await wait(100);
-    }
-
-    expect(forwarded).toEqual([]);
-    await wait(350);
-    expect(forwarded).toEqual([]);
-    await pty.exitCode;
-  });
-
   it('does not install parent resize handling for detached PTYs', async () => {
     const source = new FakeResizeSource();
     const traces: string[] = [];
@@ -311,89 +245,6 @@ describe('foreground PTY resize stabilization', () => {
 
     expect(traces).toEqual(['initial']);
     expect(source.listenerCount('resize')).toBe(0);
-  });
-
-  it('stabilizes detached public resize requests during startup', async () => {
-    const forwarded: string[] = [];
-    const pty = createPty({
-      file: 'node',
-      args: [
-        '-e',
-        "setTimeout(() => { process.stdout.write('ready'); setTimeout(() => process.exit(0), 1300) }, 100)",
-      ],
-      detached: true,
-      resizeStartupGraceMs: 700,
-      resizeStartupQuietMs: 200,
-      resizeStartupMaxMs: 1500,
-      onResizeTrace: (trace) => {
-        if (trace.kind === 'forwarded') forwarded.push(`${trace.cols}x${trace.rows}`);
-      },
-    });
-
-    await wait(150);
-    pty.requestExternalResize(143, 41);
-    await wait(110);
-    pty.requestExternalResize(143, 42);
-    await wait(110);
-    pty.requestExternalResize(143, 41);
-    await wait(110);
-    pty.requestExternalResize(143, 42);
-    expect(forwarded).toEqual([]);
-
-    await wait(100);
-    expect(forwarded).toEqual([]);
-    await wait(300);
-    expect(forwarded).toEqual(['143x42']);
-    await pty.exitCode;
-  });
-
-  it('holds external resize past the minimum grace while replay output continues', async () => {
-    const forwarded: string[] = [];
-    const pty = createPty({
-      file: 'node',
-      args: [
-        '-e',
-        "let i=0; const timer=setInterval(() => { process.stdout.write('replay'+i+++'\\n'); if (i===14) clearInterval(timer) }, 100); setTimeout(() => process.exit(0), 1900)",
-      ],
-      detached: true,
-      resizeStartupGraceMs: 400,
-      resizeStartupQuietMs: 250,
-      resizeStartupMaxMs: 1500,
-      onResizeTrace: (trace) => {
-        if (trace.kind === 'forwarded') forwarded.push(`${trace.cols}x${trace.rows}`);
-      },
-    });
-
-    await wait(1100);
-    pty.requestExternalResize(160, 50);
-    await wait(250);
-    expect(forwarded).toEqual([]);
-    await wait(400);
-    expect(forwarded).toEqual(['160x50']);
-    await pty.exitCode;
-  });
-
-  it('does not forward detached startup resize when it returns to the initial size', async () => {
-    const source = new FakeResizeSource();
-    const forwarded: string[] = [];
-    const pty = createPty({
-      file: 'node',
-      args: ['-e', 'setTimeout(() => process.exit(0), 1200)'],
-      resizeSource: source,
-      detached: true,
-      resizeStartupGraceMs: 500,
-      onResizeTrace: (trace) => {
-        if (trace.kind === 'forwarded') forwarded.push(`${trace.cols}x${trace.rows}`);
-      },
-    });
-
-    pty.requestExternalResize(143, 41);
-    await wait(100);
-    pty.requestExternalResize(143, 42);
-    await wait(700);
-
-    expect(forwarded).toEqual([]);
-    await pty.exitCode;
   });
 
   it('clears a pending resize timer and listener when the PTY exits', async () => {

@@ -131,12 +131,19 @@ function parseArgs(argv: string[]): ParseResult {
       }
       continue;
     }
-    if ((command === 'start' || command === '__detach-run') && arg === '--key') {
+    if (
+      (command === 'start' || command === '__detach-run') &&
+      (arg === '--key' || arg === '--workspace' || arg === '-w')
+    ) {
       if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
-        flags.key = args[i + 1];
+        if (arg !== '--key' && !args[i + 1].trim()) {
+          flags._error = `${arg} requires a non-empty selector.`;
+          break;
+        }
+        flags[arg === '--key' ? 'key' : 'workspace'] = args[i + 1];
         i += 2;
       } else {
-        flags._error = '--key requires a value.';
+        flags._error = `${arg} requires a value.`;
         break;
       }
       continue;
@@ -204,6 +211,7 @@ function buildStartLaunchArgv(
   const launchArgv = ['start', profile];
   if (flags.bypass === true) launchArgv.push('--bypass');
   if (typeof flags.key === 'string') launchArgv.push('--key', flags.key);
+  if (typeof flags.workspace === 'string') launchArgv.push('--workspace', flags.workspace);
   if (flags.detached === true) launchArgv.push('--detached');
   if (extraArgs.length > 0) launchArgv.push('--', ...extraArgs);
   return launchArgv;
@@ -221,7 +229,7 @@ Commands:
   create <name>         Create a new profile
   new                   Create a new profile (interactive)
   resume [key]          Resume a session by selecting launch history or by key
-  start <profile>       Start a new session (--bypass, --key <key>, --detached, --harness-self-update <bool>, -- <harness_args>)
+  start <profile>       Start a new session (--bypass, --key <key>, --workspace <selector>, --detached, --harness-self-update <bool>, -- <harness_args>)
   list                  List all profiles
   which <profile>       Show resolved runtime details
   doctor [profile]      Run diagnostics
@@ -306,6 +314,7 @@ Prompt options:
 Start options:
   --key <key>              Custom session key (overrides auto-generated key)
   --bypass                 Explicitly bypass harness permissions and auto-confirm its exact workspace trust screen (Codex/Devin only; dangerous)
+  -w, --workspace <selector> Bind this session to a managed Workspace (e.g. rsg.lead); profile remains independent
   --detached               Launch a supervised detached runtime (survives launcher exit)
 
 Session options:
@@ -360,7 +369,7 @@ async function runCli(): Promise<void> {
         if (!profile) {
           console.error('Error: Profile name required');
           console.error(
-            'Usage: airelay start <profile> [--bypass] [--key <key>] [--detached] [--harness-self-update <bool>] [-- <harness_args...>]'
+            'Usage: airelay start <profile> [--bypass] [--key <key>] [--workspace <selector>] [--detached] [--harness-self-update <bool>] [-- <harness_args...>]'
           );
           process.exit(1);
         }
@@ -386,6 +395,7 @@ async function runCli(): Promise<void> {
           await startCommand(profile, extraArgs, {
             key: sessionKey,
             detached: flags.detached === true,
+            workspace: typeof flags.workspace === 'string' ? flags.workspace : undefined,
             bypass: flags.bypass === true,
             harnessSelfUpdate:
               typeof flags.harnessSelfUpdate === 'boolean' ? flags.harnessSelfUpdate : undefined,
@@ -396,6 +406,7 @@ async function runCli(): Promise<void> {
         break;
 
       case '__detach-run':
+        if (flags._error) throw new Error(String(flags._error));
         if (!profile) {
           console.error('Error: Profile name required');
           process.exit(1);
@@ -406,6 +417,7 @@ async function runCli(): Promise<void> {
           const sessionKey = flags.key as string | boolean | undefined;
           const exitCode = await detachedRuntimeMain(profile, extraArgs, {
             key: typeof sessionKey === 'string' && sessionKey.trim() ? sessionKey : undefined,
+            workspace: typeof flags.workspace === 'string' ? flags.workspace : undefined,
             bypass: flags.bypass === true,
             harnessSelfUpdate:
               typeof flags.harnessSelfUpdate === 'boolean' ? flags.harnessSelfUpdate : undefined,

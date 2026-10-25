@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { Profile } from '../config/schema';
-import { resolvePath } from '../config/paths';
-import { listWorkspaceDirectory, verifyWorkspaceFiles, type WorkspaceBinding } from './provision';
+import { listWorkspaceDirectory } from './provision';
+import { verifySessionWorkspace, type SessionWorkspace } from './binding';
 
 export interface NativeWorkspaceInventory {
   directory: string;
@@ -12,10 +12,7 @@ export interface NativeWorkspaceInventory {
   instructionsVerified: boolean;
 }
 
-export function validateWorkspaceProfile(
-  profile: Profile
-): asserts profile is Profile & { workspace: WorkspaceBinding } {
-  if (!profile.workspace) throw new Error('Profile does not have a workspace binding.');
+export function validateWorkspaceProfile(profile: Profile): void {
   const executable = profile.executable;
   const native =
     executable === 'devin' ||
@@ -78,14 +75,16 @@ export function validateWorkspaceArgs(args: string[]): void {
 
 export function verifyNativeWorkspace(
   profile: Profile,
-  root: string | undefined,
+  workspace: SessionWorkspace,
   executable: string,
   env: Record<string, string>
 ): NativeWorkspaceInventory {
   validateWorkspaceProfile(profile);
-  const { directory, manifest } = verifyWorkspaceFiles(profile.workspace, root);
-  if (profile.cwd && resolvePath(profile.cwd) !== directory)
-    throw new Error('Configured cwd differs from the managed workspace.');
+  const { directory, manifest } = verifySessionWorkspace(workspace);
+  if (manifest.allowedMcpServers.length)
+    throw new Error(
+      'Managed workspace requires zero MCP registrations during the current migration.'
+    );
   const deadline = Date.now() + 10000;
   const mcpOutput = nativeRead(executable, ['mcp', 'list'], directory, env, deadline);
   if (!/Configured MCP servers|No MCP servers/i.test(mcpOutput))

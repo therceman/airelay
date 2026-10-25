@@ -1,234 +1,261 @@
-# Project and Role Workspaces
+# Agent Workspaces
 
-Managed workspaces keep reusable role instructions and Skills in one place and
-bind a normal Airelay profile to its launch directory. Native discovery checks
-currently support Devin on Linux. Other existing profiles retain their normal
-environment and launch behavior.
+## Profile, Session, Workspace
+
+```bash
+airelay start devin --key rsg-lead --workspace rsg.lead
+airelay start devin --key bb-worker-01 --workspace bb_splunk.instances.worker-01 --detached
+airelay attach bb-worker-01
+airelay resume bb-worker-01
+```
+
+A **Profile** selects a harness/account. A **Session** owns a key, native ID and
+runtime. A **Workspace** selects managed instructions, Skills and the actual
+child working directory. One `devin` profile can run concurrent sessions in
+different Workspaces. Airelay does not generate `workspace-*` profiles.
+
+Without `--workspace` (`-w`), the existing profile/current-directory launch and
+inherited environment behavior are unchanged. This does not restore MCP removed
+by an operator. Managed verification currently supports native **Devin only**;
+other executables fail closed, not falsely verified.
+
+## Selectors and Stable Paths
+
+Dots map to directory separators, not a configuration object:
 
 ```text
-~/agent-workspaces/
-  rsg/lead/
-    AGENTS.md
-    .airelay-workspace.json
-    .devin/
-      skills/
-      mcp_config.json
-      mcp_config.local.json
-  bb_splunk/
-    worker/                         canonical role assets
-    instances/worker-01/            optional, concrete agent identity
-    instances/worker-02/            optional, concrete agent identity
+rsg.lead                       -> <root>/rsg/lead
+bb_splunk.roles.lead            -> <root>/bb_splunk/roles/lead
+bb_splunk.agents.worker1        -> <root>/bb_splunk/agents/worker1
+bb_splunk.instances.worker-01   -> <root>/bb_splunk/instances/worker-01
 ```
 
-There are no workspace `sessions/` directories or XDG overlays. Airelay's
-existing registry owns sessions. Source checkouts stay at their existing paths.
-The `instances/` directory is created only when an instance is requested.
+Selectors contain 2-8 alphanumeric/underscore/hyphen segments, at most 64
+characters each. Traversal, slash paths, symlink ancestors, nested managed
+workspaces and missing/altered manifests/assets are rejected. Real paths are
+checked; names alone are insufficient.
 
-## Provision and Inspect
-
-Initialize Airelay normally first. Supply operator-approved instructions and a
-directory whose immediate subdirectories contain Skills with `SKILL.md` files.
+Fresh installations default to `~/.airelay/workspaces`:
 
 ```bash
-airelay workspace provision rsg lead \
-  --instructions /path/to/approved/AGENTS.md \
-  --skills-dir /path/to/approved/skills \
-  --source ~/git/reposuite-gateway --dry-run
-
-# Review the plan, then repeat without --dry-run.
-airelay workspace provision rsg lead \
-  --instructions /path/to/approved/AGENTS.md \
-  --skills-dir /path/to/approved/skills \
-  --source ~/git/reposuite-gateway
-
-airelay workspace inspect rsg lead --json
-airelay workspace verify rsg lead --json
+airelay config set settings.workspaceRoot /absolute/path/to/workspaces
+airelay workspace list --json
 ```
 
-The root defaults to `~/agent-workspaces`. Change it with:
+The installed host keeps `/home/therceman/agent-workspaces` explicitly configured.
+Nothing is moved automatically. The interactive **Start** launcher offers
+hierarchical Workspace selection and an explicitly confirmed storage-root change.
 
-```bash
-airelay config set settings.workspaceRoot /absolute/path/to/agent-workspaces
+### Interactive Start
+
+Run `airelay` from the source checkout, choose **Start**, then a normal Profile:
+
+```text
+Select a Workspace project
+  bb_splunk
+  rsg
+  Create new Workspace...
+  Without workspace (normal profile/current directory)
+  Change workspace root...
 ```
 
-Provisioning is idempotent. Changed managed assets require `--update`; the
-previous materialization must still match its recorded digests. User edits or
-unmanaged target files cause an error. `--dry-run` (or `-n`) writes neither
-workspace files nor configuration. Reprovision with the complete desired input
-set. The current Owner-approved host target is **zero MCP everywhere**;
-omit `--mcp-config`, including when updating an existing workspace. This
-empties its private MCP file and updates the manifest together. It does not
-mask global registrations: native verification must still discover zero.
+Select a project to see only its immediate children; for example,
+`bb_splunk` -> `instances` -> `worker-01`. **Back** returns one level.
+Selecting a managed leaf passes its verified binding to the existing launch
+path. Profile, Session and Workspace remain independent.
 
-Each role owns one regular `AGENTS.md` and one copy of each Skill. Optional
-instances link only those assets to the canonical role. Both MCP files contain
-`{"mcpServers":{}}` in the temporary zero-MCP state. The private
-`.devin/mcp_config.local.json` remains a regular mode-0600 file, never a
-credential symlink. Preserve former credentials in a protected backup outside
-active discovery directories, not in an active workspace registration.
+**Create new Workspace...** is available even when the list is empty, and
+inside project branches. Enter a selector such as `agentvm.lead` or
+`agentvm.roles.worker`, optionally choose an instructions file (relative to
+the original source directory), then explicitly confirm the creation plan.
+Without a file, Airelay creates a minimal canonical `AGENTS.md` referring to
+that source checkout. Skills and both MCP files start empty. Source files,
+existing Workspace directories and Profiles are never overwritten by this flow.
+Use `workspace provision --role-workspace` for instances sharing an existing
+Role's assets; the launcher creates canonical Roles, not duplicate Agent copies.
+Native managed-launch verification still applies: creation does not bypass
+global MCP/Skill checks or authorize any tools.
 
-```bash
-airelay workspace provision bb_splunk worker \
-  --instructions /path/to/worker/AGENTS.md --skills-dir /path/to/worker/skills
+After selection/creation, an optional confirmation remembers the original
+source directory -> project association in `settings.workspaceProjects`:
 
-airelay workspace provision bb_splunk worker --instance worker-01 \
-  --principal worker-a
-airelay workspace provision bb_splunk worker --instance worker-02 \
-  --principal worker-b
+```yaml
+settings:
+  workspaceProjects:
+    - source: /mnt/w/devin_folder/agentvm
+      root: /home/user/agent-workspaces
+      project: agentvm
 ```
 
-`--principal` is an optional nonsecret operator label, not a credential or
-authorization grant. Provisioning never creates a backend Principal, account
-or lab entitlement. The reusable provisioner still accepts `--mcp-config`
-(`{"mcpServers": {...}}`); that capability is not approval to reconnect tools
-during the zero-MCP cutover. No runtime/session policy is changed by this
-operator migration target.
+The launcher canonicalizes the source's real path. Later launches from that
+directory or its descendants open the associated project branch, **not a
+preselected Role**. The longest matching explicit ancestor wins. Sibling path
+prefixes do not match. You can still go Back, select another project, or launch
+without a Workspace. Merely browsing never writes configuration. Associations
+are launcher hints only; they never change a session's immutable binding or
+affect explicit CLI `start`/`resume` behavior.
 
-## Launch, Wake, and Resume
+Associations retain the resolved absolute storage root. A changed global root
+or missing project disables that hint rather than redirecting it. At most 128
+source associations are accepted; an exact source can have only one project.
+Inspect them using `airelay config list`; clear them using
+`airelay config set settings.workspaceProjects '[]'`, or replace the array with
+validated YAML/JSON through the same config command.
 
-Provisioning registers an ordinary profile. Use the existing lifecycle commands:
+A session saves `{selector, root, path}` in existing session/history/runtime
+metadata. `root` and `path` are resolved absolute paths. Resume, detached
+supervision and wake use that saved binding, not the current global root.
+An existing key cannot change Workspace or silently become unmanaged. Use a
+new key or an explicitly reviewed migration. Old conflicting records fail
+closed. Exiting/pruning a runtime retains managed binding/native metadata;
+there is no workspace `sessions/` directory or second runtime registry.
+
+## Provision Canonical Roles and Optional Agents
 
 ```bash
-airelay start workspace-rsg-lead --key rsg-lead --detached
-airelay attach rsg-lead
-airelay resume rsg-lead
+airelay workspace provision rsg.lead \
+  --instructions /approved/rsg-lead-AGENTS.md \
+  --skills-dir /approved/rsg-lead-skills --source /existing/rsg/checkout --dry-run
+airelay workspace provision rsg.lead \
+  --instructions /approved/rsg-lead-AGENTS.md \
+  --skills-dir /approved/rsg-lead-skills --source /existing/rsg/checkout
+
+airelay workspace provision bb_splunk.roles.worker \
+  --instructions /approved/worker-AGENTS.md --skills-dir /approved/worker-skills
+airelay workspace provision bb_splunk.agents.worker1 \
+  --role-workspace bb_splunk.roles.worker --principal worker-01
+airelay workspace provision bb_splunk.agents.worker2 \
+  --role-workspace bb_splunk.roles.worker --principal worker-02
 ```
 
-An instance profile is named, for example,
-`workspace-bb_splunk-worker-worker-01`. The profile's `workspace` binding stores
-the project, role and optional instance. The actual child `cwd` is resolved
-from that binding; a conflicting saved/configured `cwd` is rejected. Account
-switching only offers profiles with the same harness and workspace binding.
+One Role owns `AGENTS.md` and `.devin/skills/`. Optional Agent directories link
+only those canonical assets. Private `.devin/mcp_config.local.json` is a regular
+0600 per-Agent file, never a credential symlink. Principal labels do not create
+credentials, principals, entitlements or connections. One Role can also run
+multiple sessions directly; instances are optional.
 
-Every managed harness generation, including wake, checks the current manifest
-and uses native CLI inspection before launching:
+A manifest records hashes, modes, the logical Project/Role/optional instance,
+and optional canonical Role selector. `--dry-run`/`-n` writes nothing. Repeated
+provisioning is idempotent; changes require `--update` and unchanged managed
+inputs. User edits/unmanaged target files are not overwritten. Updates have
+bounded file/byte limits and rollback. Shared Role updates invalidate modified
+Agent links/digests until explicitly reprovisioned. Source repositories are
+referenced, never copied or moved.
 
-- `devin mcp list`: the complete configured server-name set must equal the
-  manifest, and each server must resolve from this workspace's private file.
-- `devin skills list --json`: custom Skills must match the canonical role
-  paths; native `Builtin` resources remain allowed.
-- `devin rules list` and `devin rules show AGENTS`: exactly the canonical role
-  instruction source must be discovered and its contents must match.
-
-Native inspection has a total ten-second budget and bounded output. Its raw
-stdout/stderr is never included in failure messages because native diagnostics
-can contain secrets. Unexpected tools, Skills, rules, modified assets,
-configuration-root overrides or an unrecognized inventory fail closed. The
-supported managed launch options are native resume/continue, model, verbosity,
-permission mode, sandbox, workspace-trust selection, and a prompt after `--`.
-
-Devin's local MCP files **merge with global registrations**; an empty role
-file does not hide global tools. A globally configured foreign server therefore
-blocks a managed launch until its safe migration is complete. See
-[Devin configuration precedence](https://docs.devin.ai/cli/reference/configuration/global-vs-local)
-and [MCP configuration](https://docs.devin.ai/cli/extensibility/mcp/configuration).
-
-## Environment and Security
-
-Managed profiles inherit an explicit allowlist: `HOME`, user/login names,
-`PATH`, `SHELL`, terminal identity/color variables, standard locale categories,
-timezone, `WT_SESSION`, and Airelay's configuration/registry path overrides.
-Foreign session identity variables are discarded; the runtime injects its own
-session metadata afterward. Detached supervisors use the same environment
-policy. No wildcard credential environment or XDG variables are inherited.
-
-Authentication uses the native login store at the unchanged user `HOME`.
-Managed profiles reject arbitrary credential environment overrides and
-`--config`/cloud runtime switches. This implementation does not copy native
-authentication stores into workspaces. Unmanaged profiles keep their existing
-environment semantics.
-
-This prevents accidental cross-project discovery when preflight passes. It is
-**not strong secret isolation**: agents sharing one unrestricted Unix UID can
-read each other's files and change their own manifests. Backend authorization
-and distinct Principal credentials remain necessary. No credential broker,
-container sandbox, RSG/RSR integration, ACP adapter or cloud authority is added.
-
-## Migration and Rollback
-
-The current cutover removes **all eight** global Devin MCP registrations and
-every managed local registration; there are no BB-MCP or `gpt-tunnel`
-exceptions. Before global removal, inventory sources/imports and consumers,
-save private backups, and obtain the approved quiescent cutover window. A
-hibernated controller is still a consumer because its next wake reuses its
-launch configuration. Idle/busy and a historical Job snapshot do not prove
-that durable Jobs or leases are quiescent.
-
-Do not stop Jobs, revoke credentials, consolidate daemons or delete their
-identity registry/durable data to achieve zero discovery. Unused prepared
-workspaces can be emptied separately after checking live consumers. Full
-zero-MCP acceptance requires real-HOME `devin mcp list` in every affected
-context, not an empty local JSON file or a disposable-HOME fixture.
-
-`src/workspace/backup.ts` records original paths, modes, ownership and hashes.
-`restoreWorkspaceConfiguration(backupDirectory, [reviewedOriginalPaths])`
-restores only selected files after validating backup hashes. Restore only files
-changed by the migration; do not overwrite independently refreshed provider
-authentication/preferences. Retain backups and any user-edited workspace files.
-
-The host preparation status and outstanding cutover decisions are recorded in
-[the migration report](WORKSPACE-MIGRATION-2026-10-23.md).
-
-### Future BB-MCP Reconnection (Not Implemented or Approved)
-
-The future target has exactly one HTTP daemon/endpoint. Each authorized
-BB-Splunk concrete agent registers only the project-local alias `bb-mcp`, with
-a unique Bearer credential in a header. The server resolves that credential
-to an immutable agent identity, role and entitlements. Neither an alias,
-workspace path nor a client-supplied `role` query parameter grants authority.
-Never put credentials in URLs/query parameters. Two Workers share canonical
-Role assets but not credentials. BB-MCP stays absent globally and from
-unrelated projects. Reconnection and credential rotation require a separate
-Owner-approved process; this cutover neither rotates nor revokes credentials.
-
-## Verification
+## Zero MCP and Native Verification
 
 ```bash
-npm test -- --runInBand test/workspace.test.ts
+airelay workspace inspect rsg.lead --json
+airelay workspace verify rsg.lead --profile devin --json
+```
+
+**Current Owner target is ZERO MCP everywhere.** New provisioned workspaces
+contain empty public/private MCP configuration. The public provision command
+does not import MCP credentials. Managed launch rejects a manifest approving
+any MCP server and rejects any effective native MCP discovery, including
+global/imported registrations. It does not hide global settings with another
+HOME/XDG overlay. No BB-MCP or gpt-tunnel reconnection is automatic.
+
+Before each initial launch and wake, Airelay verifies files and runs native
+`devin mcp list`, `skills list --json`, `rules list`, and `rules show AGENTS`.
+Only approved Role Skills (plus product built-ins) and canonical instructions
+may resolve. Native checks share a 10s deadline and bounded output; failure
+output is not echoed because it can contain secrets. Unknown CLI output or
+unsupported native configuration fails closed before spawning the agent.
+
+Managed sessions inherit an explicit environment allowlist: real HOME/login
+identity, PATH/shell, terminal and locale fields, plus Airelay state path
+selectors. Profile HOME/USER/LOGNAME overrides, foreign MCP credentials,
+config-root variables and arbitrary environment overrides are rejected.
+Provider authentication remains the native Devin login under the real HOME;
+no authentication files are copied/symlinked. The lowest PTY spawn boundary
+uses this complete filtered environment without re-merging the parent. Unmanaged
+profiles retain ordinary inheritance.
+Only documented native resume/model/permission/sandbox/trust options are
+accepted; alternate runtime/config-root overrides are rejected.
+
+On the installed host, eight global Devin MCP aliases and a foreign uploaded
+Skill still block managed launches. Prepared local MCP files are empty, but
+**effective zero MCP is not yet verified under real HOME**. See the cutover
+runbook; do not treat a successful isolated fixture as host migration evidence.
+
+## Retired Generated Profiles
+
+Old `profiles.<name>.workspace` is rejected with an actionable migration error;
+it is not an alternate live configuration model:
+
+```bash
+airelay workspace migrate-profiles --dry-run --json
+airelay workspace migrate-profiles --json
+```
+
+This explicit utility removes only exact, unused, unmodified generated profiles,
+backs up original configuration privately, preserves permissions/ownership and
+pins the former implicit `~/agent-workspaces` root. It checks saved/history/
+detached references and Linux live process arguments. Referenced or edited
+profiles are preserved and require reviewed session metadata migration; the
+utility never stops processes or changes native IDs. Concurrent config edits
+abort replacement. No workspace files or credentials are deleted.
+
+This host's nine unused generated profiles have already been removed with a
+protected backup. Normal harness profiles and active processes were preserved.
+
+## Security and Future Reconnection
+
+Workspace/path/Profile/key/Skills/instructions are **not authorization**.
+Local discovery prevents accidental cross-project tool exposure, not same-UID
+secret access. Agents running as the same Unix user can read that user's files.
+Backend authentication and distinct immutable identities/entitlements remain
+necessary.
+
+### Future BB-MCP reconnection (not implemented or approved)
+
+Exactly one HTTP daemon/endpoint, local alias `bb-mcp`, and one unique header
+Bearer credential per authorized concrete BB agent. Server-side authentication
+maps credentials to immutable identities/roles/entitlements. Never authorize by
+alias/path/session key or client `role` query parameter; never put secrets in
+URLs. Workers share canonical instructions/Skills, not credentials. No global
+or unrelated-project registration.
+
+## Verification and Systemic Audit
+
+```bash
+npm test -- --runInBand workspace json-store resume detached
 npm run build
 node scripts/verify-workspace-devin.cjs
 ```
 
-The optional installed-Devin gate uses a disposable HOME, dummy MCP credentials,
-and five role/instance launch directories. It proves real Skill, rule, symlink
-and MCP discovery, then removes their dummy registrations and verifies all
-five discover zero. Negative global-contamination checks remain enabled,
-without model calls or foreign service invocation. Unit coverage also proves
-dry-run, zero-MCP reprovisioning, shared asset preservation, and selective
-credential/manifest rollback. This does not certify production startup/resume
-or backend Principal permissions.
+The installed-Devin script uses disposable HOME/workspaces and dummy credentials,
+performs native discovery/negative checks, and makes no model/service calls.
+Automated PTY tests cover concurrent same-profile sessions, independent wake,
+restart/root stability, detached supervisor transfer and immutable key binding.
 
-Storage is bounded to 256 managed files / 4 MiB, with Skill traversal capped at
-1,024 entries and depth eight. No periodic scanner or separate session store is
-introduced.
+| Candidate | Classification | Action | Evidence |
+| --- | --- | --- | --- |
+| Provision/config | Replaced profile ownership | Provision assets only; reject retired Profile field | Workspace/CLI/migration tests |
+| CLI start/launcher | Session parameter | Freeze selector to absolute binding | CLI/launcher tests |
+| Launcher project browsing | Flat list replaced | Immediate children only; Back and creation at each branch | Hierarchical launcher/creation tests |
+| Source-folder discovery | Explicit suggestion, not authority | Longest canonical source ancestor, current storage root, explicit confirmation | Association/root/sibling/symlink tests |
+| Explicit CLI/resume/wake | Intentional exception to launcher hints | Never consult source associations; use explicit/saved binding | CLI/resume/two-session wake tests |
+| Launcher provisioning | Existing provisioner reused | Dry-run then confirmation, zero MCP, no Profile/source overwrite | Empty-list creation/cancellation/asset checks |
+| Initial runtime | Required fail-closed boundary | Verify native inventory before reservation/spawn | Native preflight tests/script |
+| Concurrent sessions | Required atomicity | Transactional stores and live-key reservation | Cross-process store + two-PTY tests |
+| Detached parent/child | Required stable-path transfer | Pass frozen binding across supervisor boundary | Detached Workspace test |
+| Registry/history/finalization/rename | Required immutability | Preserve binding/native ID and reject reassignment | Session/history/rename tests |
+| Pruning | Async lost-update risk | Re-read after probe; retain managed binding | Concurrent-prune regressions |
+| Resume/account switch | Profile independent of Workspace | Pass saved binding without root re-resolution | Resume tests |
+| Wake/restart | Generation boundary | Reverify saved path each generation | Two-session wake/root-change test |
+| Filesystem/env | Existing policy reused | Enforce digest/link/native allowlist checks | Negative workspace tests |
+| Retired profiles | Removal-only migration exception | Block used/edited profiles; back up unused exact matches | Migration tests/protected host backup |
+| Unmanaged profiles | Explicit compatibility exception | Preserve cwd/env/lifecycle, never restore MCP implicitly | Existing runtime/env/full suite |
+| Host zero-MCP | Operationally BLOCKED, not code-ready proof | Disclose global/active-consumer blockers; do not stop work | Real-HOME inventory/cutover runbook |
 
-## Invariant Audit Surface
 
-The managed-launch invariant covers workspace provisioning, normal start/run,
-detached startup, profile switching, native resume, and hibernate/wake. Explicit
-unmanaged launches remain outside this policy. Discovery uses schema/call-path
-inspection, filesystem inventories, native CLI experiments, and runtime tests.
-
-| Candidate | Classification | Action / Evidence |
-| --- | --- | --- |
-| Project/role/instance selectors | Managed input | Restricted identifiers; traversal tests |
-| Destination roots and parents | Managed input | Absolute root and no symlink ancestors |
-| Canonical role assets | Managed material | Digests, bounded traversal, no unapproved files |
-| Instance instructions/Skills | Shared references | Only canonical role links permitted; real CLI symlink discovery |
-| Credential files | Private material | Regular files, 0600, no credential links |
-| Native/config-root arguments | Launch input | Supported arguments only; overrides refused |
-| Foreground and inherited-terminal launch | Runtime entry | Managed cwd and native preflight in runCommand |
-| Detached supervisor | Runtime entry | Same environment policy; existing runtime/receipt mechanism |
-| Resume/profile switching | Runtime entry | Saved cwd checked; same workspace binding required |
-| Wake generations | Runtime entry | Native preflight rerun before each spawn |
-| Global/imported MCP and Skills | External discovery | Exact native inventory/source comparison; foreign fixtures rejected |
-| Global/ancestor rules | External instructions | Exactly one canonical AGENTS source required |
-| Existing unmanaged profiles | Explicit compatibility boundary | Original environment/lifecycle behavior retained |
-| Live old controllers using global MCP | Deferred host cutover | No deletion/restart; see migration report |
-| Account-uploaded PWA Skill | Deferred host cleanup | Backed up; canonical destination awaits Owner decision |
-| Native auth and ordinary preferences | Protected user data | Preserved; host hashes checked unchanged |
-| Shared Unix UID | Explicit security limitation | Discovery containment only; no secret-isolation claim |
-
-No unexplained candidate in this bounded surface is treated as proof of global
-cleanup or production authorization. The migration report records incomplete
-acceptance separately from provisioner verification.
+Session/history/detached mutations use synchronous bounded store transactions
+(1s lock-acquisition limit) and atomic file replacement. A crash leaving a
+`.lock` directory fails closed with an inspection instruction; do not remove
+it until the owning writer is confirmed gone. Invalid state is not silently
+overwritten. Managed saved bindings are not silently evicted by the existing
+50-session/profile limit; review inactive records before explicit migration
+if that bound is reached. These locks coordinate current writers, not old
+in-memory runtimes; obsolete controllers still require the safe P2 cutover.

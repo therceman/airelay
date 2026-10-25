@@ -6,8 +6,8 @@ import Enquirer from 'enquirer';
 import { loadConfig } from '../config/load';
 import { migrateLegacyHomeDirIfNeeded } from '../config/migrate';
 import { runCommand } from './run';
-import { addSession } from './sessions';
-import { finalizeLaunchHistoryEntry } from './history';
+import { addSession, getSessionBindingEntries } from './sessions';
+import { finalizeLaunchHistoryEntry, getLaunchHistory } from './history';
 import { detectHarness, getResumeSessionArgs } from '../utils/harness';
 import {
   formatAge,
@@ -17,6 +17,8 @@ import {
   switchLastSessionProfile,
 } from './resume';
 import { withAirelayPromptSymbols } from '../utils/enquirer';
+import { chooseSessionWorkspace } from './workspace-select';
+import { assertWorkspaceBinding, type SessionWorkspace } from '../workspace/binding';
 
 function getLastUsedDirPath(): string {
   if (!process.env.AIRELAY_LAST_USED) {
@@ -181,11 +183,12 @@ export async function selectCommand(): Promise<void> {
   const profileName = profileResult.profile;
 
   setLastUsedProfile(profileName);
+  const workspace = await chooseSessionWorkspace();
 
   const confirmPrompt = withAirelayPromptSymbols({
     type: 'confirm',
     name: 'confirm',
-    message: `Start new session with ${profileName}?`,
+    message: `Start new session with ${profileName}${workspace ? ` in ${workspace.selector} (${workspace.path})` : ''}?`,
     initial: true,
   });
 
@@ -198,19 +201,25 @@ export async function selectCommand(): Promise<void> {
 
   const currentCwd = process.cwd();
   let exitCode: number;
-  const sessionStartInfo: { sessionKey: string; controllerEndpoint: string } = {
+  const sessionStartInfo: {
+    sessionKey: string;
+    controllerEndpoint: string;
+    workspace?: SessionWorkspace;
+  } = {
     sessionKey: '',
     controllerEndpoint: '',
   };
 
   try {
     exitCode = await runCommand(profileName, [], {
+      workspace,
       usePty: true,
       recordLaunch: true,
       invocationCwd: currentCwd,
       onSessionStart: (info) => {
         sessionStartInfo.sessionKey = info.sessionKey;
         sessionStartInfo.controllerEndpoint = info.controllerEndpoint;
+        sessionStartInfo.workspace = info.workspace;
         console.log(`\n✨ Session active — key: ${info.sessionKey}`);
         console.log(`   Use: airelay prompt ${info.sessionKey} "your message"\n`);
       },
@@ -245,10 +254,15 @@ export async function selectCommand(): Promise<void> {
     const harness = detectHarness(config.profiles[profileName].executable);
     const profileArgs = getResumeSessionArgs(harness, sessionId);
 
+    assertWorkspaceBinding(sessionKey, workspace, [
+      ...getSessionBindingEntries(),
+      ...getLaunchHistory(),
+    ]);
+
     addSession(
       profileName,
       sessionId,
-      currentCwd,
+      workspace?.path || currentCwd,
       sessionKey,
       sessionStartInfo.controllerEndpoint || undefined,
       undefined,
@@ -256,7 +270,8 @@ export async function selectCommand(): Promise<void> {
       undefined,
       undefined,
       sessionId,
-      profileArgs
+      profileArgs,
+      workspace
     );
     finalizeLaunchHistoryEntry({
       profile: profileName,

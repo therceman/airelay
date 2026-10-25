@@ -28,6 +28,16 @@ export function loadConfig(configPath?: string): Config {
     throw new Error(`Invalid YAML in config file: ${(e as Error).message}`);
   }
 
+  if (parsed && typeof parsed === 'object' && 'profiles' in parsed) {
+    const profiles = (parsed as { profiles?: Record<string, unknown> }).profiles;
+    if (
+      profiles &&
+      Object.values(profiles).some((p) => p && typeof p === 'object' && 'workspace' in p)
+    )
+      throw new Error(
+        'Profile-bound workspaces are retired. Run airelay workspace migrate-profiles --dry-run, then migrate unused generated profiles; use start --workspace.'
+      );
+  }
   const result = ConfigSchema.safeParse(parsed);
   if (!result.success) {
     const issues = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ');

@@ -5,8 +5,13 @@ import { buildEnv } from '../runtime/env';
 import { spawnAndWait, SpawnOptions } from '../runtime/spawn';
 import { LIVE_PRESENTATION_RESET, SessionController } from '../controller';
 import { IpcError, IpcErrorCodes, IpcErrorReasons } from '../types/controller';
-import { addSession, deleteSession, updateSessionRuntime } from './sessions';
-import { recordLaunchHistory, renderLaunchCommand } from './history';
+import {
+  addSession,
+  finalizeSessionRuntime,
+  getSessionBindingEntries,
+  updateSessionRuntime,
+} from './sessions';
+import { getLaunchHistory, recordLaunchHistory, renderLaunchCommand } from './history';
 import { getAirelayVersion, CONTROLLER_PROTOCOL_VERSION } from '../utils/version';
 import {
   detectHarness,
@@ -43,7 +48,12 @@ import { RuntimeDiagnostics, type HarnessReadyReason } from '../runtime/diagnost
 import { createControllerReveal, ResumePresentationGate } from '../runtime/resume-presentation';
 import { TerminalQueryReplyTracker } from '../runtime/terminal-query';
 import { READY_INPUT_FAIL_OPEN_MS, viewportShowsReady } from '../runtime/harness-ready';
-import { verifyWorkspaceFiles } from '../workspace/provision';
+import {
+  assertWorkspaceBinding,
+  resolveSessionWorkspace,
+  verifySessionWorkspace,
+  type SessionWorkspace,
+} from '../workspace/binding';
 import {
   validateWorkspaceArgs,
   validateWorkspaceProfile,
@@ -74,6 +84,7 @@ function generateSessionKey(profileName: string): string {
 
 /** Info handed to `onDetachedReady` once a detached runtime is fully started. */
 export interface DetachedReadyInfo {
+  workspace?: SessionWorkspace;
   sessionKey: string;
   runtimeId: string;
   runtimePid: number;
@@ -98,6 +109,7 @@ export function detectResumeSessionId(args: string[]): string | undefined {
 }
 
 export interface RunStartInfo {
+  workspace?: SessionWorkspace;
   sessionKey: string;
   controllerEndpoint: string;
 }
@@ -107,7 +119,8 @@ export function buildProfileEnv(
   extraArgs: string[],
   cwdOverride?: string,
   harnessSelfUpdateOverride?: boolean,
-  bypass = false
+  bypass = false,
+  requestedWorkspace?: string | SessionWorkspace
 ): {
   profile: Profile;
   cwd: string;
@@ -115,7 +128,7 @@ export function buildProfileEnv(
   args: string[];
   hibernateAfterMs: number;
   mousePassthrough: boolean;
-  workspaceRoot?: string;
+  workspace?: SessionWorkspace;
 } {
   const config = loadConfig();
   const configPath = getConfigPath();
@@ -129,16 +142,18 @@ export function buildProfileEnv(
   }
 
   const harness = detectHarness(profile.executable);
-  if (profile.workspace) validateWorkspaceProfile(profile);
+  const workspace =
+    typeof requestedWorkspace === 'string'
+      ? resolveSessionWorkspace(requestedWorkspace, config.settings.workspaceRoot)
+      : requestedWorkspace && verifySessionWorkspace(requestedWorkspace).workspace;
+  if (workspace) validateWorkspaceProfile(profile);
   if (bypass && !applyHarnessBypass(harness, [])) {
     throw new Error(
       `--bypass is not supported for the ${harness} harness. Supported harnesses: codex, devin.`
     );
   }
 
-  const managed = profile.workspace
-    ? verifyWorkspaceFiles(profile.workspace, config.settings.workspaceRoot)
-    : null;
+  const managed = workspace ? verifySessionWorkspace(workspace) : null;
   const cwd = managed
     ? managed.directory
     : cwdOverride
@@ -146,15 +161,11 @@ export function buildProfileEnv(
       : profile.cwd
         ? resolvePath(profile.cwd)
         : process.cwd();
-  if (
-    managed &&
-    ((cwdOverride && resolvePath(cwdOverride) !== cwd) ||
-      (profile.cwd && resolvePath(profile.cwd) !== cwd))
-  ) {
+  if (managed && cwdOverride && resolvePath(cwdOverride) !== cwd) {
     throw new Error('Saved or configured cwd differs from the managed workspace; refusing launch.');
   }
   ensureDirectories(profile, cwd);
-  const env = buildEnv(profile, configPath);
+  const env = buildEnv(profile, configPath, !!workspace);
   if (harness === 'codex' && env.CODEX_HOME) {
     ensureCodexProfileStandalone(env.CODEX_HOME);
   }
@@ -167,7 +178,7 @@ export function buildProfileEnv(
 
   const args = [...(profile.args || []), ...selfUpdateOverrides.args, ...extraArgs];
   const launchArgs = bypass ? applyHarnessBypass(harness, args) : args;
-  if (profile.workspace) validateWorkspaceArgs(launchArgs || args);
+  if (workspace) validateWorkspaceArgs(launchArgs || args);
 
   return {
     profile,
@@ -176,7 +187,7 @@ export function buildProfileEnv(
     args: launchArgs || args,
     hibernateAfterMs: parseDurationMs(config.settings.hibernateAfter) ?? -1,
     mousePassthrough: config.settings.mousePassthrough,
-    workspaceRoot: config.settings.workspaceRoot,
+    workspace,
   };
 }
 
@@ -347,19 +358,33 @@ export async function runCommand(
     onDetachedReady?: (info: DetachedReadyInfo) => void;
     /** Test override for the prompt-delivery fail-open bound while a harness loads. */
     readyTimeoutMs?: number;
+    workspace?: string | SessionWorkspace;
   }
 ): Promise<number> {
-  const { profile, cwd, env, args, hibernateAfterMs, mousePassthrough, workspaceRoot } =
+  const { profile, cwd, env, args, hibernateAfterMs, mousePassthrough, workspace } =
     buildProfileEnv(
       profileName,
       extraArgs,
       options?.cwd,
       options?.harnessSelfUpdate,
-      options?.bypass
+      options?.bypass,
+      options?.workspace
     );
 
   const sessionKey = options?.sessionKey || generateSessionKey(profileName);
   const runtime: RuntimeIdentity = createRuntimeIdentity();
+  if (workspace) runtime.workspace = workspace;
+  assertWorkspaceBinding(sessionKey, workspace, [
+    ...getSessionBindingEntries(),
+    ...getLaunchHistory(),
+  ]);
+  const verifyManaged = (): void => {
+    if (!workspace) return;
+    const executable = resolveExecutable(profile.executable);
+    if (!executable) throw new Error('Workspace harness executable not found; run airelay doctor.');
+    verifyNativeWorkspace(profile, workspace, executable, env);
+  };
+  verifyManaged();
   const runtimeId = runtime.runtimeId;
   const persistRuntimeState = (): void => {
     updateSessionRuntime(profileName, runtimeId, runtime);
@@ -721,6 +746,7 @@ export async function runCommand(
       ...(options?.detached ? ['--detached'] : []),
       '--key',
       sessionKey,
+      ...(workspace ? ['--workspace', workspace.selector] : []),
       ...(extraArgs.length > 0 ? ['--', ...extraArgs] : []),
     ];
     return (
@@ -825,45 +851,84 @@ export async function runCommand(
 
   let controllerStarted = false;
   try {
+    if (workspace)
+      addSession(
+        profileName,
+        runtimeId,
+        cwd,
+        sessionKey,
+        controller.endpointPath,
+        undefined,
+        getAirelayVersion(),
+        CONTROLLER_PROTOCOL_VERSION,
+        Date.now(),
+        detectedProfileSessionId,
+        extraArgs.length ? extraArgs : undefined,
+        workspace,
+        runtime
+      );
+  } catch (error) {
+    await controller.stop();
+    throw error;
+  }
+  try {
     await controller.start();
     controllerStarted = true;
-  } catch {
+  } catch (error) {
+    if (workspace) {
+      finalizeSessionRuntime(profileName, runtimeId);
+      await controller.stop();
+      throw error;
+    }
     // Controller start failure is non-fatal; session runs without IPC
   }
 
-  if (controllerStarted && options?.onSessionStart) {
-    options.onSessionStart({ sessionKey, controllerEndpoint: controller.endpointPath });
-  }
+  try {
+    if (controllerStarted && options?.onSessionStart) {
+      options.onSessionStart({
+        sessionKey,
+        controllerEndpoint: controller.endpointPath,
+        workspace,
+      });
+    }
 
-  if (options?.recordLaunch) {
-    const launchArgv = options.launchArgv || [
-      'start',
-      profileName,
-      ...(sessionKey ? ['--key', sessionKey] : []),
-      ...(extraArgs.length > 0 ? ['--', ...extraArgs] : []),
-    ];
-    recordLaunchHistory({
-      profile: profileName,
-      sessionKey,
-      invocationCwd: options.invocationCwd || process.cwd(),
-      argv: launchArgv,
-    });
-  }
+    if (options?.recordLaunch) {
+      const launchArgv = options.launchArgv || [
+        'start',
+        profileName,
+        ...(sessionKey ? ['--key', sessionKey] : []),
+        ...(workspace ? ['--workspace', workspace.selector] : []),
+        ...(extraArgs.length > 0 ? ['--', ...extraArgs] : []),
+      ];
+      recordLaunchHistory({
+        profile: profileName,
+        sessionKey,
+        invocationCwd: options.invocationCwd || process.cwd(),
+        argv: launchArgv,
+        workspace,
+      });
+    }
 
-  addSession(
-    profileName,
-    runtimeId,
-    cwd,
-    sessionKey,
-    controller.endpointPath,
-    undefined,
-    getAirelayVersion(),
-    CONTROLLER_PROTOCOL_VERSION,
-    Date.now(),
-    detectedProfileSessionId,
-    extraArgs.length > 0 ? extraArgs : undefined
-  );
-  persistRuntimeState();
+    if (!workspace)
+      addSession(
+        profileName,
+        runtimeId,
+        cwd,
+        sessionKey,
+        controller.endpointPath,
+        undefined,
+        getAirelayVersion(),
+        CONTROLLER_PROTOCOL_VERSION,
+        Date.now(),
+        detectedProfileSessionId,
+        extraArgs.length > 0 ? extraArgs : undefined
+      );
+    persistRuntimeState();
+  } catch (error) {
+    await controller.stop();
+    finalizeSessionRuntime(profileName, runtimeId);
+    throw error;
+  }
 
   // Inject session metadata into child process environment
   Object.assign(env, {
@@ -888,6 +953,7 @@ export async function runCommand(
     args,
     cwd,
     env,
+    inheritEnv: !workspace,
     profile: profileName,
     trackPID: true,
     usePty,
@@ -938,6 +1004,7 @@ export async function runCommand(
           profile: profileName,
           cwd,
           startedAt,
+          workspace,
         };
         addDetachedEntry({
           runtimeId,
@@ -949,6 +1016,7 @@ export async function runCommand(
           controllerEndpoint: controller.endpointPath,
           startedAt,
           attachedClients: controller.getAttachedClientCount(),
+          workspace,
         });
         options.onDetachedReady?.(info);
       }
@@ -1036,13 +1104,10 @@ export async function runCommand(
   try {
     let keepRunning = true;
     let exitCode = 0;
+    let firstGeneration = true;
     while (keepRunning) {
-      if (profile.workspace) {
-        const executable = resolveExecutable(profile.executable);
-        if (!executable)
-          throw new Error('Workspace harness executable not found; run airelay doctor.');
-        verifyNativeWorkspace(profile, workspaceRoot, executable, env);
-      }
+      if (!firstGeneration) verifyManaged();
+      firstGeneration = false;
       terminalQueryReplies.reset();
       workspaceTrustAccepted = false;
       const diagnostics = diagnosticsEnabled ? RuntimeDiagnostics.start(sessionKey) : null;
@@ -1201,7 +1266,7 @@ export async function runCommand(
     inputWatcher?.dispose();
     await controller.stop();
     resetTerminalMouseTracking();
-    deleteSession(profileName, runtimeId);
+    finalizeSessionRuntime(profileName, runtimeId);
     if (options?.detached === true) {
       removeDetachedEntry(runtimeId);
     }

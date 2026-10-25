@@ -43,8 +43,9 @@ Config schema (`src/config/schema.ts`):
 - `settings.hibernateAfter`: duration such as `5m`, `30s`, `2h`, or `off`; defaults to `5m`
 - `settings.harnessSelfUpdate`: whether harness self-update checks are allowed; defaults to `false`
 - `settings.mousePassthrough`: allow click/wheel/drag input while suppressing unsolicited pointer-motion reports; defaults to `true`
-- `settings.workspaceRoot`: optional managed workspace root; defaults to `~/agent-workspaces`
-- `profiles.<name>.workspace`: opt-in Project/Role/optional instance binding; see `docs/WORKSPACES.md` for environment/discovery policy
+- `settings.workspaceRoot`: optional managed workspace root; fresh default `~/.airelay/workspaces`; preserve explicitly configured existing roots
+- `settings.workspaceProjects`: optional bounded `{source, root, project}[]` launcher hints; canonical source directory/longest ancestor opens a project branch only, never changes saved session bindings
+- `start --workspace <dot.selector>`: session-owned `{selector, root, path}` binding; NOT a Profile field; see `docs/WORKSPACES.md` for native fail-closed verification and migration
 - `profiles: { <name>: { executable, cwd?, args?, env?, description?, createDirs? } }`
 
 `airelay config set <key> <value>` updates every schema-defined setting and
@@ -61,6 +62,7 @@ Session schema (`src/commands/sessions.ts`):
 - `description?`: Optional description
 - `cwd?`: Working directory
 - `lastUsed`: Timestamp
+- `workspace?`: Immutable session Workspace `{selector, root, path}` with saved absolute root/path
 
 Env vars with path-like values (`HOME`, `XDG_*`, `*_HOME`, `*_CONFIG_DIR`) get `~` expanded.
 

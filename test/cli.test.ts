@@ -232,3 +232,48 @@ describe('parseArgs', () => {
     expect(result.flags).toHaveProperty('active', true);
   });
 });
+
+describe('session workspace flags', () => {
+  it.each(['--workspace', '-w'])('keeps %s out of harness arguments', (flag) => {
+    const parsed = parseArgs([
+      'node',
+      'airelay',
+      'start',
+      'devin',
+      '--key',
+      'role-key',
+      flag,
+      'rsg.lead',
+      '--',
+      '--resume',
+      'native-id',
+    ]);
+    expect(parsed.flags.workspace).toBe('rsg.lead');
+    expect(parsed.flags.key).toBe('role-key');
+    expect(parsed.extraArgs).toEqual(['--resume', 'native-id']);
+  });
+  it('does not intercept harness options after the separator', () => {
+    const parsed = parseArgs([
+      'node',
+      'airelay',
+      'start',
+      'devin',
+      '--',
+      '--workspace',
+      'native-option',
+    ]);
+    expect(parsed.flags.workspace).toBeUndefined();
+    expect(parsed.extraArgs).toEqual(['--workspace', 'native-option']);
+  });
+  it('rejects a missing workspace flag value', () => {
+    expect(
+      parseArgs(['node', 'airelay', 'start', 'devin', '--workspace']).flags._error
+    ).toBeDefined();
+  });
+});
+
+it('rejects an empty Workspace selector rather than silently launching unmanaged', () => {
+  expect(
+    parseArgs(['node', 'airelay', 'start', 'devin', '--workspace', '']).flags._error
+  ).toBeDefined();
+});

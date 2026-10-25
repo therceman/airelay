@@ -9,6 +9,7 @@ export interface SpawnOptions {
   args?: string[];
   cwd?: string;
   env?: Record<string, string>;
+  inheritEnv?: boolean;
   profile?: string;
   trackPID?: boolean;
   usePty?: boolean;
@@ -119,6 +120,7 @@ async function spawnAndWaitPty(options: SpawnOptions): Promise<number> {
     rows: ptySize?.rows,
     cwd: options.cwd,
     env: options.env,
+    inheritEnv: options.inheritEnv,
     onOutput: options.onOutput,
     onForegroundOutput: options.onForegroundOutput,
     onInput: options.onInput,

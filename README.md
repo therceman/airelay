@@ -189,14 +189,28 @@ Use `airelay create <name> --executable <tool>` for guided profile creation, and
 
 ## Project and role workspaces
 
-`airelay workspace` provisions reusable project/role instructions and Skills,
-with optional instances for distinct agent identities. The current host
-migration target is zero MCP registrations, pending safe controller cutover.
-Managed Devin launches verify native tool discovery and filter inherited
-environment variables before starting. They use the existing Airelay profiles
-and session lifecycle. See
-[Agent Workspaces](docs/WORKSPACES.md) for provisioning, launch, verification,
-and migration requirements.
+Workspace is an independent **session parameter**, not a generated profile:
+
+```bash
+airelay start devin --key rsg-lead --workspace rsg.lead
+airelay start devin --key bb-worker-01 --workspace bb_splunk.instances.worker-01 --detached
+airelay resume bb-worker-01
+```
+
+One profile can run multiple Workspaces concurrently. Select a Workspace in the
+interactive **Start** launcher, or use `--workspace` (`-w`). Saved sessions keep
+their resolved directory even if `settings.workspaceRoot` changes. Fresh roots
+default to `~/.airelay/workspaces`; existing configured roots are preserved.
+The launcher browses projects first, then their folders/Roles, and can create a
+new Workspace with zero MCP. Optionally remember the source folder's project
+association so the next launch opens that branch without preselecting a Role.
+
+`airelay workspace` provisions reusable Role instructions/Skills and optional
+Agent instances without duplicating Role assets. Managed native Devin launches
+verify discovery fail-closed; other harnesses are not claimed verified. The
+current migration target is **zero MCP**, not automatic reconnection. See
+[Agent Workspaces](docs/WORKSPACES.md) for provisioning, environment policy and
+safe migration. Launching without `--workspace` keeps ordinary profile behavior.
 
 ## Command reference
 
@@ -204,7 +218,7 @@ and migration requirements.
 | --- | --- |
 | `airelay init` / `airelay guide` | Set up and discover installed harnesses |
 | `airelay create <name> --executable <tool>` | Create a profile |
-| `airelay start <profile> [--key <key>] [--detached]` | Launch a PTY-backed managed session |
+| `airelay start <profile> [--key <key>] [--workspace <selector>] [--detached]` | Launch a PTY-backed managed session |
 | `airelay resume [key]` | Resume session history / select a matching profile |
 | `airelay sessions [--active] [--json]` | Inspect saved and active sessions |
 | `airelay session-status <session> [--json]` | Inspect controller and activity status |

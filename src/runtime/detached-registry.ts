@@ -2,9 +2,11 @@ import os from 'os';
 import path from 'path';
 import { createJsonStore } from '../utils/json-store';
 import { isControllerReachable } from '../commands/sessions';
+import type { SessionWorkspace } from '../workspace/binding';
 
 /** Canonical record for a supervised detached runtime (one per runtimeId). */
 export interface DetachedRuntimeEntry {
+  workspace?: SessionWorkspace;
   /** Stable runtime identity (opaque, distinct from the sessionKey). */
   runtimeId: string;
   sessionKey: string;
@@ -51,28 +53,49 @@ export function getDetachedEntry(runtimeId: string): DetachedRuntimeEntry | unde
 }
 
 export function addDetachedEntry(entry: DetachedRuntimeEntry): void {
-  const data = loadRegistry();
-  data[entry.runtimeId] = entry;
-  saveRegistry(data);
+  try {
+    return store.transaction(() => {
+      const data = loadRegistry();
+      data[entry.runtimeId] = entry;
+      saveRegistry(data);
+    });
+  } catch {
+    // Liveness metadata remains best effort; initial Workspace reservation is strict.
+    return;
+  }
 }
 
 export function updateDetachedEntry(
   runtimeId: string,
   patch: Partial<Omit<DetachedRuntimeEntry, 'runtimeId'>>
 ): void {
-  const data = loadRegistry();
-  const existing = data[runtimeId];
-  if (!existing) return;
-  data[runtimeId] = { ...existing, ...patch };
-  saveRegistry(data);
+  try {
+    return store.transaction(() => {
+      const data = loadRegistry();
+      const existing = data[runtimeId];
+      if (!existing) return;
+      data[runtimeId] = { ...existing, ...patch };
+      saveRegistry(data);
+    });
+  } catch {
+    // Liveness metadata remains best effort; initial Workspace reservation is strict.
+    return;
+  }
 }
 
 export function removeDetachedEntry(runtimeId: string): boolean {
-  const data = loadRegistry();
-  if (!data[runtimeId]) return false;
-  delete data[runtimeId];
-  saveRegistry(data);
-  return true;
+  try {
+    return store.transaction(() => {
+      const data = loadRegistry();
+      if (!data[runtimeId]) return false;
+      delete data[runtimeId];
+      saveRegistry(data);
+      return true;
+    });
+  } catch {
+    // Liveness metadata remains best effort; initial Workspace reservation is strict.
+    return false;
+  }
 }
 
 /**

@@ -6,6 +6,11 @@ import { runCommand, DetachedReadyInfo } from './run';
 import { loadConfig, getConfigPath } from '../config/load';
 import { buildEnv } from '../runtime/env';
 import {
+  resolveSessionWorkspace,
+  SessionWorkspaceSchema,
+  type SessionWorkspace,
+} from '../workspace/binding';
+import {
   listDetachedEntries,
   isEntryReachable,
   pruneDetachedEntries,
@@ -121,6 +126,8 @@ function printReceipt(info: DetachedReadyInfo): void {
   console.log(`  controller:   ${info.controllerEndpoint}`);
   console.log(`  profile:      ${info.profile}`);
   console.log(`  cwd:          ${info.cwd}`);
+  if (info.workspace)
+    console.log(`  workspace:    ${info.workspace.selector} (${info.workspace.path})`);
   console.log(`  started:      ${new Date(info.startedAt).toISOString()}`);
   console.log(`Attach later with: airelay attach ${info.sessionKey}`);
 }
@@ -139,19 +146,25 @@ export async function startDetachedCommand(
     bypass?: boolean;
     harnessSelfUpdate?: boolean;
     invocationCwd?: string;
+    workspace?: string;
   }
 ): Promise<number> {
   const key = options?.key;
-  const selectedProfile = loadConfig().profiles[profile];
-  const runtimeEnv = selectedProfile?.workspace
-    ? buildEnv(selectedProfile, getConfigPath())
-    : process.env;
+  const config = loadConfig();
+  const selectedProfile = config.profiles[profile];
+  const workspace =
+    options?.workspace !== undefined
+      ? resolveSessionWorkspace(options.workspace, config.settings.workspaceRoot)
+      : undefined;
+  const runtimeEnv =
+    workspace && selectedProfile ? buildEnv(selectedProfile, getConfigPath(), true) : process.env;
   const launchArgv = [
     'start',
     profile,
     '--detached',
     ...(options?.bypass ? ['--bypass'] : []),
     ...(key ? ['--key', key] : []),
+    ...(workspace ? ['--workspace', workspace.selector] : []),
     ...(extraArgs.length > 0 ? ['--', ...extraArgs] : []),
   ];
 
@@ -177,6 +190,7 @@ export async function startDetachedCommand(
         ? ['--harness-self-update', String(options.harnessSelfUpdate)]
         : []),
       ...(key ? ['--key', key] : []),
+      ...(workspace ? ['--workspace', workspace.selector] : []),
       ...(extraArgs.length > 0 ? ['--', ...extraArgs] : []),
     ],
     {
@@ -188,6 +202,7 @@ export async function startDetachedCommand(
         ...runtimeEnv,
         AIRELAY_DETACHED_RECEIPT: receiptPath,
         AIRELAY_DETACHED_LAUNCH_ARGV: JSON.stringify(launchArgv),
+        ...(workspace ? { AIRELAY_DETACHED_WORKSPACE: JSON.stringify(workspace) } : {}),
       } as Record<string, string> & NodeJS.ProcessEnv,
     }
   );
@@ -222,12 +237,20 @@ export async function startDetachedCommand(
 export async function detachedRuntimeMain(
   profile: string,
   extraArgs: string[],
-  options?: { key?: string; bypass?: boolean; harnessSelfUpdate?: boolean }
+  options?: { key?: string; bypass?: boolean; harnessSelfUpdate?: boolean; workspace?: string }
 ): Promise<number> {
   const receiptPath = process.env.AIRELAY_DETACHED_RECEIPT;
   const launchArgv = readLaunchArgv(process.env.AIRELAY_DETACHED_LAUNCH_ARGV);
 
   try {
+    let workspace: SessionWorkspace | undefined;
+    if (options?.workspace !== undefined) {
+      workspace = SessionWorkspaceSchema.parse(
+        JSON.parse(process.env.AIRELAY_DETACHED_WORKSPACE || 'null')
+      );
+      if (workspace.selector !== options.workspace)
+        throw new Error('Detached workspace handoff mismatch.');
+    }
     const code = await runCommand(profile, extraArgs, {
       usePty: true,
       sessionKey: options?.key,
@@ -236,6 +259,7 @@ export async function detachedRuntimeMain(
       detached: true,
       recordLaunch: launchArgv !== undefined,
       launchArgv,
+      workspace,
       onDetachedReady: (info) => {
         if (receiptPath) {
           writeDetachedReceipt(receiptPath, { ok: true, ...info });

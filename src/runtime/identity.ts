@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { SessionWorkspace } from '../workspace/binding';
 
 export type RuntimeState = 'starting' | 'running' | 'hibernating' | 'hibernated' | 'stopping';
 
@@ -11,6 +12,7 @@ export type RuntimeHealth =
   | 'legacy-unknown';
 
 export interface RuntimeIdentity {
+  workspace?: SessionWorkspace;
   runtimeId: string;
   controllerPid: number;
   harnessPid: number | null;

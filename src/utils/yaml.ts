@@ -32,11 +32,6 @@ export function profileToYaml(name: string, profile: Profile): string {
     }
   }
 
-  if (profile.workspace) {
-    yaml += `\n    workspace:\n      project: ${profile.workspace.project}\n      role: ${profile.workspace.role}`;
-    if (profile.workspace.instance) yaml += `\n      instance: ${profile.workspace.instance}`;
-  }
-
   return yaml;
 }
 

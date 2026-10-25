@@ -5,6 +5,7 @@ import { buildEnv } from '../src/runtime/env';
 import { buildProfileEnv, runCommand } from '../src/commands/run';
 import { workspaceCommand } from '../src/commands/workspace';
 import { Profile } from '../src/config/schema';
+import { resolveSessionWorkspace } from '../src/workspace/binding';
 import {
   provisionWorkspace,
   verifyWorkspaceFiles,
@@ -99,7 +100,7 @@ describe('project/role workspaces', () => {
     const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
     try {
       expect(
-        workspaceCommand('provision', ['test', 'worker'], {
+        workspaceCommand('provision', ['test.worker'], {
           instructions,
           'skills-dir': skillsDir,
           'dry-run': true,
@@ -114,10 +115,10 @@ describe('project/role workspaces', () => {
 
   it('rejects misspelled or valued dry-run flags before writing', () => {
     expect(() =>
-      workspaceCommand('provision', ['test', 'worker'], { instructions, dryrun: true })
+      workspaceCommand('provision', ['test.worker'], { instructions, dryrun: true })
     ).toThrow('Unknown workspace option');
     expect(() =>
-      workspaceCommand('provision', ['test', 'worker'], { instructions, 'dry-run': 'true' })
+      workspaceCommand('provision', ['test.worker'], { instructions, 'dry-run': 'true' })
     ).toThrow('does not take a value');
     expect(fs.existsSync(root)).toBe(false);
   });
@@ -353,61 +354,64 @@ describe('project/role workspaces', () => {
 });
 
 describe('managed environment and launch binding', () => {
-  it('limits account switching to profiles with the same managed workspace binding', () => {
-    const workspace = { project: 'test', role: 'worker' };
+  it('keeps same-harness account switching independent of the session workspace', () => {
     fs.writeFileSync(
       testEnv.configPath,
       JSON.stringify({
         version: 1,
         profiles: {
-          managed: { executable: 'devin', workspace },
-          same: { executable: 'devin', workspace },
-          foreign: { executable: 'devin', workspace: { project: 'other', role: 'worker' } },
-          unmanaged: { executable: 'devin' },
+          devin: { executable: 'devin' },
+          second: { executable: 'devin' },
+          other: { executable: 'codex' },
         },
       })
     );
-    expect(getSameHarnessProfiles('managed')).toEqual(['same']);
-    expect(getSameHarnessProfiles('unmanaged')).toEqual([]);
+    expect(getSameHarnessProfiles('devin')).toEqual(['second']);
   });
-  it('filters foreign credentials only for managed profiles and preserves native login paths', () => {
+  it('filters foreign credentials only for managed sessions and preserves native login paths', () => {
     const original = process.env.BB_MCP_TOKEN;
     process.env.BB_MCP_TOKEN = 'dummy-foreign';
     try {
       expect(buildEnv({ executable: 'node' }).BB_MCP_TOKEN).toBe('dummy-foreign');
-      const managed = buildEnv({
-        executable: 'devin',
-        workspace: { project: 'test', role: 'worker' },
-      });
+      const managed = buildEnv({ executable: 'devin' }, undefined, true);
       expect(managed.BB_MCP_TOKEN).toBeUndefined();
       expect(managed.AIRELAY_SESSION_KEY).toBeUndefined();
       expect(managed.HOME).toBe(process.env.HOME);
       expect(managed.PATH).toBe(process.env.PATH);
       expect(() =>
-        buildEnv({
-          executable: 'devin',
-          workspace: { project: 'test', role: 'worker' },
-          env: { BB_MCP_TOKEN: 'dummy' },
-        })
+        buildEnv({ executable: 'devin', env: { BB_MCP_TOKEN: 'dummy' } }, undefined, true)
       ).toThrow('not supported');
     } finally {
       if (original === undefined) delete process.env.BB_MCP_TOKEN;
       else process.env.BB_MCP_TOKEN = original;
     }
   });
-
-  it('registers a normal profile and preserves cwd on resume while rejecting a foreign cwd', () => {
+  it('provisions without creating profiles and resolves a session-level workspace', () => {
     const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    const config = fs.readFileSync(testEnv.configPath);
     try {
-      workspaceCommand('provision', ['test', 'worker'], { instructions, 'skills-dir': skillsDir });
+      workspaceCommand('provision', ['test.worker'], { instructions, 'skills-dir': skillsDir });
     } finally {
       log.mockRestore();
     }
-    const expected = path.join(root, 'test/worker');
+    expect(fs.readFileSync(testEnv.configPath)).toEqual(config);
+    fs.writeFileSync(
+      testEnv.configPath,
+      JSON.stringify({
+        version: 1,
+        settings: { workspaceRoot: root },
+        profiles: {
+          devin: { executable: 'devin', cwd: testEnv.testDir },
+          existing: { executable: 'node' },
+        },
+      })
+    );
+    const binding = resolveSessionWorkspace('test.worker', root);
     expect(
-      buildProfileEnv('workspace-test-worker', ['--resume', 'native-session'], expected).cwd
-    ).toBe(expected);
-    expect(() => buildProfileEnv('workspace-test-worker', [], testEnv.testDir)).toThrow(
+      buildProfileEnv('devin', ['--resume', 'native-session'], undefined, undefined, false, binding)
+        .cwd
+    ).toBe(binding.path);
+    expect(() => buildProfileEnv('devin', [], testEnv.testDir, undefined, false, binding)).toThrow(
       'cwd differs'
     );
     expect(buildProfileEnv('existing', [], testEnv.testDir).cwd).toBe(testEnv.testDir);
@@ -461,8 +465,15 @@ describe('native workspace preflight', () => {
   it('verifies native discovery and rejects foreign global MCP without invoking any service', () => {
     provisionRole();
     const executable = fakeDevin();
-    const profile: Profile = { executable, workspace: { project: 'test', role: 'worker' } };
-    expect(verifyNativeWorkspace(profile, root, executable, buildEnv(profile))).toMatchObject({
+    const profile: Profile = { executable };
+    expect(
+      verifyNativeWorkspace(
+        profile,
+        resolveSessionWorkspace('test.worker', root),
+        executable,
+        buildEnv(profile, undefined, true)
+      )
+    ).toMatchObject({
       mcpServers: [],
       skills: ['worker-guide'],
       instructionsVerified: true,
@@ -472,9 +483,14 @@ describe('native workspace preflight', () => {
       path.join(process.env.HOME!, '.config/devin/mcp_config.json'),
       '{"mcpServers":{"foreign-project":{"command":"/bin/false"}}}'
     );
-    expect(() => verifyNativeWorkspace(profile, root, executable, buildEnv(profile))).toThrow(
-      'MCP inventory differs'
-    );
+    expect(() =>
+      verifyNativeWorkspace(
+        profile,
+        resolveSessionWorkspace('test.worker', root),
+        executable,
+        buildEnv(profile, undefined, true)
+      )
+    ).toThrow('MCP inventory differs');
     expect(fs.existsSync(path.join(testEnv.testDir, 'launch.json'))).toBe(false);
   });
 
@@ -485,9 +501,14 @@ describe('native workspace preflight', () => {
       executable,
       '#!/usr/bin/env node\nprocess.stderr.write("dummy-native-secret"); process.exit(1);\n'
     );
-    const profile: Profile = { executable, workspace: { project: 'test', role: 'worker' } };
+    const profile: Profile = { executable };
     try {
-      verifyNativeWorkspace(profile, root, executable, buildEnv(profile));
+      verifyNativeWorkspace(
+        profile,
+        resolveSessionWorkspace('test.worker', root),
+        executable,
+        buildEnv(profile, undefined, true)
+      );
       throw new Error('Preflight unexpectedly passed');
     } catch (error) {
       expect((error as Error).message).toContain('Workspace preflight failed');
@@ -507,23 +528,30 @@ describe('native workspace preflight', () => {
           managed: {
             executable,
             cwd: path.join(root, 'test/worker'),
-            workspace: { project: 'test', role: 'worker' },
           },
         },
       })
     );
-    const result = await runCommand('managed', ['--resume', 'disposable-native-session'], {
-      usePty: true,
-      detached: true,
-      sessionKey: 'workspace_test',
-    });
-    expect(result).toBe(0);
-    const launch = JSON.parse(
-      fs.readFileSync(path.join(testEnv.testDir, 'launch.json'), 'utf8')
-    ) as { cwd: string; args: string[]; envKeys: string[] };
-    expect(launch.cwd).toBe(path.join(root, 'test/worker'));
-    expect(launch.args).toEqual(['--resume', 'disposable-native-session']);
-    expect(launch.envKeys).not.toContain('BB_MCP_TOKEN');
+    const previousToken = process.env.BB_MCP_TOKEN;
+    process.env.BB_MCP_TOKEN = 'dummy-parent-credential';
+    try {
+      const result = await runCommand('managed', ['--resume', 'disposable-native-session'], {
+        usePty: true,
+        detached: true,
+        sessionKey: 'workspace_test',
+        workspace: 'test.worker',
+      });
+      expect(result).toBe(0);
+      const launch = JSON.parse(
+        fs.readFileSync(path.join(testEnv.testDir, 'launch.json'), 'utf8')
+      ) as { cwd: string; args: string[]; envKeys: string[] };
+      expect(launch.cwd).toBe(path.join(root, 'test/worker'));
+      expect(launch.args).toEqual(['--resume', 'disposable-native-session']);
+      expect(launch.envKeys).not.toContain('BB_MCP_TOKEN');
+    } finally {
+      if (previousToken === undefined) delete process.env.BB_MCP_TOKEN;
+      else process.env.BB_MCP_TOKEN = previousToken;
+    }
   });
 
   it('revalidates the same role workspace and native resume arguments across hibernate/wake generations', async () => {
@@ -538,7 +566,6 @@ describe('native workspace preflight', () => {
           managed: {
             executable,
             cwd: path.join(root, 'test/worker'),
-            workspace: { project: 'test', role: 'worker' },
           },
         },
       })
@@ -548,6 +575,7 @@ describe('native workspace preflight', () => {
       usePty: true,
       detached: true,
       sessionKey: 'workspace_wake_test',
+      workspace: 'test.worker',
       onSessionStart: (info) => {
         endpoint = info.controllerEndpoint;
       },
@@ -555,9 +583,9 @@ describe('native workspace preflight', () => {
     let finished = false;
     void runtime.catch(() => undefined);
     try {
-      const deadline = Date.now() + 10000;
+      const deadline = performance.now() + 10000;
       let hibernated = false;
-      while (Date.now() < deadline) {
+      while (performance.now() < deadline) {
         if (
           endpoint &&
           (await fetchControllerInfo(endpoint)).runtime?.runtimeState === 'hibernated'

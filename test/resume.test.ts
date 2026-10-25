@@ -975,3 +975,57 @@ describe('resumeCommand', () => {
     jest.restoreAllMocks();
   });
 });
+
+it('resumes the saved session Workspace without resolving it through the current global root', async () => {
+  const workspace = { selector: 'rsg.lead', root: '/saved/root', path: '/saved/root/rsg/lead' };
+  (findSessionByKey as jest.Mock).mockReturnValue({
+    profile: 'testprofile',
+    session: {
+      id: 'internal',
+      profile: 'testprofile',
+      lastUsed: 1,
+      sessionKey: 'bound-resume',
+      cwd: '/old/caller',
+      profileSessionId: 'native-id',
+      profileArgs: ['-s', 'native-id'],
+      workspace,
+    },
+  });
+  await resumeCommand('bound-resume');
+  expect(runCommand).toHaveBeenCalledWith(
+    'testprofile',
+    ['-s', 'native-id'],
+    expect.objectContaining({ workspace, cwd: workspace.path, sessionKey: 'bound-resume' })
+  );
+});
+
+it('keeps the Workspace selector out of native args when resuming from history', async () => {
+  const workspace = { selector: 'rsg.lead', root: '/saved/root', path: '/saved/root/rsg/lead' };
+  (getLaunchHistory as jest.Mock).mockReturnValue([
+    {
+      id: 'workspace-history',
+      profile: 'testprofile',
+      sessionKey: 'from-history',
+      invocationCwd: process.cwd(),
+      startedAt: 1,
+      workspace,
+      argv: [
+        'start',
+        'testprofile',
+        '--workspace',
+        'rsg.lead',
+        '--key',
+        'from-history',
+        '--',
+        '-s',
+        'native-id',
+      ],
+    },
+  ]);
+  await resumeCommand('from-history');
+  expect(runCommand).toHaveBeenCalledWith(
+    'testprofile',
+    ['-s', 'native-id'],
+    expect.objectContaining({ workspace, cwd: workspace.path, sessionKey: 'from-history' })
+  );
+});

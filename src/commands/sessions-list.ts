@@ -1,5 +1,6 @@
 import os from 'os';
 import { loadSessions, pruneStaleSessions } from './sessions';
+import type { SessionWorkspace } from '../workspace/binding';
 
 function normalizeCwd(cwd?: string): string {
   if (!cwd) return '';
@@ -11,6 +12,7 @@ function normalizeCwd(cwd?: string): string {
 }
 
 export interface SessionRow {
+  workspace?: SessionWorkspace;
   sessionId: string;
   profile: string;
   cwd: string;
@@ -48,6 +50,7 @@ async function flattenSessions(): Promise<SessionRow[]> {
         controllerEndpoint: entry.controllerEndpoint,
         lastUsed: entry.lastUsed,
         pid: entry.pid,
+        ...(entry.workspace ? { workspace: entry.workspace } : {}),
       });
     }
   }
@@ -99,6 +102,8 @@ export async function sessionsListCommand(flags?: {
       row.sessionKey && row.sessionKey !== row.sessionId ? ` (key: ${row.sessionKey})` : '';
     console.log(`${row.sessionId}${keyInfo}${cwdInfo}${activeTag}`);
     console.log(`  profile: ${row.profile}`);
+    if (row.workspace)
+      console.log(`  workspace: ${row.workspace.selector} (${row.workspace.path})`);
     if (row.pid !== undefined) {
       console.log(`  pid: ${row.pid}`);
     }
