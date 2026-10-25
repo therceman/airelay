@@ -323,7 +323,11 @@ export function configListCommand(json = false): void {
   console.log(YAML.stringify(config));
 }
 
-export function configSetCommand(key: string, value: string): void {
+export function configSetCommand(
+  key: string,
+  value: string,
+  options: { quiet?: boolean } = {}
+): void {
   const configPath = getConfigPath();
   loadConfig(configPath);
   const raw = readRawConfig(configPath);
@@ -331,7 +335,7 @@ export function configSetCommand(key: string, value: string): void {
 
   ConfigSchema.parse(updated);
   writeConfigAtomically(configPath, updated);
-  console.log(`Set ${key} in ${configPath}`);
+  if (!options.quiet) console.log(`Set ${key} in ${configPath}`);
 }
 
 export function configUnsetCommand(key: string): void {

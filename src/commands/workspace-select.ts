@@ -24,7 +24,7 @@ async function rememberProject(source: string, workspace: SessionWorkspace): Pro
       type: 'confirm',
       name: 'remember',
       initial: false,
-      message: `Remember ${source} -> ${project} for future launcher selections?`,
+      message: `Remember ${project} for this folder?`,
     })
   )) as { remember: boolean };
   if (!result.remember) return;
@@ -35,7 +35,8 @@ async function rememberProject(source: string, workspace: SessionWorkspace): Pro
     JSON.stringify([
       ...current.filter((link) => link.source !== source),
       { source, root: workspace.root, project },
-    ])
+    ]),
+    { quiet: true }
   );
 }
 
@@ -72,13 +73,13 @@ async function createWorkspace(
     root,
     source,
   };
-  const plan = createLauncherWorkspace({ ...options, dryRun: true });
+  createLauncherWorkspace({ ...options, dryRun: true });
   const confirm = (await Enquirer.prompt(
     withAirelayPromptSymbols({
       type: 'confirm',
       name: 'create',
       initial: false,
-      message: `Create agent Workspace ${plan.directory} for ${source} with zero MCP?`,
+      message: `Create Workspace ${result.selector}?`,
     })
   )) as { create: boolean };
   if (!confirm.create) return undefined;

@@ -69,6 +69,23 @@ describe('config command', () => {
     expect(disabled.settings.hibernateAfter).toBe('off');
   });
 
+  it('can suppress the save notice without bypassing validation or changing CLI defaults', () => {
+    configSetCommand('settings.promptMaxLength', '1024', { quiet: true });
+    expect(
+      ConfigSchema.parse(YAML.parse(fs.readFileSync(testEnv.configPath, 'utf8'))).settings
+    ).toMatchObject({ promptMaxLength: 1024 });
+    expect(console.log).not.toHaveBeenCalled();
+    const before = fs.readFileSync(testEnv.configPath);
+    expect(() => configSetCommand('settings.promptMaxLength', '0', { quiet: true })).toThrow(
+      'positive integer'
+    );
+    expect(fs.readFileSync(testEnv.configPath)).toEqual(before);
+    configSetCommand('settings.promptMaxLength', '2048');
+    expect(console.log).toHaveBeenCalledWith(
+      `Set settings.promptMaxLength in ${testEnv.configPath}`
+    );
+  });
+
   it('sets and validates harness self-update policy', () => {
     configSetCommand('settings.harnessSelfUpdate', 'true');
 

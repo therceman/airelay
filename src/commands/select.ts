@@ -188,7 +188,7 @@ export async function selectCommand(): Promise<void> {
   const confirmPrompt = withAirelayPromptSymbols({
     type: 'confirm',
     name: 'confirm',
-    message: `Start new session with ${profileName}${workspace ? ` in ${workspace.selector} (${workspace.path})` : ''}?`,
+    message: `Start ${profileName}${workspace ? ` in ${workspace.selector}` : ''}?`,
     initial: true,
   });
 

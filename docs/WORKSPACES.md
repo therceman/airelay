@@ -49,7 +49,9 @@ Create new Workspace, Back, and Without workspace.
 
 ```text
 ? New Workspace selector (<project>.<agent>) > agentvm.lead
-? Create agent Workspace <root>/agentvm/agents/lead ...? > Yes
+? Create Workspace agentvm.lead? > Yes
+? Remember agentvm for this folder? > Yes
+? Start devin in agentvm.lead? > Yes
 ```
 
 No Role or instructions-file question follows. Creation scaffolds minimal

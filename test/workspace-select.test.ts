@@ -28,7 +28,7 @@ const menu = (index: number) =>
   prompt.mock.calls[index][0] as {
     message: string;
     choices: Array<{ name: string; message: string }>;
-    initial: string;
+    initial: string | boolean;
   };
 const names = (index: number) => menu(index).choices.map((choice) => choice.name);
 function agentWorkspace(selector: string) {
@@ -125,6 +125,11 @@ it('creates a new zero-MCP agent from an empty launcher without generating a pro
   const selected = await chooseSessionWorkspace(source);
   expect(selected).toEqual(resolveSessionWorkspace('agentvm.lead', root));
   expect(menu(1).initial).toBe('agentvm.lead');
+  expect(menu(2).message).toBe('Create Workspace agentvm.lead?');
+  expect(menu(2).initial).toBe(false);
+  expect(menu(3).message).toBe('Remember agentvm for this folder?');
+  expect(menu(3).initial).toBe(false);
+  expect(log).not.toHaveBeenCalled();
   expect(fs.readFileSync(path.join(selected!.path, 'AGENTS.md'), 'utf8')).toContain(source);
   expect(fs.readdirSync(path.join(selected!.path, '.devin/skills'))).toEqual([]);
   for (const file of ['mcp_config.json', 'mcp_config.local.json']) {
@@ -148,6 +153,7 @@ it('creates within an existing project without asking for instructions or a role
   const selected = await chooseSessionWorkspace(source);
   expect(menu(2).initial).toBe('rsg.lead');
   expect(menu(2).message).toBe('New Workspace selector (<project>.<agent>)');
+  expect(menu(3).message).toBe('Create Workspace rsg.lead?');
   expect(fs.existsSync(path.join(selected!.path, 'AGENTS.md'))).toBe(true);
   expect(prompt.mock.calls.map((call) => call[0].name)).toEqual([
     'workspace',
@@ -317,7 +323,7 @@ it('browses real Enquirer project and agent menus in a disposable terminal witho
         stage++;
         frame = '';
         terminal.write('\r');
-      } else if (stage === 2 && frame.includes('for future launcher selections?')) {
+      } else if (stage === 2 && frame.includes('Remember rsg for this folder?')) {
         stage++;
         frame = '';
         terminal.write('n\r');
@@ -355,8 +361,8 @@ it('creates an agent through the real Enquirer selector and confirmation without
   const steps = [
     ['Without workspace (normal profile/current directory)', '\r'],
     ['New Workspace selector (<project>.<agent>)', '\r'],
-    ['with zero MCP?', 'y\r'],
-    ['for future launcher selections?', 'n\r'],
+    ['Create Workspace agentvm.lead?', 'y\r'],
+    ['Remember agentvm for this folder?', 'y\r'],
   ];
   const terminal = createPty({
     file: process.execPath,
@@ -386,7 +392,11 @@ it('creates an agent through the real Enquirer selector and confirmation without
     ).toBe(0);
     expect(output).toContain('CREATED:agentvm.lead');
     expect(output).not.toContain('Instructions file');
+    expect(output).not.toContain('Set settings.workspaceProjects');
+    expect(output).not.toContain('Create agent Workspace');
+    expect(output).not.toContain(source);
     expect(stage).toBe(4);
+    expect(loadConfig().settings.workspaceProjects).toEqual([{ source, root, project: 'agentvm' }]);
     const selected = resolveSessionWorkspace('agentvm.lead', root);
     expect(selected.path).toBe(path.join(root, 'agentvm/agents/lead'));
     expect(

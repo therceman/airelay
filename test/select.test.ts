@@ -1,8 +1,21 @@
-import { buildMainChoices, getLastUsedProfile, setLastUsedProfile } from '../src/commands/select';
+import {
+  buildMainChoices,
+  getLastUsedProfile,
+  selectCommand,
+  setLastUsedProfile,
+} from '../src/commands/select';
+import Enquirer from 'enquirer';
+import { runCommand } from '../src/commands/run';
+import { chooseSessionWorkspace } from '../src/commands/workspace-select';
+import { createTestConfig, useTestEnv } from './test-utils';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
+
+jest.mock('enquirer', () => ({ prompt: jest.fn() }));
+jest.mock('../src/commands/run', () => ({ runCommand: jest.fn() }));
+jest.mock('../src/commands/workspace-select', () => ({ chooseSessionWorkspace: jest.fn() }));
 
 describe('last-used tracking', () => {
   const testDir = path.join(os.tmpdir(), 'airelay-lastused-test-' + process.pid + '-' + Date.now());
@@ -93,5 +106,66 @@ describe('main selector choices', () => {
       { name: 'Resume', message: 'Resume project session' },
       { name: 'Start', message: 'Start new session' },
     ]);
+  });
+});
+
+describe('start confirmation', () => {
+  const env = useTestEnv();
+  const prompt = jest.mocked(Enquirer.prompt);
+  const run = jest.mocked(runCommand);
+  const chooseWorkspace = jest.mocked(chooseSessionWorkspace);
+  let log: jest.SpyInstance;
+  let exit: jest.SpyInstance;
+
+  beforeEach(() => {
+    jest.resetAllMocks();
+    log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    exit = jest.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    createTestConfig(env.configPath, { devin: { executable: 'devin' } });
+    run.mockResolvedValue(0);
+  });
+
+  afterEach(() => {
+    log.mockRestore();
+    exit.mockRestore();
+  });
+
+  it.each([false, true])('keeps the launch question short (Workspace: %s)', async (managed) => {
+    const root = path.join(env.testDir, 'workspaces');
+    const workspace = managed
+      ? { selector: 'agentvm.lead-win', root, path: path.join(root, 'agentvm/agents/lead-win') }
+      : undefined;
+    chooseWorkspace.mockResolvedValue(workspace);
+    prompt
+      .mockResolvedValueOnce({ action: 'Start' })
+      .mockResolvedValueOnce({ profile: 'devin' })
+      .mockResolvedValueOnce({ confirm: true })
+      .mockResolvedValueOnce({ sessionId: '' });
+
+    await selectCommand();
+
+    expect(prompt.mock.calls[2][0]).toMatchObject({
+      name: 'confirm',
+      message: managed ? 'Start devin in agentvm.lead-win?' : 'Start devin?',
+      initial: true,
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledWith('devin', [], expect.objectContaining({ workspace }));
+    expect(exit).toHaveBeenCalledWith(0);
+  });
+
+  it('still cancels without starting a session', async () => {
+    chooseWorkspace.mockResolvedValue(undefined);
+    prompt
+      .mockResolvedValueOnce({ action: 'Start' })
+      .mockResolvedValueOnce({ profile: 'devin' })
+      .mockResolvedValueOnce({ confirm: false });
+
+    await selectCommand();
+
+    expect(run).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
+    expect(console.log).toHaveBeenCalledWith('Cancelled');
+    expect(prompt).toHaveBeenCalledTimes(3);
   });
 });
