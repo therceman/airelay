@@ -5,12 +5,8 @@ import { buildEnv } from '../src/runtime/env';
 import { buildProfileEnv, runCommand } from '../src/commands/run';
 import { workspaceCommand } from '../src/commands/workspace';
 import { Profile } from '../src/config/schema';
-import { resolveSessionWorkspace } from '../src/workspace/binding';
-import {
-  provisionWorkspace,
-  verifyWorkspaceFiles,
-  workspacePath,
-} from '../src/workspace/provision';
+import { listWorkspaces, resolveSessionWorkspace } from '../src/workspace/binding';
+import { provisionWorkspace, readWorkspace, workspacePath } from '../src/workspace/provision';
 import { useTestEnv } from './test-utils';
 import { getSameHarnessProfiles } from '../src/commands/resume';
 import { fetchControllerInfo, sendControllerRequest } from '../src/commands/session-ipc';
@@ -105,7 +101,7 @@ describe('agent-only Workspace provisioning', () => {
     const before = fs.statSync(path.join(created.directory, 'AGENTS.md')).mtimeMs;
     expect(provisionWorkspace(options).changed).toEqual([]);
     expect(fs.statSync(path.join(created.directory, 'AGENTS.md')).mtimeMs).toBe(before);
-    expect(verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root).manifest).toEqual({
+    expect(readWorkspace({ project: 'test', agent: 'worker' }, root).manifest).toEqual({
       version: 2,
       binding: { project: 'test', agent: 'worker' },
       source,
@@ -154,7 +150,7 @@ describe('agent-only Workspace provisioning', () => {
       path.join(agent.directory, '.devin/skills/worker-guide/notes.md'),
       'Extra agent notes'
     );
-    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).not.toThrow();
+    expect(() => readWorkspace({ project: 'test', agent: 'worker' }, root)).not.toThrow();
     expect(provisionWorkspace({ project: 'test', agent: 'worker', root }).changed).toEqual([]);
     expect(fs.readFileSync(path.join(agent.directory, '.airelay-workspace.json'))).toEqual(
       manifest
@@ -173,24 +169,25 @@ describe('agent-only Workspace provisioning', () => {
     fs.symlinkSync(caseDirectory, path.join(root, 'escape'));
     expect(() => provisionWorkspace({ project: 'escape', agent: 'lead', root })).toThrow('symlink');
   });
-  it('allows explicit internal asset sharing without any Role assignment but rejects escaping links and cycles', () => {
+  it('leaves user-owned links opaque, including external, broken and cyclic links', () => {
     const agent = provisionAgent();
     const other = provisionWorkspace({ project: 'test', agent: 'other', root });
     const file = path.join(other.directory, 'AGENTS.md');
     fs.unlinkSync(file);
     fs.symlinkSync(path.join(agent.directory, 'AGENTS.md'), file);
-    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'other' }, root)).not.toThrow();
+    expect(() => readWorkspace({ project: 'test', agent: 'other' }, root)).not.toThrow();
     fs.unlinkSync(file);
     fs.symlinkSync(instructions, file);
-    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'other' }, root)).toThrow(
-      'escapes'
-    );
-    fs.unlinkSync(file);
-    fs.writeFileSync(file, '# Other');
+    expect(() => resolveSessionWorkspace('test.other', root)).not.toThrow();
     const skills = path.join(other.directory, '.devin/skills');
     fs.mkdirSync(skills, { recursive: true });
     fs.symlinkSync(skills, path.join(skills, 'cycle'));
-    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'other' }, root)).toThrow('cycle');
+    fs.symlinkSync(path.join(caseDirectory, 'missing'), path.join(skills, 'broken'));
+    expect(() => resolveSessionWorkspace('test.other', root)).not.toThrow();
+    expect(provisionWorkspace({ project: 'test', agent: 'other', root }).changed).toEqual([]);
+    expect(listWorkspaces(root).map((w) => w.selector)).toEqual(['test.other', 'test.worker']);
+    expect(fs.readlinkSync(file)).toBe(instructions);
+    expect(fs.readlinkSync(path.join(skills, 'cycle'))).toBe(skills);
   });
   it('treats native MCP and import configuration as opaque user-owned files', () => {
     const agent = provisionAgent();
@@ -199,24 +196,95 @@ describe('agent-only Workspace provisioning', () => {
     fs.writeFileSync(local, configured);
     fs.chmodSync(local, 0o600);
     fs.writeFileSync(path.join(agent.directory, '.devin/config.json'), '{"imports":[]}');
-    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).not.toThrow();
+    expect(() => readWorkspace({ project: 'test', agent: 'worker' }, root)).not.toThrow();
     expect(provisionWorkspace({ project: 'test', agent: 'worker', root }).changed).toEqual([]);
     expect(fs.readFileSync(local, 'utf8')).toBe(configured);
     expect(fs.statSync(local).mode & 0o777).toBe(0o600);
   });
-  it('bounds asset scans and file sizes', () => {
+  it.each(['file size', 'total size', 'directory entries', 'tree size', 'tree depth'])(
+    'does not impose a %s quota on user content across verification, discovery and launch',
+    (kind) => {
+      const agent = provisionAgent();
+      const skills = path.join(agent.directory, '.devin/skills');
+      if (kind === 'file size')
+        fs.writeFileSync(path.join(skills, 'large'), Buffer.alloc(5 * 1024 * 1024));
+      if (kind === 'total size') {
+        for (let i = 0; i < 3; i++)
+          fs.writeFileSync(path.join(skills, `large-${i}`), Buffer.alloc(2 * 1024 * 1024));
+      }
+      if (kind === 'directory entries') {
+        for (let i = 0; i < 257; i++) fs.writeFileSync(path.join(skills, `extra-${i}`), 'x');
+      }
+      if (kind === 'tree size') {
+        for (let i = 0; i < 6; i++) {
+          const directory = path.join(skills, `group-${i}`);
+          fs.mkdirSync(directory);
+          for (let j = 0; j < 200; j++) fs.writeFileSync(path.join(directory, `entry-${j}`), 'x');
+        }
+      }
+      if (kind === 'tree depth')
+        fs.mkdirSync(path.join(skills, ...Array<string>(12).fill('nested')), { recursive: true });
+      const manifest = path.join(agent.directory, '.airelay-workspace.json');
+      const before = fs.readFileSync(manifest);
+      const reads = jest.spyOn(fs, 'readFileSync');
+      const scans = jest.spyOn(fs, 'opendirSync');
+      const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+      try {
+        expect(readWorkspace({ project: 'test', agent: 'worker' }, root).directory).toBe(
+          agent.directory
+        );
+        expect(provisionWorkspace({ project: 'test', agent: 'worker', root }).changed).toEqual([]);
+        const workspace = resolveSessionWorkspace('test.worker', root);
+        expect(listWorkspaces(root)).toEqual([workspace]);
+        expect(workspaceCommand('verify', ['test.worker'], { json: true })).toBe(0);
+        expect(buildProfileEnv('existing', [], undefined, undefined, false, workspace).cwd).toBe(
+          agent.directory
+        );
+        // Binding checks may read only Airelay metadata/config, never the agent's files.
+        expect(
+          reads.mock.calls.filter(([file]) => String(file).startsWith(agent.directory))
+        ).not.toEqual([]);
+        expect(
+          reads.mock.calls
+            .filter(([file]) => String(file).startsWith(agent.directory))
+            .every(([file]) => file === manifest)
+        ).toBe(true);
+        expect(scans.mock.calls.map(([directory]) => directory)).not.toContain(agent.directory);
+        expect(scans.mock.calls).toHaveLength(3);
+      } finally {
+        reads.mockRestore();
+        scans.mockRestore();
+        log.mockRestore();
+      }
+      expect(fs.readFileSync(manifest)).toEqual(before);
+    }
+  );
+  it('does not inspect live Unix sockets inside a Workspace', async () => {
     const agent = provisionAgent();
-    const skills = path.join(agent.directory, '.devin/skills');
-    for (let i = 0; i < 257; i++) fs.writeFileSync(path.join(skills, 'extra-' + i), 'x');
-    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).toThrow(
-      'entry limit'
-    );
-    fs.rmSync(skills, { recursive: true });
-    fs.mkdirSync(skills);
-    fs.writeFileSync(path.join(skills, 'huge'), Buffer.alloc(4 * 1024 * 1024 + 1));
-    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).toThrow(
-      'asset limit'
-    );
+    const server = net.createServer();
+    // Keep the Unix socket path short on hosts with a long temporary root.
+    const socket = path.join(agent.directory, 'agent.sock');
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(socket, resolve);
+    });
+    try {
+      expect(() => resolveSessionWorkspace('test.worker', root)).not.toThrow();
+      expect(provisionWorkspace({ project: 'test', agent: 'worker', root }).changed).toEqual([]);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve()))
+      );
+    }
+  });
+  it('bounds only the Airelay manifest read and rejects a symlinked manifest', () => {
+    const agent = provisionAgent();
+    const file = path.join(agent.directory, '.airelay-workspace.json');
+    fs.writeFileSync(file, Buffer.alloc(4 * 1024 * 1024 + 1));
+    expect(() => resolveSessionWorkspace('test.worker', root)).toThrow('unsupported');
+    fs.unlinkSync(file);
+    fs.symlinkSync(instructions, file);
+    expect(() => resolveSessionWorkspace('test.worker', root)).toThrow('symlink');
   });
   it('fails closed on obsolete manifests and mismatched Agent identity', () => {
     const agent = provisionAgent();
@@ -225,14 +293,12 @@ describe('agent-only Workspace provisioning', () => {
       file,
       JSON.stringify({ version: 1, binding: { project: 'test', role: 'worker' } })
     );
-    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).toThrow(
-      'unsupported'
-    );
+    expect(() => readWorkspace({ project: 'test', agent: 'worker' }, root)).toThrow('unsupported');
     fs.writeFileSync(
       file,
       JSON.stringify({ version: 2, binding: { project: 'test', agent: 'other' } })
     );
-    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).toThrow(
+    expect(() => readWorkspace({ project: 'test', agent: 'worker' }, root)).toThrow(
       'does not match'
     );
   });
@@ -255,7 +321,7 @@ describe('agent-only Workspace provisioning', () => {
     const nativeConfig = '{"token":"dummy-private-secret", invalid';
     fs.writeFileSync(file, nativeConfig);
     fs.unlinkSync(path.join(agent.directory, 'AGENTS.md'));
-    expect(() => verifyWorkspaceFiles({ project: 'test', agent: 'worker' }, root)).not.toThrow();
+    expect(() => readWorkspace({ project: 'test', agent: 'worker' }, root)).not.toThrow();
     expect(fs.readFileSync(file, 'utf8')).toBe(nativeConfig);
   });
   it('fails closed during an external Workspace maintenance lock without creating a directory', () => {
@@ -417,6 +483,7 @@ describe('generic Workspace launch', () => {
 
   it('starts the actual child with configured MCP, its workspace cwd, normal profile env and native resume args', async () => {
     const agent = provisionAgent();
+    fs.writeFileSync(path.join(agent.directory, 'large-user-data'), Buffer.alloc(5 * 1024 * 1024));
     fs.writeFileSync(
       path.join(agent.directory, '.devin/mcp_config.local.json'),
       '{"mcpServers":{"project-tool":{"command":"/bin/false"}}}'
@@ -457,7 +524,7 @@ describe('generic Workspace launch', () => {
     }
   });
 
-  it('revalidates the same agent workspace and native resume arguments across hibernate/wake generations', async () => {
+  it('wakes the same agent workspace after user content grows beyond the former quota', async () => {
     const agent = provisionAgent();
     const local = path.join(agent.directory, '.devin/mcp_config.local.json');
     const configured = '{"mcpServers":{"project-tool":{"command":"/bin/false"}}}';
@@ -502,6 +569,8 @@ describe('generic Workspace launch', () => {
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
       expect(hibernated).toBe(true);
+      const userData = path.join(agent.directory, 'large-user-data');
+      fs.writeFileSync(userData, Buffer.alloc(5 * 1024 * 1024));
       await new Promise<void>((resolve, reject) => {
         const socket = net.createConnection(endpoint);
         socket.once('error', reject);
@@ -524,6 +593,7 @@ describe('generic Workspace launch', () => {
         .split('\n')
         .map((line) => JSON.parse(line));
       expect(launches).toHaveLength(2);
+      expect(fs.statSync(userData).size).toBe(5 * 1024 * 1024);
       expect(fs.readFileSync(local, 'utf8')).toBe(configured);
       for (const launch of launches) {
         expect(launch.cwd).toBe(path.join(root, 'test/agents/worker'));

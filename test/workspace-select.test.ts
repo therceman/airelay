@@ -168,7 +168,7 @@ it('cancelled creation performs no Workspace or configuration writes', async () 
   expect(fs.existsSync(root)).toBe(false);
   expect(fs.readFileSync(env.configPath)).toEqual(before);
 });
-it('rejects traversal, escaping links, existing directories and altered managed assets', async () => {
+it('rejects traversal, linked Workspace paths/manifests and existing unmanaged directories', async () => {
   const options = { selector: 'rsg.lead', root, source };
   expect(() => createLauncherWorkspace({ ...options, selector: '../outside' })).toThrow(
     'Invalid workspace selector'
@@ -181,11 +181,11 @@ it('rejects traversal, escaping links, existing directories and altered managed 
   expect(() => createLauncherWorkspace({ ...options, selector: 'escape.lead' })).toThrow('symlink');
   fs.unlinkSync(path.join(root, 'escape'));
   agentWorkspace('rsg.worker');
-  const asset = path.join(root, 'rsg/agents/worker/AGENTS.md');
+  const asset = path.join(root, 'rsg/agents/worker/.airelay-workspace.json');
   fs.unlinkSync(asset);
   fs.symlinkSync(path.join(source, 'outside.md'), asset);
   fs.writeFileSync(path.join(source, 'outside.md'), 'outside');
-  await expect(chooseSessionWorkspace(source)).rejects.toThrow('escapes');
+  await expect(chooseSessionWorkspace(source)).rejects.toThrow('symlink');
 });
 it('accepts updated instructions after an interactive pause', async () => {
   agentWorkspace('rsg.lead');

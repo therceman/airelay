@@ -77,6 +77,16 @@ it('rejects missing manifests, escaping symlinks and allows agent-owned instruct
   expect(() => verifySessionWorkspace(workspace)).not.toThrow();
 });
 
+it('checks the selected Workspace manifest instead of trusting a redirect to another agent', () => {
+  const workspace = agentWorkspace();
+  agentWorkspace('rsg.worker');
+  fs.writeFileSync(
+    path.join(workspace.path, '.airelay-workspace.json'),
+    JSON.stringify({ version: 2, binding: { project: 'rsg', agent: 'worker' } })
+  );
+  expect(() => verifySessionWorkspace(workspace)).toThrow('does not match');
+});
+
 it('keeps saved absolute binding stable after global root changes and refuses a different saved path', () => {
   const workspace = agentWorkspace();
   const replacement = path.join(directory, 'different-root');

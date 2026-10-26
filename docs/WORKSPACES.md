@@ -123,12 +123,14 @@ Use /home/user/git/agentvm. Follow its build and review instructions.
 
 Edit/add instructions and Skills directly: no digest registration or
 reprovisioning is required. The selected harness discovers its own native
-configuration on launch/resume. Airelay does not inspect its MCP/Skills/rules. Changes do not promise that an already-running harness
-reloads configuration; restart/resume according to that CLI's own rules.
+configuration on launch/resume. Airelay does not inspect its MCP/Skills/rules.
+Changes do not promise that an already-running harness reloads configuration;
+restart/resume according to that CLI's own rules.
 
-Manual sharing of instruction/Skill assets may use links within the configured
-Workspace root; escaping links, cycles and oversized trees are rejected. MCP
-credentials should be protected by the operator. Airelay does not
+Instructions, Skills and other user content may link outside the Workspace.
+Airelay does not traverse or validate their targets, sizes, counts, depth or file
+types. Native discovery and link handling belong to the selected harness.
+MCP credentials should be protected by the operator. Airelay does not
 interpret a folder, filename or instruction label as a Role or permission grant.
 Do not edit identity fields to rebind a saved session silently.
 
@@ -141,16 +143,20 @@ registration-count policy is imposed. Native configuration is opaque to
 Airelay: imports, authentication and discovery belong to the harness/user.
 Existing native files are not rewritten or removed during reprovisioning.
 
-`workspace verify` reports `verification: "filesystem"`: it checks manifest,
-paths, bounded file-tree safety and session binding, not authentication or
-successful loading of instructions/tools. Optional `--profile` checks only
-that the named Airelay profile exists. Use `airelay doctor <profile>` and the
+`workspace verify` reports `verification: "filesystem"`: it checks the Airelay
+binding manifest, Workspace path and session binding, not user files,
+authentication or successful loading of instructions/tools. Optional `--profile`
+checks only that the named Airelay profile exists. Use `airelay doctor <profile>` and the
 harness's native diagnostics to inspect its installation/configuration.
 
-Filesystem checks still reject traversal, escaping symlinks, cycles, excessive
-trees and changed saved absolute bindings. A global-root change never redirects
-an existing session. These checks run again on wake; they do not spawn native
-inspection commands or parse provider configuration.
+Binding checks still reject selector traversal, linked Workspace ancestors or
+manifests, invalid manifests and changed saved absolute bindings. The 4 MiB
+read bound applies only to `.airelay-workspace.json`, never the Workspace's
+contents. Discovery is bounded and stops at each managed Workspace: it does
+not scan its contents. A global-root change never redirects an existing
+session. These checks run again on wake; they do not spawn native inspection
+commands or parse provider configuration. File growth cannot invalidate a
+Workspace or block its start/resume/wake.
 
 **A Workspace is not a sandbox or an environment/credential isolation boundary.**
 Parent environment and explicit profile overrides are inherited normally.
@@ -172,7 +178,12 @@ separate from this launch contract; see the migration runbook.
 | Provisioner | Agent directory initializer | No Role schema, inheritance, asset import or digest freezing |
 | Launcher | Project -> agent | No Role/instructions prompt and no root-setting action |
 | Runtime/resume/detached | Existing session authority | Preserve saved absolute path; lock reservation against maintenance |
-| Instructions/Skills | Agent/user-owned | Native harness owns content/discovery; Airelay checks bounded filesystem safety |
+| Instructions/Skills/user data | Agent/user-owned | No recursive content inspection or size/count/depth/file-type/link restrictions |
+| Start/resume/wake/detached/reprovision | Binding validation only | Read the same selected manifest; never scan user content |
+| Workspace manifest | Airelay-owned metadata | Single schema/binding authority, regular unlinked file, bounded read |
+| Workspace discovery | Bounded metadata enumeration | Stop at managed directory; never descend into its contents |
+| Saved session registry | Existing bounded metadata retention | Preserve immutable bindings; no content inspection or new retention policy |
+| Offline backup/restore | Explicit operator utility, not a launch gate | Existing protected backup limits do not restrict Workspace content |
 | MCP/auth/environment | Project-owned MCP policy | No preflight policy; use ordinary profile args/env and native configuration |
 | Version-1 layout | Explicit hard cut | Reject; approved unused generated host folders backed up/removed |
 | Profile-bound Workspace | Unsupported | Reject without rewriting user configuration |

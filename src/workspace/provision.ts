@@ -9,7 +9,7 @@ import { DEFAULT_CONFIG_DIR } from '../config/defaults';
 export type WorkspaceBinding = z.infer<typeof WorkspaceBindingSchema>;
 export const DEFAULT_WORKSPACE_ROOT = path.join(DEFAULT_CONFIG_DIR, 'workspaces');
 const MANIFEST = '.airelay-workspace.json';
-const MAX_ASSET_BYTES = 4 * 1024 * 1024;
+const MAX_MANIFEST_BYTES = 4 * 1024 * 1024;
 const ManifestSchema = z
   .object({
     version: z.literal(2),
@@ -28,10 +28,6 @@ export function workspaceRoot(root = DEFAULT_WORKSPACE_ROOT): string {
   if (!path.isAbsolute(root) && !/^~(?:\/|$)/.test(root))
     throw new Error('Workspace root must be an absolute path or start with ~/.');
   return path.resolve(root.replace(/^~(?=\/|$)/, os.homedir()));
-}
-function inside(root: string, candidate: string): boolean {
-  const relative = path.relative(root, candidate);
-  return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 }
 export function assertNoSymlink(target: string): void {
   let current = path.resolve(target);
@@ -103,12 +99,13 @@ export function withWorkspaceLock<T>(root: string | undefined, action: () => T):
     fs.rmdirSync(lock);
   }
 }
-function readBounded(file: string): Buffer {
+function readManifestFile(file: string): Buffer {
   const stat = fs.statSync(file);
-  if (!stat.isFile() || stat.size > MAX_ASSET_BYTES)
-    throw new Error(`Invalid workspace asset: ${file}`);
+  if (!stat.isFile() || stat.size > MAX_MANIFEST_BYTES)
+    throw new Error(`Invalid workspace manifest: ${file}`);
   return fs.readFileSync(file);
 }
+/** Validate Airelay's binding metadata only; agent-owned contents are opaque. */
 export function readWorkspace(
   binding: WorkspaceBinding,
   root?: string
@@ -120,7 +117,7 @@ export function readWorkspace(
   assertNoSymlink(file);
   let manifest: WorkspaceManifest;
   try {
-    manifest = ManifestSchema.parse(JSON.parse(readBounded(file).toString()));
+    manifest = ManifestSchema.parse(JSON.parse(readManifestFile(file).toString()));
   } catch {
     throw new Error(
       'Missing or unsupported agent Workspace manifest; create a new Workspace or explicitly migrate unused old directories.'
@@ -130,33 +127,6 @@ export function readWorkspace(
   if (manifest.binding.project !== expected.project || manifest.binding.agent !== expected.agent)
     throw new Error('Workspace binding does not match its manifest.');
   return { directory, manifest };
-}
-
-export function verifyWorkspaceFiles(
-  binding: WorkspaceBinding,
-  root?: string
-): ReturnType<typeof readWorkspace> {
-  const result = readWorkspace(binding, root);
-  const base = workspaceRoot(root);
-  let entries = 0,
-    bytes = 0;
-  const walk = (file: string, ancestors: Set<string>, depth = 0): void => {
-    if (++entries > 1024 || depth > 8) throw new Error('Workspace asset tree limit exceeded.');
-    const real = fs.realpathSync(file);
-    if (!inside(base, real)) throw new Error('Workspace asset link escapes its root.');
-    const stat = fs.statSync(file);
-    if (stat.isDirectory()) {
-      if (ancestors.has(real)) throw new Error('Workspace asset link cycle.');
-      const next = new Set(ancestors).add(real);
-      for (const name of listWorkspaceDirectory(file)) walk(path.join(file, name), next, depth + 1);
-    } else {
-      bytes += stat.size;
-      if (!stat.isFile() || stat.size > MAX_ASSET_BYTES || bytes > MAX_ASSET_BYTES)
-        throw new Error('Workspace asset limit exceeded.');
-    }
-  };
-  walk(result.directory, new Set());
-  return result;
 }
 
 export function provisionWorkspace(options: WorkspaceOptions): {
@@ -173,7 +143,7 @@ export function provisionWorkspace(options: WorkspaceOptions): {
   if (existing) {
     if (!fs.existsSync(path.join(directory, MANIFEST)))
       throw new Error('Existing Workspace directory is unmanaged; nothing was overwritten.');
-    const current = verifyWorkspaceFiles(binding, options.root);
+    const current = readWorkspace(binding, options.root);
     if (source && current.manifest.source !== source)
       throw new Error(
         'Workspace source differs; review its manifest explicitly before changing it.'

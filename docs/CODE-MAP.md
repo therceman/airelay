@@ -119,10 +119,12 @@ terminal parser or serializer without first checking the controller/xterm APIs.
 
 - `src/workspace/provision.ts` owns the strict `project.agent` selector,
   `project/agents/agent` layout, version-2 binding manifest, atomic creation and
-  bounded filesystem/path safety checks. Agent/user-owned instructions and Skills are not
-  frozen by digests. `binding.ts` owns immutable saved absolute paths and
-  discovery. There is no native preflight layer: the selected harness owns
-  instructions/Skills/MCP discovery and policy. Workspace verification does
+  bounded manifest reads/path safety checks. `readWorkspace()` validates only
+  Airelay's manifest; never recursively inspect or impose quotas on user files,
+  native configuration, instruction/Skill links or generated data.
+  `binding.ts` owns immutable saved absolute paths and bounded discovery that
+  stops at managed Workspace directories. There is no native preflight layer:
+  the selected harness owns instructions/Skills/MCP discovery and policy. Workspace verification does
   not spawn a harness or enforce registration counts.
   `backup.ts` owns protected configuration backup/restore. There is no Role
   assignment, instance inheritance, or runtime legacy-layout fallback.

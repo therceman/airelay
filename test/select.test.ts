@@ -170,7 +170,7 @@ describe('start confirmation', () => {
   });
 
   it.each([
-    'Workspace asset link escapes its root.',
+    'Workspace binding does not match its manifest.',
     'Workspace operation in progress; inspect the workspace lock before retrying.',
   ])('passes the real launch error to the CLI: %s', async (message) => {
     const root = path.join(env.testDir, 'workspaces');

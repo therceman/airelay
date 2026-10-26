@@ -4,9 +4,9 @@ import { z } from 'zod';
 import {
   assertNoSymlink,
   listWorkspaceDirectory,
+  readWorkspace,
   selectorParts,
   selectorPath,
-  verifyWorkspaceFiles,
   workspaceRoot,
 } from './provision';
 
@@ -43,13 +43,8 @@ export function verifySessionWorkspace(input: SessionWorkspace) {
     fs.realpathSync(workspace.path) !== workspace.path
   )
     throw new Error('Workspace real path changed; refusing launch.');
-  const manifestPath = path.join(workspace.path, '.airelay-workspace.json');
-  assertNoSymlink(manifestPath);
-  const stat = fs.lstatSync(manifestPath);
-  if (!stat.isFile() || stat.size > 4 * 1024 * 1024)
-    throw new Error('Missing or invalid workspace manifest.');
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  const result = verifyWorkspaceFiles(manifest.binding, workspace.root);
+  const [project, agent] = selectorParts(workspace.selector);
+  const result = readWorkspace({ project, agent }, workspace.root);
   return { ...result, workspace };
 }
 

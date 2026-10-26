@@ -434,7 +434,7 @@ describe('runCli', () => {
 
   it('reports Workspace launch rejection instead of terminal-reset advice', async () => {
     const { selectCommand } = require('../src/commands/select');
-    const message = 'Workspace asset link escapes its root.';
+    const message = 'Workspace binding does not match its manifest.';
     selectCommand.mockRejectedValueOnce(new Error(message));
     process.argv = ['node', 'cli.js'];
 
