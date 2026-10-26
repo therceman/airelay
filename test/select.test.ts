@@ -146,7 +146,7 @@ describe('start confirmation', () => {
 
     expect(prompt.mock.calls[2][0]).toMatchObject({
       name: 'confirm',
-      message: managed ? 'Start devin in agentvm.lead-win?' : 'Start devin?',
+      message: managed ? 'Start devin in agentvm (agent: lead-win)?' : 'Start devin?',
       initial: true,
     });
     expect(run).toHaveBeenCalledTimes(1);

@@ -47,11 +47,23 @@ Run `airelay` from the source checkout, then choose Start and a normal profile.
 The Workspace picker shows projects first, then their agents. It also offers
 Create new Workspace and Without workspace.
 
+For example, `games` is the Workspace project and `lead` is an agent folder,
+not a different project or an Airelay-assigned role:
+
+```text
+? Select a Workspace project (...) > games
+? Select an agent in games (...) > lead
+? Start devin in games (agent: lead)? > Yes
+```
+
+Menu selections display their labels, not internal `node:` choice IDs. The
+session binding remains `games.lead` -> `<root>/games/agents/lead`.
+
 ```text
 ? New Workspace selector (<project>.<agent>) > agentvm.lead
 ? Create Workspace agentvm.lead? > Yes
 ? Remember agentvm for this folder? > Yes
-? Start devin in agentvm.lead? > Yes
+? Start devin in agentvm (agent: lead)? > Yes
 ```
 
 No Role or instructions-file question follows. Creation scaffolds minimal
@@ -176,7 +188,7 @@ separate from this launch contract; see the migration runbook.
 | --- | --- | --- |
 | Selector/layout | One public meaning | Exactly project.agent -> project/agents/agent |
 | Provisioner | Agent directory initializer | No Role schema, inheritance, asset import or digest freezing |
-| Launcher | Project -> agent | No Role/instructions prompt and no root-setting action |
+| Launcher | Project -> agent | Explicit agent heading/confirmation; label-only submitted selections; internal IDs/bindings unchanged |
 | Runtime/resume/detached | Existing session authority | Preserve saved absolute path; lock reservation against maintenance |
 | Instructions/Skills/user data | Agent/user-owned | No recursive content inspection or size/count/depth/file-type/link restrictions |
 | Start/resume/wake/detached/reprovision | Binding validation only | Read the same selected manifest; never scan user content |

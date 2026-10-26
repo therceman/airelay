@@ -19,6 +19,7 @@ import {
 import { withAirelayPromptSymbols } from '../utils/enquirer';
 import { chooseSessionWorkspace } from './workspace-select';
 import { assertWorkspaceBinding, type SessionWorkspace } from '../workspace/binding';
+import { selectorParts } from '../workspace/provision';
 
 function getLastUsedDirPath(): string {
   if (!process.env.AIRELAY_LAST_USED) {
@@ -184,11 +185,16 @@ export async function selectCommand(): Promise<void> {
 
   setLastUsedProfile(profileName);
   const workspace = await chooseSessionWorkspace();
+  let location = '';
+  if (workspace) {
+    const [project, agent] = selectorParts(workspace.selector);
+    location = ` in ${project} (agent: ${agent})`;
+  }
 
   const confirmPrompt = withAirelayPromptSymbols({
     type: 'confirm',
     name: 'confirm',
-    message: `Start ${profileName}${workspace ? ` in ${workspace.selector}` : ''}?`,
+    message: `Start ${profileName}${location}?`,
     initial: true,
   });
 

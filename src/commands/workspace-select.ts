@@ -107,22 +107,35 @@ export async function chooseSessionWorkspace(
           .map((w) => w.selector.split('.')[prefix ? prefix.split('.').length : 0])
       ),
     ].sort();
+    const choices = [
+      ...children.map((name) => ({
+        name: `node:${prefix ? `${prefix}.` : ''}${name}`,
+        message: name,
+      })),
+      { name: 'create', message: 'Create new Workspace...' },
+      { name: 'none', message: 'Without workspace (normal profile/current directory)' },
+    ];
     const result = (await Enquirer.prompt(
       withAirelayPromptSymbols({
         type: 'select',
         name: 'workspace',
         message: prefix
-          ? `Select within ${prefix} (${root})`
+          ? `Select an agent in ${prefix} (${root})`
           : `Select a Workspace project (${root})`,
-        choices: [
-          ...children.map((name) => ({
-            name: `node:${prefix ? `${prefix}.` : ''}${name}`,
-            message: name,
-          })),
-          { name: 'create', message: 'Create new Workspace...' },
-          { name: 'none', message: 'Without workspace (normal profile/current directory)' },
-        ],
+        choices,
         initial: 0,
+        // Enquirer displays choice.name after submit; keep IDs out of the visible label.
+        format(
+          this: {
+            state: { submitted: boolean; cancelled: boolean };
+            styles: { primary: (label: string) => string };
+          },
+          value: string
+        ) {
+          if (!this.state.submitted || this.state.cancelled) return '';
+          const label = choices.find((choice) => choice.name === value)?.message;
+          return label ? this.styles.primary(label) : '';
+        },
       })
     )) as { workspace: string };
     if (result.workspace === 'none') return undefined;

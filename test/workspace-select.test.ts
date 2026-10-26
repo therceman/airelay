@@ -29,8 +29,20 @@ const menu = (index: number) =>
     message: string;
     choices: Array<{ name: string; message: string }>;
     initial: string | boolean;
+    format: (
+      this: {
+        state: { submitted: boolean; cancelled: boolean };
+        styles: { primary: (label: string) => string };
+      },
+      value: string
+    ) => string;
   };
 const names = (index: number) => menu(index).choices.map((choice) => choice.name);
+const formatted = (index: number, value: string, submitted = true, cancelled = false) =>
+  menu(index).format.call(
+    { state: { submitted, cancelled }, styles: { primary: (label) => label } },
+    value
+  );
 function agentWorkspace(selector: string) {
   const parts = selector.split('.');
   provisionWorkspace({
@@ -78,6 +90,28 @@ it('shows projects first, then agents, without roles or storage-root settings', 
   );
   expect(names(0)).toEqual(['node:bb_splunk', 'node:rsg', 'create', 'none']);
   expect(names(1)).toEqual(['node:bb_splunk.worker', 'node:bb_splunk.worker1', 'create', 'none']);
+  expect(formatted(0, 'node:bb_splunk')).toBe('bb_splunk');
+  expect(formatted(1, 'node:bb_splunk.worker1')).toBe('worker1');
+  expect(formatted(1, 'create')).toBe('Create new Workspace...');
+  expect(formatted(1, 'none')).toBe('Without workspace (normal profile/current directory)');
+  expect(formatted(1, 'node:bb_splunk.worker1', false)).toBe('');
+  expect(formatted(1, 'node:bb_splunk.worker1', true, true)).toBe('');
+  expect(fs.readFileSync(env.configPath)).toEqual(before);
+});
+it('labels a remembered games Workspace separately from its lead agent without changing the binding', async () => {
+  agentWorkspace('games.lead');
+  associate(source, 'games');
+  const before = fs.readFileSync(env.configPath);
+  answer({ workspace: 'node:games.lead' });
+  const selected = await chooseSessionWorkspace(source);
+  expect(menu(0).message).toBe(`Select an agent in games (${root})`);
+  expect(menu(0).choices[0].message).toBe('lead');
+  expect(formatted(0, 'node:games.lead')).toBe('lead');
+  expect(selected).toEqual({
+    selector: 'games.lead',
+    root,
+    path: path.join(root, 'games/agents/lead'),
+  });
   expect(fs.readFileSync(env.configPath)).toEqual(before);
 });
 it('rejects the removed Back action without navigating or changing configuration', async () => {
@@ -209,7 +243,7 @@ it('saves a confirmed folder association and opens only its project branch on la
   prompt.mockClear();
   answer({ workspace: 'none' });
   expect(await chooseSessionWorkspace(source)).toBeUndefined();
-  expect(menu(0).message).toContain('Select within rsg');
+  expect(menu(0).message).toContain('Select an agent in rsg');
   expect(names(0)).toContain('node:rsg.lead');
   expect(prompt).toHaveBeenCalledTimes(1);
 });
@@ -220,7 +254,7 @@ it('detects an explicitly associated project from a child source directory', asy
   fs.mkdirSync(child, { recursive: true });
   answer({ workspace: 'node:rsg.lead' });
   expect((await chooseSessionWorkspace(child))?.selector).toBe('rsg.lead');
-  expect(menu(0).message).toContain('Select within rsg');
+  expect(menu(0).message).toContain('Select an agent in rsg');
   expect(prompt).toHaveBeenCalledTimes(1);
 });
 it('ignores stale projects and associations for a different storage root', async () => {
@@ -257,7 +291,7 @@ it('resolves a symlinked invocation directory to its real project source', async
   expect(sourceDirectory(alias)).toBe(source);
   answer({ workspace: 'none' });
   await chooseSessionWorkspace(alias);
-  expect(menu(0).message).toContain('Select within rsg');
+  expect(menu(0).message).toContain('Select an agent in rsg');
 });
 it('chooses the longest explicit ancestor without matching sibling path prefixes', () => {
   const links = [
@@ -310,7 +344,7 @@ it('browses real Enquirer project and agent menus in a disposable terminal witho
       frame += chunk;
       if (
         (stage === 0 || stage === 1) &&
-        frame.includes(stage === 0 ? 'Select a Workspace project' : 'Select within rsg') &&
+        frame.includes(stage === 0 ? 'Select a Workspace project' : 'Select an agent in rsg') &&
         frame.includes('Without workspace (normal profile/current directory)')
       ) {
         if (stage === 0) firstPage = frame;
@@ -337,6 +371,7 @@ it('browses real Enquirer project and agent menus in a disposable terminal witho
     expect(firstPage).toContain('rsg');
     expect(firstPage).not.toContain('rsg.lead');
     expect(output).not.toContain('Change workspace root...');
+    expect(output).not.toContain('node:');
     expect(output).toContain('SELECTED:rsg.lead');
     expect(stage).toBe(3);
   } finally {
