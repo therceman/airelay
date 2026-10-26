@@ -143,9 +143,10 @@ terminal parser or serializer without first checking the controller/xterm APIs.
   harness receives profile overrides, so they cannot redirect Airelay's stores.
   Workspace is not an environment or credential sandbox. Existing stores
   use `json-store.ts` atomic replacement/bounded transaction locks so two
-  same-profile sessions cannot lose one another's records. Async liveness
-  pruning re-reads current records after probes before removing stale runtime
-  fields. There is no workspace session database or workspace `sessions/` tree.
+  same-profile sessions cannot lose one another's records. Lock wait deadlines
+  use monotonic `performance.now()`; durable timestamps remain epoch-based.
+  Async liveness pruning re-reads current records after probes before removing
+  stale runtime fields. There is no workspace session database or workspace `sessions/` tree.
 - `test/workspace{,-session,-select}.test.ts`, `test/json-store.test.ts`,
   CLI/resume tests and `scripts/verify-workspace-devin.cjs` cover these paths.
   `docs/WORKSPACES.md` maps systemic invariants to proof;

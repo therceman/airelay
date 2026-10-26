@@ -7,6 +7,69 @@ import { useTestEnv } from './test-utils';
 
 const env = useTestEnv();
 
+it.each([60000, -60000])(
+  'can acquire a briefly held lock despite repeated %ims wall-clock steps',
+  (step) => {
+    const file = path.join(env.testDir, `brief-clock-${step}.json`);
+    const lock = `${file}.lock`;
+    const store = createJsonStore<{ ok: boolean }>({
+      envVar: 'AIRELAY_STORE_FIXTURE',
+      defaultPath: file,
+    });
+    fs.mkdirSync(lock);
+    jest.useFakeTimers({ now: 0 });
+    let waits = 0;
+    const wait = jest.spyOn(Atomics, 'wait').mockImplementation(() => {
+      jest.advanceTimersByTime(10);
+      jest.setSystemTime(Date.now() + step);
+      if (++waits === 4) fs.rmdirSync(lock);
+      return 'timed-out';
+    });
+    try {
+      store.transaction(() => store.save({ ok: true }));
+      expect(store.load()).toEqual({ ok: true });
+      expect(performance.now()).toBe(40);
+      expect(wait).toHaveBeenCalledTimes(4);
+      expect(fs.existsSync(lock)).toBe(false);
+    } finally {
+      wait.mockRestore();
+      jest.useRealTimers();
+      fs.rmSync(lock, { recursive: true, force: true });
+    }
+  }
+);
+
+it.each([60000, -60000])(
+  'times out a continuously held lock after 1000ms despite %ims wall-clock steps',
+  (step) => {
+    const file = path.join(env.testDir, `held-clock-${step}.json`);
+    const lock = `${file}.lock`;
+    const store = createJsonStore({ envVar: 'AIRELAY_STORE_FIXTURE', defaultPath: file });
+    fs.mkdirSync(lock);
+    jest.useFakeTimers({ now: 0 });
+    let waits = 0;
+    const wait = jest.spyOn(Atomics, 'wait').mockImplementation(() => {
+      if (++waits > 100) throw new Error('Lock wait exceeded the monotonic deadline.');
+      jest.advanceTimersByTime(10);
+      jest.setSystemTime(Date.now() + step);
+      return 'timed-out';
+    });
+    const operation = jest.fn();
+    try {
+      expect(() => store.transaction(operation)).toThrow('State store busy');
+      expect(performance.now()).toBe(1000);
+      expect(wait).toHaveBeenCalledTimes(100);
+      expect(operation).not.toHaveBeenCalled();
+      expect(fs.existsSync(lock)).toBe(true);
+      expect(fs.existsSync(file)).toBe(false);
+    } finally {
+      wait.mockRestore();
+      jest.useRealTimers();
+      fs.rmSync(lock, { recursive: true, force: true });
+    }
+  }
+);
+
 it('serializes concurrent read-modify-write transactions from independent processes', async () => {
   const modulePath = path.join(env.testDir, 'json-store.cjs');
   const file = path.join(env.testDir, 'concurrent.json');

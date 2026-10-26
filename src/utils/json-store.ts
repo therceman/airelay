@@ -22,14 +22,14 @@ export function createJsonStore<T>(options: JsonStoreOptions): JsonStore<T> {
     const file = getPath(),
       lock = `${file}.lock`;
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    const deadline = Date.now() + 1000;
+    const deadline = performance.now() + 1000;
     for (;;) {
       try {
         fs.mkdirSync(lock);
         break;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-        if (Date.now() >= deadline)
+        if (performance.now() >= deadline)
           throw new Error(
             `State store busy: ${file}; inspect its .lock directory before retrying.`
           );
