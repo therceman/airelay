@@ -78,6 +78,35 @@ afterEach(() => {
 });
 
 describe('runCli', () => {
+  it('passes dotted session keys and resume working-directory arguments unchanged', async () => {
+    process.argv = [
+      'node',
+      'cli.js',
+      'start',
+      'codex-work',
+      '--key',
+      'sgs.master',
+      '--',
+      'resume',
+      'native-id',
+      '-C',
+      '/tmp/sgs',
+    ];
+    await runCli();
+    const { startCommand } = require('../src/commands/start');
+    expect(startCommand).toHaveBeenCalledWith(
+      'codex-work',
+      ['resume', 'native-id', '-C', '/tmp/sgs'],
+      expect.objectContaining({ key: 'sgs.master' })
+    );
+  });
+
+  it.each(['.hidden', 'invalid.', 'invalid/key'])('rejects unsafe session key %s', async (key) => {
+    process.argv = ['node', 'cli.js', 'start', 'codex-work', '--key', key];
+    await runCli();
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Invalid key'));
+    expect(process.exit).toHaveBeenCalledWith(1);
+  });
   it('dispatches history filters and JSON output', async () => {
     process.argv = ['node', 'cli.js', 'history', '--all', '--json'];
     await runCli();

@@ -44,8 +44,10 @@ Old flat/version-1 paths are not automatically reinterpreted or redirected.
 ## Interactive Start
 
 Run `airelay` from the source checkout, then choose Start and a normal profile.
-The Workspace picker shows projects first, then their agents. It also offers
-Create new Workspace and Without workspace.
+The Workspace picker shows all projects first, then their agents. Each level is
+ordered by the latest recorded launch or resume; unused and tied entries are
+alphabetical. Selecting or cancelling a menu does not update usage. It also
+offers Create new Workspace and Without workspace.
 
 For example, `games` is the Workspace project and `lead` is an agent folder,
 not a different project or an Airelay-assigned role:
@@ -62,7 +64,6 @@ session binding remains `games.lead` -> `<root>/games/agents/lead`.
 ```text
 ? New Workspace selector (<project>.<agent>) > agentvm.lead
 ? Create Workspace agentvm.lead? > Yes
-? Remember agentvm for this folder? > Yes
 ? Start devin in agentvm (agent: lead)? > Yes
 ```
 
@@ -72,15 +73,9 @@ version-2 `.airelay-workspace.json` containing `{project, agent}` and optional
 source checkout. It does not copy source repositories or create profiles.
 Creation is atomic and idempotent; existing unmanaged files are never overwritten.
 
-Optional confirmation remembers the canonical source folder -> project in
-`settings.workspaceProjects`. The longest explicit ancestor wins, never a
-sibling prefix. It opens the project branch, not a preselected agent. Hints are
-scoped to their saved storage root, bounded to 128 sources, and never override
-an existing session binding. Clear with:
-
-```bash
-airelay config set settings.workspaceProjects '[]'
-```
+The invocation directory does not select a project. It is recorded only as the
+optional source when creating a new Workspace. Existing session bindings retain
+their saved paths.
 
 ## CLI Provisioning
 
@@ -188,12 +183,13 @@ separate from this launch contract; see the migration runbook.
 | --- | --- | --- |
 | Selector/layout | One public meaning | Exactly project.agent -> project/agents/agent |
 | Provisioner | Agent directory initializer | No Role schema, inheritance, asset import or digest freezing |
-| Launcher | Project -> agent | Explicit agent heading/confirmation; label-only submitted selections; internal IDs/bindings unchanged |
+| Launcher | Project -> agent | Last used first; no source-folder association or prompt; bindings unchanged |
 | Runtime/resume/detached | Existing session authority | Preserve saved absolute path; lock reservation against maintenance |
 | Instructions/Skills/user data | Agent/user-owned | No recursive content inspection or size/count/depth/file-type/link restrictions |
 | Start/resume/wake/detached/reprovision | Binding validation only | Read the same selected manifest; never scan user content |
 | Workspace manifest | Airelay-owned metadata | Single schema/binding authority, regular unlinked file, bounded read |
-| Workspace discovery | Bounded metadata enumeration | Stop at managed directory; never descend into its contents |
+| Workspace discovery | Fixed-depth metadata enumeration | Scan only project/agents/agent; no recursive walk or directory-count quota |
+| Usage ordering | Existing launch history | Match selector, root and path; rank latest use first, alphabetic ties |
 | Saved session registry | Existing bounded metadata retention | Preserve immutable bindings; no content inspection or new retention policy |
 | Offline backup/restore | Explicit operator utility, not a launch gate | Existing protected backup limits do not restrict Workspace content |
 | MCP/auth/environment | Project-owned MCP policy | No preflight policy; use ordinary profile args/env and native configuration |

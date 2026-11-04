@@ -56,21 +56,6 @@ export function workspacePath(binding: WorkspaceBinding, root?: string): string 
   const parsed = WorkspaceBindingSchema.parse(binding);
   return selectorPath(`${parsed.project}.${parsed.agent}`, root);
 }
-export function listWorkspaceDirectory(directory: string): string[] {
-  const handle = fs.opendirSync(directory);
-  const entries: string[] = [];
-  try {
-    let entry: fs.Dirent | null;
-    while ((entry = handle.readSync())) {
-      if (entries.length >= 256) throw new Error('Workspace directory entry limit exceeded.');
-      entries.push(entry.name);
-    }
-  } finally {
-    handle.closeSync();
-  }
-  return entries.sort();
-}
-
 const ownedLocks = new Set<string>();
 function lockPath(root: string): string {
   return path.join(path.dirname(root), `.${path.basename(root)}.workspace.lock`);

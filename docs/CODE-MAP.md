@@ -122,16 +122,16 @@ terminal parser or serializer without first checking the controller/xterm APIs.
   bounded manifest reads/path safety checks. `readWorkspace()` validates only
   Airelay's manifest; never recursively inspect or impose quotas on user files,
   native configuration, instruction/Skill links or generated data.
-  `binding.ts` owns immutable saved absolute paths and bounded discovery that
-  stops at managed Workspace directories. There is no native preflight layer:
+  `binding.ts` owns immutable saved absolute paths and fixed-depth discovery of
+  the project/agents/agent layout. There is no native preflight layer:
   the selected harness owns instructions/Skills/MCP discovery and policy. Workspace verification does
   not spawn a harness or enforce registration counts.
   `backup.ts` owns protected configuration backup/restore. There is no Role
   assignment, instance inheritance, or runtime legacy-layout fallback.
 - `commands/workspace.ts` provisions/inspects agent directories without generating
   profiles. `workspace-select.ts` owns project -> agent selection, simple creation
-  and confirmed source-folder associations; global root changes belong to config.
-  `projects.ts` owns source realpath/ancestor hints. Provisioning and runtime
+  and ordering by existing launch history via a non-mutating read; global root changes belong to config.
+  `projects.ts` resolves a source path only for Workspace creation. Provisioning and runtime
   reservation share the short Workspace filesystem lock, so offline maintenance
   cannot race a cooperating new launch. `run.ts` verifies filesystem binding before startup and wake;
   `resume.ts` and detached supervision transfer the saved path unchanged.
@@ -158,6 +158,8 @@ terminal parser or serializer without first checking the controller/xterm APIs.
 - `src/utils/harness.ts` owns harness-specific capabilities, resume arguments,
   bypass transformations, ready/trust detection, and session patterns.
   `detect-harnesses.ts` is for executable discovery, not policy duplication.
+- `run.ts` records a Codex resume's `-C`/`--cd` target as its history folder and
+  normalizes relative targets for replay; `resume.ts` selects history by that folder.
 - `src/utils/harness-isolate.ts` and `harness-isolation.ts` own isolated harness
   home setup/repair/removal. Preserve the distinction between shared native
   homes and explicit isolated profiles.

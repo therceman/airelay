@@ -1,4 +1,33 @@
-import { buildProfileEnv, runCommand, detectResumeSessionId } from '../src/commands/run';
+import {
+  buildProfileEnv,
+  runCommand,
+  detectResumeSessionId,
+  getCodexResumeHistoryLocation,
+} from '../src/commands/run';
+
+describe('Codex resume history location', () => {
+  it('records and preserves an absolute target for relative -C', () => {
+    expect(
+      getCodexResumeHistoryLocation('codex', ['resume', 'id', '-C', 'project'], '/tmp')
+    ).toEqual({
+      cwd: '/tmp/project',
+      args: ['resume', 'id', '-C', '/tmp/project'],
+    });
+  });
+
+  it('supports --cd and --cd= and leaves other launches unchanged', () => {
+    expect(
+      getCodexResumeHistoryLocation('codex', ['resume', 'id', '--cd=/tmp/project'], '/tmp')?.cwd
+    ).toBe('/tmp/project');
+    expect(
+      getCodexResumeHistoryLocation('codex', ['resume', 'id', '--cd', '/tmp/project'], '/tmp')?.cwd
+    ).toBe('/tmp/project');
+    expect(
+      getCodexResumeHistoryLocation('devin', ['resume', 'id', '-C', '/tmp/project'], '/tmp')
+    ).toBeUndefined();
+    expect(getCodexResumeHistoryLocation('codex', ['-C', '/tmp/project'], '/tmp')).toBeUndefined();
+  });
+});
 import fs from 'fs';
 import path from 'path';
 import os from 'os';

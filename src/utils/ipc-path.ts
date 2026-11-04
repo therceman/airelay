@@ -9,7 +9,7 @@ export function getSocketDir(): string {
 }
 
 export function getIpcEndpointPath(sessionKey: string): string {
-  const sanitized = sessionKey.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const sanitized = sessionKey.replace(/[^a-zA-Z0-9_.-]/g, '_');
 
   if (process.platform === 'win32') {
     return `\\\\.\\pipe\\airelay-${sanitized}`;
@@ -19,6 +19,6 @@ export function getIpcEndpointPath(sessionKey: string): string {
 }
 
 export function sessionKeyToFilename(sessionKey: string): string {
-  const sanitized = sessionKey.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const sanitized = sessionKey.replace(/[^a-zA-Z0-9_.-]/g, '_');
   return `${sanitized}.sock`;
 }

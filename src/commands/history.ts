@@ -48,7 +48,7 @@ function deduplicateHistory(entries: LaunchHistoryEntry[]): LaunchHistoryEntry[]
   return [...unique.values()];
 }
 
-function loadHistory(): LaunchHistoryEntry[] {
+function loadHistory(persistDeduplication = true): LaunchHistoryEntry[] {
   return store.transaction(() => {
     const loaded = store.load();
     if (!Array.isArray(loaded)) {
@@ -58,7 +58,7 @@ function loadHistory(): LaunchHistoryEntry[] {
     }
 
     const deduplicated = deduplicateHistory(loaded);
-    if (deduplicated.length !== loaded.length) {
+    if (persistDeduplication && deduplicated.length !== loaded.length) {
       store.save(deduplicated);
     }
     return deduplicated;
@@ -167,8 +167,10 @@ export function finalizeLaunchHistoryEntry(input: {
   });
 }
 
-export function getLaunchHistory(): LaunchHistoryEntry[] {
-  return loadHistory().sort((a, b) => (b.lastUsed ?? b.startedAt) - (a.lastUsed ?? a.startedAt));
+export function getLaunchHistory(options: { readOnly?: boolean } = {}): LaunchHistoryEntry[] {
+  return loadHistory(!options.readOnly).sort(
+    (a, b) => (b.lastUsed ?? b.startedAt) - (a.lastUsed ?? a.startedAt)
+  );
 }
 
 /** Mark a launch as used and optionally record the profile selected for its next resume. */

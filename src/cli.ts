@@ -385,9 +385,9 @@ async function runCli(): Promise<void> {
               console.error('Error: --key requires a value.');
               process.exit(1);
             }
-            if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(sessionKey)) {
+            if (!/^[a-zA-Z0-9](?:[a-zA-Z0-9_.-]*[a-zA-Z0-9_-])?$/.test(sessionKey)) {
               console.error(
-                `Error: Invalid key "${sessionKey}". Must start with a letter/digit and contain only letters, digits, -, _.`
+                `Error: Invalid key "${sessionKey}". Must start with a letter/digit, contain only letters, digits, -, _, . and not end with a dot.`
               );
               process.exit(1);
             }

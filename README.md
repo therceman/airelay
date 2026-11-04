@@ -30,7 +30,7 @@ Airelay also accepts a configurable executable, but unknown harnesses do not hav
 
 ## Quick start
 
-Requirements: Node.js 18+ and at least one supported coding-agent CLI installed and authenticated separately.
+Requirements: Node.js 20+ and at least one supported coding-agent CLI installed and authenticated separately.
 
 ```bash
 npm install -g airelay
@@ -66,6 +66,11 @@ In the interactive resume flow, choose **Use another profile (same harness)** an
 Airelay reuses the recorded project and native session arguments while changing the selected profile. Each profile can have its own authentication/configuration overlay. **Account switching does not override the provider's own session ownership or authentication rules**; cross-account resume must be supported by the underlying harness.
 
 The account-switching UI is intentionally restricted to profiles of the **same harness** (Codex to Codex, not Codex to Devin).
+
+For a Codex resume launched with `-- resume <id> -C <directory>`, Airelay records the
+target directory in launch history so `ResumeCurrent` finds that launch there. Relative
+directories are saved as absolute paths for subsequent resumes. Earlier history entries
+are not moved or deleted. A managed Workspace retains its existing session binding.
 
 ## 2. Send messages between agent terminals
 
@@ -204,7 +209,8 @@ default to `~/.airelay/workspaces`; existing configured roots are preserved.
 The launcher selects a project, then an agent, or creates one with a simple
 `<project>.<agent>` selector. For example, `agentvm.lead` maps to
 `<workspaceRoot>/agentvm/agents/lead`. The storage root is a global config setting,
-not a launcher action. Optionally remember the source folder's project association.
+not a launcher action. Projects and agents are ordered by their latest recorded
+launch or resume; unused entries appear alphabetically afterward.
 
 Airelay does not create or assign Roles. Agents/users maintain their own
 `AGENTS.md`, Skills and native MCP configuration; edits do not require
@@ -291,7 +297,9 @@ npm run lint
 npm run format:check
 ```
 
-Run `npm run verify` for the repository's full configured checks (including dependency audit).
+Run `npm run verify` for the repository's configured checks, including a blocking
+production dependency audit (`npm audit --omit=dev`). Run `npm run audit` separately
+to review development dependency findings; development tools also execute code in CI.
 
 ## License
 

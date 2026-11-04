@@ -24,6 +24,11 @@ function readTraceFile(traceFile: string): Array<Record<string, unknown>> {
 }
 
 describe('runtime PTY diagnostics', () => {
+  it('keeps dotted session diagnostic directories distinct from underscores', () => {
+    expect(getRuntimeDiagnosticsDir('sgs.master')).not.toBe(getRuntimeDiagnosticsDir('sgs_master'));
+    expect(path.basename(getRuntimeDiagnosticsDir('..'))).toBe('unknown-session');
+    expect(path.basename(getRuntimeDiagnosticsDir('.'))).toBe('unknown-session');
+  });
   it('writes bounded metadata-only JSONL in event order', () => {
     const diagnostics = RuntimeDiagnostics.start('trace_order');
     for (let index = 0; index < MAX_RUNTIME_DIAGNOSTIC_EVENTS + 10; index++) {

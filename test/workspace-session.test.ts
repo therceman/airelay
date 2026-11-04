@@ -61,6 +61,17 @@ it('resolves public project.agent selectors to independent agent directories', (
   ]);
 });
 
+it('discovers workspaces without descending into unrelated trees or limiting directory counts', () => {
+  const workspace = agentWorkspace('games.lead');
+  const unrelated = path.join(root, 'games', 'unrelated');
+  for (let i = 0; i < 1100; i++)
+    fs.mkdirSync(path.join(unrelated, `dir-${i}`), { recursive: true });
+  const agents = path.join(root, 'games', 'agents');
+  for (let i = 0; i < 300; i++) fs.mkdirSync(path.join(agents, `unmanaged-${i}`));
+  fs.symlinkSync(root, path.join(agents, 'cycle'));
+  expect(listWorkspaces(root)).toEqual([workspace]);
+});
+
 it.each(['../lead', 'rsg..lead', 'rsg/agents/lead', '.rsg.lead', 'rsg.lead.', 'rsg'])(
   'rejects unsafe or ambiguous selector %s',
   (selector) => {

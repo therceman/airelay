@@ -20,8 +20,9 @@ describe('sessionKeyToFilename', () => {
     expect(sessionKeyToFilename('bad/key$name')).toBe('bad_key_name.sock');
   });
 
-  it('sanitizes dots to underscores', () => {
-    expect(sessionKeyToFilename('session.v1')).toBe('session_v1.sock');
+  it('keeps dotted keys distinct from underscored keys', () => {
+    expect(sessionKeyToFilename('session.v1')).toBe('session.v1.sock');
+    expect(getIpcEndpointPath('session.v1')).not.toBe(getIpcEndpointPath('session_v1'));
   });
 
   it('handles empty string', () => {

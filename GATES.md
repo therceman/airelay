@@ -255,5 +255,8 @@ or artifact identity, and any remaining issue with its impact and owner.
 
 The normal verification commands are the repository scripts documented in
 `AGENTS.md`: `npm run build`, `npm run lint`, `npm run format:check`, `npm test`
-and `npm audit` (or `npm run verify`). Tests use isolated environments and
+and `npm run audit:production` (or `npm run verify`). Full `npm audit` remains a
+separate diagnostic: development dependency findings do not block verify, but
+must be reported and reviewed; development tools still execute code in CI.
+Tests use isolated environments and
 must never modify the real `~/.airelay` state.

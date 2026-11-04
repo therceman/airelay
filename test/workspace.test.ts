@@ -250,7 +250,7 @@ describe('agent-only Workspace provisioning', () => {
             .every(([file]) => file === manifest)
         ).toBe(true);
         expect(scans.mock.calls.map(([directory]) => directory)).not.toContain(agent.directory);
-        expect(scans.mock.calls).toHaveLength(3);
+        expect(scans.mock.calls).toHaveLength(2);
       } finally {
         reads.mockRestore();
         scans.mockRestore();

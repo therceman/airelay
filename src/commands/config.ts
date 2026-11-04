@@ -21,7 +21,6 @@ const HIBERNATE_AFTER_KEY = 'settings.hibernateAfter';
 const HARNESS_SELF_UPDATE_KEY = 'settings.harnessSelfUpdate';
 const MOUSE_PASSTHROUGH_KEY = 'settings.mousePassthrough';
 const WORKSPACE_ROOT_KEY = 'settings.workspaceRoot';
-const WORKSPACE_PROJECTS_KEY = 'settings.workspaceProjects';
 const PROMPT_MAX_LENGTH_DESCRIPTION =
   'Maximum prompt length in Unicode code points before airelay sends the text to a session.';
 const HIBERNATE_AFTER_DESCRIPTION =
@@ -260,11 +259,6 @@ function setConfigValue(
     return { ...raw, settings: { ...settings, workspaceRoot: value } };
   }
 
-  if (key === WORKSPACE_PROJECTS_KEY) {
-    const settings = isRecord(raw.settings) ? raw.settings : {};
-    return { ...raw, settings: { ...settings, workspaceProjects: parseYamlValue(value, key) } };
-  }
-
   const keyParts = key.split('.');
   if (keyParts[0] === 'profiles') {
     return setProfileValue(raw, keyParts, value);
@@ -275,7 +269,7 @@ function setConfigValue(
   }
 
   throw new Error(
-    `Unknown config key "${key}". Supported keys: ${PROMPT_MAX_LENGTH_KEY}, ${HIBERNATE_AFTER_KEY}, ${HARNESS_SELF_UPDATE_KEY}, ${MOUSE_PASSTHROUGH_KEY}, ${WORKSPACE_ROOT_KEY}, ${WORKSPACE_PROJECTS_KEY} and profiles.<profile>.<field>.`
+    `Unknown config key "${key}". Supported keys: ${PROMPT_MAX_LENGTH_KEY}, ${HIBERNATE_AFTER_KEY}, ${HARNESS_SELF_UPDATE_KEY}, ${MOUSE_PASSTHROUGH_KEY}, ${WORKSPACE_ROOT_KEY} and profiles.<profile>.<field>.`
   );
 }
 
@@ -323,11 +317,7 @@ export function configListCommand(json = false): void {
   console.log(YAML.stringify(config));
 }
 
-export function configSetCommand(
-  key: string,
-  value: string,
-  options: { quiet?: boolean } = {}
-): void {
+export function configSetCommand(key: string, value: string): void {
   const configPath = getConfigPath();
   loadConfig(configPath);
   const raw = readRawConfig(configPath);
@@ -335,7 +325,7 @@ export function configSetCommand(
 
   ConfigSchema.parse(updated);
   writeConfigAtomically(configPath, updated);
-  if (!options.quiet) console.log(`Set ${key} in ${configPath}`);
+  console.log(`Set ${key} in ${configPath}`);
 }
 
 export function configUnsetCommand(key: string): void {
@@ -379,7 +369,6 @@ export function configHelpCommand(): void {
       `    ${MOUSE_PASSTHROUGH_DESCRIPTION}`,
       `    Default: ${DEFAULT_MOUSE_PASSTHROUGH}; value: true or false.`,
       '  settings.workspaceRoot           Managed workspace root (fresh default: ~/.airelay/workspaces).',
-      '  settings.workspaceProjects       Launcher source-directory associations as a YAML/JSON array of {source, root, project}; [] clears them.',
       '  profiles.<profile>.executable     Harness executable command.',
       '  profiles.<profile>.cwd            Working directory for the profile.',
       '  profiles.<profile>.args           Default harness arguments as a YAML/JSON array.',

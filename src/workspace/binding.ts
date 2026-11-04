@@ -3,7 +3,6 @@ import path from 'node:path';
 import { z } from 'zod';
 import {
   assertNoSymlink,
-  listWorkspaceDirectory,
   readWorkspace,
   selectorParts,
   selectorPath,
@@ -70,29 +69,31 @@ export function listWorkspaces(root?: string): SessionWorkspace[] {
   const base = workspaceRoot(root);
   assertNoSymlink(base);
   if (!fs.existsSync(base)) return [];
-  let visited = 0;
   const result: SessionWorkspace[] = [];
-  const walk = (directory: string, depth: number): void => {
-    if (++visited > 1024 || depth > 8) throw new Error('Workspace discovery limit exceeded.');
-    if (fs.existsSync(path.join(directory, '.airelay-workspace.json'))) {
-      const parts = path.relative(base, directory).split(path.sep);
-      if (parts.length !== 3 || parts[1] !== 'agents')
-        throw new Error(
-          'Unsupported Workspace layout; explicitly migrate or remove unused old directories after backup.'
-        );
-      const selector = `${parts[0]}.${parts[2]}`;
+  // Only the defined project/agents/agent layout is discoverable; never walk
+  // arbitrary project files or follow links while building the menu.
+  function* entries(directory: string): Generator<fs.Dirent> {
+    const handle = fs.opendirSync(directory);
+    try {
+      let entry: fs.Dirent | null;
+      while ((entry = handle.readSync())) yield entry;
+    } finally {
+      handle.closeSync();
+    }
+  }
+  for (const project of entries(base)) {
+    if (!project.isDirectory() || project.name.startsWith('.')) continue;
+    const agents = path.join(base, project.name, 'agents');
+    const stat = fs.lstatSync(agents, { throwIfNoEntry: false });
+    if (!stat?.isDirectory() || stat.isSymbolicLink()) continue;
+    for (const agent of entries(agents)) {
+      if (!agent.isDirectory() || agent.name.startsWith('.')) continue;
+      const directory = path.join(agents, agent.name);
+      if (!fs.existsSync(path.join(directory, '.airelay-workspace.json'))) continue;
+      const selector = `${project.name}.${agent.name}`;
       selectorParts(selector);
       result.push(resolveSessionWorkspace(selector, base));
-      return;
     }
-    for (const name of listWorkspaceDirectory(directory)) {
-      if (name.startsWith('.')) continue;
-      const child = path.join(directory, name),
-        stat = fs.lstatSync(child);
-      if (stat.isSymbolicLink()) throw new Error('Unexpected workspace discovery symlink.');
-      if (stat.isDirectory()) walk(child, depth + 1);
-    }
-  };
-  walk(base, 0);
+  }
   return result.sort((a, b) => a.selector.localeCompare(b.selector));
 }

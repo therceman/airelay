@@ -1,4 +1,4 @@
-import { getTranscriptStats } from '../src/utils/transcript';
+import { getTranscriptPath, getTranscriptStats } from '../src/utils/transcript';
 import { cleanupEnv, setupEnv, setupTestEnv } from './test-utils';
 
 describe('transcript storage limit', () => {
@@ -21,6 +21,10 @@ describe('transcript storage limit', () => {
 
   it('uses a 50 MiB default limit', () => {
     expect(getTranscriptStats('default-limit').maxBytes).toBe(50 * 1024 * 1024);
+  });
+
+  it('keeps dotted keys distinct from underscored keys', () => {
+    expect(getTranscriptPath('sgs.master')).not.toBe(getTranscriptPath('sgs_master'));
   });
 
   it('preserves the environment override', () => {

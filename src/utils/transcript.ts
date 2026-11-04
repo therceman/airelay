@@ -17,7 +17,7 @@ function getTranscriptMaxBytes(): number {
 }
 
 export function getTranscriptPath(sessionKey: string): string {
-  const safeKey = sessionKey.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const safeKey = sessionKey.replace(/[^a-zA-Z0-9_.-]/g, '_');
   return path.join(getTranscriptDir(), `${safeKey}.jsonl`);
 }
 

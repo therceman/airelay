@@ -6,13 +6,9 @@ import { createPty } from '../src/runtime/pty';
 import { chooseSessionWorkspace } from '../src/commands/workspace-select';
 import { provisionWorkspace } from '../src/workspace/provision';
 import { loadConfig } from '../src/config/load';
-import { configSetCommand } from '../src/commands/config';
-import { WorkspaceProjectsSchema } from '../src/config/schema';
-import {
-  createLauncherWorkspace,
-  findWorkspaceProject,
-  sourceDirectory,
-} from '../src/workspace/projects';
+import { recordLaunchHistory, markLaunchHistoryUsed } from '../src/commands/history';
+import { runCommand } from '../src/commands/run';
+import { createLauncherWorkspace, sourceDirectory } from '../src/workspace/projects';
 import { resolveSessionWorkspace } from '../src/workspace/binding';
 import { useTestEnv } from './test-utils';
 
@@ -21,6 +17,7 @@ const env = useTestEnv();
 let root: string;
 let source: string;
 let log: jest.SpyInstance;
+let usageIndex = 0;
 const prompt = Enquirer.prompt as jest.Mock;
 const answer = (...answers: object[]) =>
   answers.forEach((value) => prompt.mockResolvedValueOnce(value));
@@ -51,11 +48,15 @@ function agentWorkspace(selector: string) {
     root,
   });
 }
-function associate(directory = source, project = 'rsg', storageRoot = root) {
-  configSetCommand(
-    'settings.workspaceProjects',
-    JSON.stringify([{ source: directory, root: storageRoot, project }])
-  );
+function recordUsage(selector: string, startedAt: number, profile = 'devin') {
+  return recordLaunchHistory({
+    profile,
+    sessionKey: `usage_${usageIndex++}`,
+    invocationCwd: source,
+    argv: ['start', profile, '--workspace', selector],
+    startedAt,
+    workspace: resolveSessionWorkspace(selector, root),
+  });
 }
 beforeEach(() => {
   jest.clearAllMocks();
@@ -63,6 +64,8 @@ beforeEach(() => {
   root = path.join(env.testDir, 'launcher-root');
   source = path.join(env.testDir, 'agentvm');
   fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(env.historyPath, { force: true });
+  fs.rmSync(env.sessionsPath, { force: true });
   fs.mkdirSync(source, { recursive: true });
   fs.writeFileSync(
     env.configPath,
@@ -80,11 +83,7 @@ it('shows projects first, then agents, without roles or storage-root settings', 
   agentWorkspace('bb_splunk.worker');
   agentWorkspace('bb_splunk.worker1');
   const before = fs.readFileSync(env.configPath);
-  answer(
-    { workspace: 'node:bb_splunk' },
-    { workspace: 'node:bb_splunk.worker1' },
-    { remember: false }
-  );
+  answer({ workspace: 'node:bb_splunk' }, { workspace: 'node:bb_splunk.worker1' });
   expect(await chooseSessionWorkspace(source)).toEqual(
     resolveSessionWorkspace('bb_splunk.worker1', root)
   );
@@ -98,15 +97,20 @@ it('shows projects first, then agents, without roles or storage-root settings', 
   expect(formatted(1, 'node:bb_splunk.worker1', true, true)).toBe('');
   expect(fs.readFileSync(env.configPath)).toEqual(before);
 });
-it('labels a remembered games Workspace separately from its lead agent without changing the binding', async () => {
+it('always shows projects even with an obsolete folder association, preserving games.lead binding', async () => {
   agentWorkspace('games.lead');
-  associate(source, 'games');
+  agentWorkspace('rsg.lead');
+  const raw = JSON.parse(fs.readFileSync(env.configPath, 'utf8'));
+  raw.settings.workspaceProjects = [{ source, root, project: 'games' }];
+  fs.writeFileSync(env.configPath, JSON.stringify(raw));
   const before = fs.readFileSync(env.configPath);
-  answer({ workspace: 'node:games.lead' });
+  answer({ workspace: 'node:games' }, { workspace: 'node:games.lead' });
   const selected = await chooseSessionWorkspace(source);
-  expect(menu(0).message).toBe(`Select an agent in games (${root})`);
-  expect(menu(0).choices[0].message).toBe('lead');
-  expect(formatted(0, 'node:games.lead')).toBe('lead');
+  expect(menu(0).message).toBe(`Select a Workspace project (${root})`);
+  expect(names(0)).toEqual(['node:games', 'node:rsg', 'create', 'none']);
+  expect(menu(1).message).toBe(`Select an agent in games (${root})`);
+  expect(menu(1).choices[0].message).toBe('lead');
+  expect(formatted(1, 'node:games.lead')).toBe('lead');
   expect(selected).toEqual({
     selector: 'games.lead',
     root,
@@ -127,7 +131,7 @@ it('rejects the removed Back action without navigating or changing configuration
 });
 it('does not treat reserved-looking project names as menu actions', async () => {
   agentWorkspace('create.lead');
-  answer({ workspace: 'node:create' }, { workspace: 'node:create.lead' }, { remember: false });
+  answer({ workspace: 'node:create' }, { workspace: 'node:create.lead' });
   expect((await chooseSessionWorkspace(source))?.selector).toBe('create.lead');
 });
 it('shows the configured root as read-only information even when no Workspaces exist', async () => {
@@ -139,6 +143,12 @@ it('shows the configured root as read-only information even when no Workspaces e
   expect(fs.readFileSync(env.configPath)).toEqual(before);
   expect(fs.existsSync(root)).toBe(false);
 });
+it('lists Workspaces without resolving the invocation directory', async () => {
+  agentWorkspace('games.lead');
+  answer({ workspace: 'none' });
+  await chooseSessionWorkspace(path.join(env.testDir, 'missing-source'));
+  expect(names(0)).toEqual(['node:games', 'create', 'none']);
+});
 it('rejects the removed root-settings action without prompting or changing configuration', async () => {
   const before = fs.readFileSync(env.configPath);
   answer({ workspace: 'settings' });
@@ -148,23 +158,17 @@ it('rejects the removed root-settings action without prompting or changing confi
 });
 it('creates a harness-neutral agent directory without generating native configuration or a profile', async () => {
   const sourceBefore = fs.readdirSync(source);
-  answer(
-    { workspace: 'create' },
-    { selector: 'agentvm.lead' },
-    { create: true },
-    { remember: true }
-  );
+  answer({ workspace: 'create' }, { selector: 'agentvm.lead' }, { create: true });
   const selected = await chooseSessionWorkspace(source);
   expect(selected).toEqual(resolveSessionWorkspace('agentvm.lead', root));
   expect(menu(1).initial).toBe('agentvm.lead');
   expect(menu(2).message).toBe('Create Workspace agentvm.lead?');
   expect(menu(2).initial).toBe(false);
-  expect(menu(3).message).toBe('Remember agentvm for this folder?');
-  expect(menu(3).initial).toBe(false);
+  expect(prompt).toHaveBeenCalledTimes(3);
   expect(log).not.toHaveBeenCalled();
   expect(fs.readFileSync(path.join(selected!.path, 'AGENTS.md'), 'utf8')).toContain(source);
   expect(fs.readdirSync(selected!.path).sort()).toEqual(['.airelay-workspace.json', 'AGENTS.md']);
-  expect(loadConfig().settings.workspaceProjects).toEqual([{ source, root, project: 'agentvm' }]);
+  expect(fs.readFileSync(env.configPath, 'utf8')).not.toContain('workspaceProjects');
   expect(loadConfig().profiles).toEqual({ devin: { executable: 'devin' } });
   expect(fs.readdirSync(source)).toEqual(sourceBefore);
 });
@@ -174,8 +178,7 @@ it('creates within an existing project without asking for instructions or a role
     { workspace: 'node:rsg' },
     { workspace: 'create' },
     { selector: 'rsg.lead' },
-    { create: true },
-    { remember: false }
+    { create: true }
   );
   const selected = await chooseSessionWorkspace(source);
   expect(menu(2).initial).toBe('rsg.lead');
@@ -187,7 +190,6 @@ it('creates within an existing project without asking for instructions or a role
     'workspace',
     'selector',
     'create',
-    'remember',
   ]);
 });
 it('cancelled creation performs no Workspace or configuration writes', async () => {
@@ -228,7 +230,6 @@ it('accepts updated instructions after an interactive pause', async () => {
     fs.appendFileSync(path.join(root, 'rsg/agents/lead/AGENTS.md'), 'changed');
     return { workspace: 'node:rsg.lead' };
   });
-  answer({ remember: false });
   expect((await chooseSessionWorkspace(source))?.selector).toBe('rsg.lead');
 });
 it('rejects an unavailable choice instead of silently selecting another Workspace', async () => {
@@ -236,92 +237,105 @@ it('rejects an unavailable choice instead of silently selecting another Workspac
   answer({ workspace: 'node:rsg.lead' });
   await expect(chooseSessionWorkspace(source)).rejects.toThrow('not available');
 });
-it('saves a confirmed folder association and opens only its project branch on later starts', async () => {
-  agentWorkspace('rsg.lead');
-  answer({ workspace: 'node:rsg' }, { workspace: 'node:rsg.lead' }, { remember: true });
+it('sorts projects and agents by latest use across profiles, including resumed history rows', async () => {
+  for (const selector of ['alpha.lead', 'games.older', 'games.recent', 'aaa.unused'])
+    agentWorkspace(selector);
+  recordUsage('alpha.lead', 100);
+  const resumed = recordUsage('games.recent', 150, 'another-profile');
+  recordUsage('games.older', 200);
+  expect(markLaunchHistoryUsed(resumed.id, 300)).toBe(true);
+  // An older launch of the same Workspace must not overwrite its latest use.
+  recordUsage('games.recent', 50);
+  answer({ workspace: 'node:games' }, { workspace: 'node:games.recent' });
+  expect((await chooseSessionWorkspace(source))?.selector).toBe('games.recent');
+  expect(names(0)).toEqual(['node:games', 'node:alpha', 'node:aaa', 'create', 'none']);
+  expect(names(1)).toEqual(['node:games.recent', 'node:games.older', 'create', 'none']);
+});
+it('uses alphabetical ties and puts never-used entries after used entries, including epoch zero', async () => {
+  for (const selector of ['alpha.z', 'alpha.a', 'alpha.unused', 'beta.lead', 'aaa.unused'])
+    agentWorkspace(selector);
+  recordUsage('alpha.z', 0);
+  recordUsage('alpha.a', 0);
+  recordUsage('beta.lead', 0);
+  answer({ workspace: 'node:alpha' }, { workspace: 'node:alpha.a' });
   await chooseSessionWorkspace(source);
-  prompt.mockClear();
+  expect(names(0)).toEqual(['node:alpha', 'node:beta', 'node:aaa', 'create', 'none']);
+  expect(names(1)).toEqual(['node:alpha.a', 'node:alpha.z', 'node:alpha.unused', 'create', 'none']);
+});
+it('ignores history from other roots, changed paths, removed Workspaces and ordinary launches', async () => {
+  agentWorkspace('alpha.lead');
+  agentWorkspace('games.lead');
+  recordUsage('alpha.lead', 100);
+  const games = resolveSessionWorkspace('games.lead', root);
+  for (const workspace of [
+    { ...games, root: path.join(env.testDir, 'other-root') },
+    { ...games, path: path.join(root, 'other-path') },
+    { ...games, selector: 'removed.lead', path: path.join(root, 'removed/agents/lead') },
+    undefined,
+  ])
+    recordLaunchHistory({
+      profile: 'devin',
+      sessionKey: `ignored_${usageIndex++}`,
+      invocationCwd: source,
+      argv: ['start', 'devin'],
+      startedAt: 9999,
+      workspace,
+    });
+  answer({ workspace: 'none' });
+  await chooseSessionWorkspace(source);
+  expect(names(0)).toEqual(['node:alpha', 'node:games', 'create', 'none']);
+});
+it('shows the same project list from any source directory without recording mere selections', async () => {
+  agentWorkspace('games.lead');
+  agentWorkspace('alpha.lead');
+  recordUsage('games.lead', 123);
+  const config = fs.readFileSync(env.configPath);
+  const history = fs.readFileSync(env.historyPath);
+  const child = path.join(source, 'nested');
+  fs.mkdirSync(child, { recursive: true });
+  const alias = path.join(env.testDir, 'source-alias');
+  fs.symlinkSync(child, alias);
+  expect(sourceDirectory(alias)).toBe(child);
+  for (const directory of [source, child, alias]) {
+    prompt.mockClear();
+    answer({ workspace: 'node:alpha' }, { workspace: 'node:alpha.lead' });
+    expect((await chooseSessionWorkspace(directory))?.selector).toBe('alpha.lead');
+    expect(names(0)).toEqual(['node:games', 'node:alpha', 'create', 'none']);
+    expect(prompt).toHaveBeenCalledTimes(2);
+  }
+  expect(fs.readFileSync(env.configPath)).toEqual(config);
+  expect(fs.readFileSync(env.historyPath)).toEqual(history);
+});
+it('does not rewrite duplicate historical records while showing or cancelling the menu', async () => {
+  agentWorkspace('games.lead');
+  recordUsage('games.lead', 123);
+  const rows = JSON.parse(fs.readFileSync(env.historyPath, 'utf8'));
+  rows.push({ ...rows[0], id: 'duplicate-record', startedAt: 100 });
+  fs.writeFileSync(env.historyPath, JSON.stringify(rows));
+  const before = fs.readFileSync(env.historyPath);
   answer({ workspace: 'none' });
   expect(await chooseSessionWorkspace(source)).toBeUndefined();
-  expect(menu(0).message).toContain('Select an agent in rsg');
-  expect(names(0)).toContain('node:rsg.lead');
-  expect(prompt).toHaveBeenCalledTimes(1);
+  expect(names(0)).toEqual(['node:games', 'create', 'none']);
+  expect(fs.readFileSync(env.historyPath)).toEqual(before);
 });
-it('detects an explicitly associated project from a child source directory', async () => {
-  agentWorkspace('rsg.lead');
-  associate();
-  const child = path.join(source, 'src');
-  fs.mkdirSync(child, { recursive: true });
-  answer({ workspace: 'node:rsg.lead' });
-  expect((await chooseSessionWorkspace(child))?.selector).toBe('rsg.lead');
-  expect(menu(0).message).toContain('Select an agent in rsg');
-  expect(prompt).toHaveBeenCalledTimes(1);
-});
-it('ignores stale projects and associations for a different storage root', async () => {
-  agentWorkspace('bb_splunk.lead');
-  associate();
-  answer({ workspace: 'none' });
-  await chooseSessionWorkspace(source);
-  expect(menu(0).message).toContain('Select a Workspace project');
-  associate(source, 'bb_splunk', path.join(env.testDir, 'old-root'));
-  prompt.mockClear();
-  answer({ workspace: 'none' });
-  await chooseSessionWorkspace(source);
-  expect(menu(0).message).toContain('Select a Workspace project');
-});
-it('can create in another project and explicitly replace a source association', async () => {
-  agentWorkspace('rsg.lead');
-  agentWorkspace('bb_splunk.worker');
-  associate();
-  answer(
-    { workspace: 'create' },
-    { selector: 'bb_splunk.worker2' },
-    { create: true },
-    { remember: true }
-  );
-  expect((await chooseSessionWorkspace(source))?.selector).toBe('bb_splunk.worker2');
-  expect(names(0)).toEqual(['node:rsg.lead', 'create', 'none']);
-  expect(loadConfig().settings.workspaceProjects).toEqual([{ source, root, project: 'bb_splunk' }]);
-});
-it('resolves a symlinked invocation directory to its real project source', async () => {
-  const alias = path.join(env.testDir, 'source-alias');
-  fs.symlinkSync(source, alias);
-  agentWorkspace('rsg.lead');
-  associate();
-  expect(sourceDirectory(alias)).toBe(source);
-  answer({ workspace: 'none' });
-  await chooseSessionWorkspace(alias);
-  expect(menu(0).message).toContain('Select an agent in rsg');
-});
-it('chooses the longest explicit ancestor without matching sibling path prefixes', () => {
-  const links = [
-    { source, root, project: 'rsg' },
-    { source: path.join(source, 'nested'), root, project: 'bb' },
-  ];
-  expect(findWorkspaceProject(path.join(source, 'nested/src'), root, links)?.project).toBe('bb');
-  expect(findWorkspaceProject(`${source}-other`, root, links)).toBeUndefined();
-});
-it('bounds and validates global associations and preserves private config permissions', () => {
-  const before = fs.readFileSync(env.configPath);
-  expect(() =>
-    configSetCommand(
-      'settings.workspaceProjects',
-      '[{"source":"relative","root":"/tmp","project":"rsg"}]'
-    )
-  ).toThrow();
-  expect(fs.readFileSync(env.configPath)).toEqual(before);
-  const link = { source, root, project: 'rsg' };
-  expect(WorkspaceProjectsSchema.safeParse([link, link]).success).toBe(false);
+it('ranks an actual recorded launch first on the next menu without creating a usage store', async () => {
+  agentWorkspace('alpha.lead');
+  agentWorkspace('zeta.lead');
+  const config = JSON.parse(fs.readFileSync(env.configPath, 'utf8'));
+  config.profiles.fixture = { executable: process.execPath, args: ['-e', 'process.exit(0)'] };
+  fs.writeFileSync(env.configPath, JSON.stringify(config));
   expect(
-    WorkspaceProjectsSchema.safeParse(
-      Array.from({ length: 129 }, (_, i) => ({ ...link, source: `${source}/${i}` }))
-    ).success
-  ).toBe(false);
-  fs.chmodSync(env.configPath, 0o600);
-  associate();
-  expect(fs.statSync(env.configPath).mode & 0o777).toBe(0o600);
-  configSetCommand('settings.workspaceProjects', '[]');
-  expect(loadConfig().settings.workspaceProjects).toEqual([]);
+    await runCommand('fixture', [], {
+      usePty: true,
+      detached: true,
+      recordLaunch: true,
+      sessionKey: 'workspace_usage_fixture',
+      workspace: 'zeta.lead',
+    })
+  ).toBe(0);
+  answer({ workspace: 'none' });
+  await chooseSessionWorkspace(source);
+  expect(names(0)).toEqual(['node:zeta', 'node:alpha', 'create', 'none']);
 });
 
 it('browses real Enquirer project and agent menus in a disposable terminal without launching an agent', async () => {
@@ -351,10 +365,6 @@ it('browses real Enquirer project and agent menus in a disposable terminal witho
         stage++;
         frame = '';
         terminal.write('\r');
-      } else if (stage === 2 && frame.includes('Remember rsg for this folder?')) {
-        stage++;
-        frame = '';
-        terminal.write('n\r');
       }
     },
   });
@@ -372,8 +382,9 @@ it('browses real Enquirer project and agent menus in a disposable terminal witho
     expect(firstPage).not.toContain('rsg.lead');
     expect(output).not.toContain('Change workspace root...');
     expect(output).not.toContain('node:');
+    expect(output).not.toContain('Remember ');
     expect(output).toContain('SELECTED:rsg.lead');
-    expect(stage).toBe(3);
+    expect(stage).toBe(2);
   } finally {
     clearTimeout(timeout);
     terminal.kill();
@@ -391,7 +402,6 @@ it('creates an agent through the real Enquirer selector and confirmation without
     ['Without workspace (normal profile/current directory)', '\r'],
     ['New Workspace selector (<project>.<agent>)', '\r'],
     ['Create Workspace agentvm.lead?', 'y\r'],
-    ['Remember agentvm for this folder?', 'y\r'],
   ];
   const terminal = createPty({
     file: process.execPath,
@@ -424,8 +434,9 @@ it('creates an agent through the real Enquirer selector and confirmation without
     expect(output).not.toContain('Set settings.workspaceProjects');
     expect(output).not.toContain('Create agent Workspace');
     expect(output).not.toContain(source);
-    expect(stage).toBe(4);
-    expect(loadConfig().settings.workspaceProjects).toEqual([{ source, root, project: 'agentvm' }]);
+    expect(output).not.toContain('Remember ');
+    expect(stage).toBe(3);
+    expect(fs.readFileSync(env.configPath, 'utf8')).not.toContain('workspaceProjects');
     const selected = resolveSessionWorkspace('agentvm.lead', root);
     expect(selected.path).toBe(path.join(root, 'agentvm/agents/lead'));
     expect(

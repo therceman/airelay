@@ -1,44 +1,15 @@
 import path from 'node:path';
 import Enquirer from 'enquirer';
 import { loadConfig } from '../config/load';
-import { configSetCommand } from './config';
+import { getLaunchHistory } from './history';
 import {
   listWorkspaces,
   resolveSessionWorkspace,
   type SessionWorkspace,
 } from '../workspace/binding';
 import { selectorPath, workspaceRoot } from '../workspace/provision';
-import {
-  createLauncherWorkspace,
-  findWorkspaceProject,
-  sourceDirectory,
-} from '../workspace/projects';
+import { createLauncherWorkspace, sourceDirectory } from '../workspace/projects';
 import { withAirelayPromptSymbols } from '../utils/enquirer';
-
-async function rememberProject(source: string, workspace: SessionWorkspace): Promise<void> {
-  const project = workspace.selector.split('.')[0];
-  const links = loadConfig().settings.workspaceProjects ?? [];
-  if (findWorkspaceProject(source, workspace.root, links)?.project === project) return;
-  const result = (await Enquirer.prompt(
-    withAirelayPromptSymbols({
-      type: 'confirm',
-      name: 'remember',
-      initial: false,
-      message: `Remember ${project} for this folder?`,
-    })
-  )) as { remember: boolean };
-  if (!result.remember) return;
-  // Re-read after the interactive pause so unrelated associations are preserved.
-  const current = loadConfig().settings.workspaceProjects ?? [];
-  configSetCommand(
-    'settings.workspaceProjects',
-    JSON.stringify([
-      ...current.filter((link) => link.source !== source),
-      { source, root: workspace.root, project },
-    ]),
-    { quiet: true }
-  );
-}
 
 async function createWorkspace(
   root: string,
@@ -90,15 +61,23 @@ async function createWorkspace(
 export async function chooseSessionWorkspace(
   directory = process.cwd()
 ): Promise<SessionWorkspace | undefined> {
-  const source = sourceDirectory(directory);
   const config = loadConfig();
   const root = workspaceRoot(config.settings.workspaceRoot);
   const workspaces = listWorkspaces(root);
-  const remembered = findWorkspaceProject(source, root, config.settings.workspaceProjects);
-  let prefix =
-    remembered && workspaces.some((w) => w.selector.startsWith(`${remembered.project}.`))
-      ? remembered.project
-      : '';
+  const available = new Map(workspaces.map((workspace) => [workspace.selector, workspace]));
+  const usage = new Map<string, number>();
+  for (const entry of getLaunchHistory({ readOnly: true })) {
+    const saved = entry.workspace;
+    if (!saved) continue;
+    const current = available.get(saved.selector);
+    if (!current || current.root !== saved.root || current.path !== saved.path) continue;
+    const usedAt = entry.lastUsed ?? entry.startedAt;
+    for (const key of [current.selector, current.selector.split('.')[0]]) {
+      const previous = usage.get(key);
+      if (previous === undefined || usedAt > previous) usage.set(key, usedAt);
+    }
+  }
+  let prefix = '';
   for (;;) {
     const children = [
       ...new Set(
@@ -106,7 +85,14 @@ export async function chooseSessionWorkspace(
           .filter((w) => !prefix || w.selector.startsWith(`${prefix}.`))
           .map((w) => w.selector.split('.')[prefix ? prefix.split('.').length : 0])
       ),
-    ].sort();
+    ].sort((a, b) => {
+      const aUsed = usage.get(prefix ? `${prefix}.${a}` : a);
+      const bUsed = usage.get(prefix ? `${prefix}.${b}` : b);
+      if (aUsed === bUsed) return a.localeCompare(b);
+      if (aUsed === undefined) return 1;
+      if (bUsed === undefined) return -1;
+      return bUsed - aUsed;
+    });
     const choices = [
       ...children.map((name) => ({
         name: `node:${prefix ? `${prefix}.` : ''}${name}`,
@@ -140,11 +126,8 @@ export async function chooseSessionWorkspace(
     )) as { workspace: string };
     if (result.workspace === 'none') return undefined;
     if (result.workspace === 'create') {
-      const created = await createWorkspace(root, prefix, source);
-      if (created) {
-        await rememberProject(source, created);
-        return created;
-      }
+      const created = await createWorkspace(root, prefix, sourceDirectory(directory));
+      if (created) return created;
       continue;
     }
     const selected = result.workspace.startsWith('node:') ? result.workspace.slice(5) : '';
@@ -154,8 +137,6 @@ export async function chooseSessionWorkspace(
       prefix = selected;
       continue;
     }
-    const workspace = resolveSessionWorkspace(selected, root);
-    await rememberProject(source, workspace);
-    return workspace;
+    return resolveSessionWorkspace(selected, root);
   }
 }

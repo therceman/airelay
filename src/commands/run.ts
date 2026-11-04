@@ -31,6 +31,7 @@ import {
   updateDetachedEntry,
 } from '../runtime/detached-registry';
 import fs from 'fs';
+import path from 'path';
 import { ensureCodexProfileStandalone } from '../utils/codex-standalone';
 import { parseDurationMs } from '../utils/duration';
 import { createRuntimeIdentity, RuntimeIdentity } from '../runtime/identity';
@@ -101,6 +102,29 @@ export function detectResumeSessionId(args: string[]): string | undefined {
     }
   }
   return undefined;
+}
+
+/** Normalize a Codex resume working directory for repeatable history launches. */
+export function getCodexResumeHistoryLocation(
+  harness: string,
+  args: string[],
+  cwd: string
+): { cwd: string; args: string[] } | undefined {
+  if (harness !== 'codex' || !args.includes('resume')) return undefined;
+  const normalized = [...args];
+  let target: string | undefined;
+  for (let i = 0; i < normalized.length; i++) {
+    const arg = normalized[i];
+    if (arg === '--') break;
+    if ((arg === '-C' || arg === '--cd') && normalized[i + 1]) {
+      target = path.resolve(cwd, normalized[i + 1]);
+      normalized[++i] = target;
+    } else if (arg.startsWith('--cd=') && arg.length > 5) {
+      target = path.resolve(cwd, arg.slice(5));
+      normalized[i] = `--cd=${target}`;
+    }
+  }
+  return target ? { cwd: target, args: normalized } : undefined;
 }
 
 export interface RunStartInfo {
@@ -887,17 +911,24 @@ export async function runCommand(
     }
 
     if (options?.recordLaunch) {
-      const launchArgv = options.launchArgv || [
+      let launchArgv = options.launchArgv || [
         'start',
         profileName,
         ...(sessionKey ? ['--key', sessionKey] : []),
         ...(workspace ? ['--workspace', workspace.selector] : []),
         ...(extraArgs.length > 0 ? ['--', ...extraArgs] : []),
       ];
+      const historyLocation = !workspace
+        ? getCodexResumeHistoryLocation(detectHarness(profile.executable), extraArgs, cwd)
+        : undefined;
+      const separator = launchArgv.indexOf('--');
+      if (historyLocation && separator !== -1) {
+        launchArgv = [...launchArgv.slice(0, separator + 1), ...historyLocation.args];
+      }
       recordLaunchHistory({
         profile: profileName,
         sessionKey,
-        invocationCwd: options.invocationCwd || process.cwd(),
+        invocationCwd: historyLocation?.cwd || options.invocationCwd || process.cwd(),
         argv: launchArgv,
         workspace,
       });

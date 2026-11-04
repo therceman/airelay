@@ -2,6 +2,7 @@ import fs from 'fs';
 import net from 'net';
 import path from 'path';
 import { runCommand } from '../src/commands/run';
+import { getLatestResumableSession } from '../src/commands/resume';
 import { fetchControllerInfo } from '../src/commands/session-ipc';
 import { readLines } from '../src/controller/protocol';
 import { useTestEnv } from './test-utils';
@@ -81,6 +82,34 @@ async function waitForUserInputStatus(endpoint: string): Promise<void> {
 }
 
 describe('command-driven input after resume', () => {
+  it('records a Codex -C resume under the target folder for ResumeCurrent', async () => {
+    const harnessPath = path.join(testEnv.testDir, 'codex-history-harness');
+    const project = path.join(testEnv.testDir, 'new-project');
+    fs.mkdirSync(project);
+    fs.writeFileSync(harnessPath, '#!/usr/bin/env node\nprocess.exit(0);\n', { mode: 0o755 });
+    fs.writeFileSync(
+      testEnv.configPath,
+      JSON.stringify({
+        version: 1,
+        settings: { hibernateAfter: 'off', harnessSelfUpdate: true },
+        profiles: { codex_test: { executable: harnessPath, cwd: testEnv.testDir } },
+      })
+    );
+    const args = ['resume', 'native-id', '-C', 'new-project'];
+    expect(
+      await runCommand('codex_test', args, {
+        usePty: true,
+        detached: true,
+        recordLaunch: true,
+        sessionKey: 'sgs.master',
+        invocationCwd: testEnv.testDir,
+      })
+    ).toBe(0);
+    const entry = getLatestResumableSession(project);
+    expect(entry).toMatchObject({ sessionKey: 'sgs.master', invocationCwd: project });
+    expect(entry?.argv.slice(-2)).toEqual(['-C', project]);
+    expect(getLatestResumableSession(testEnv.testDir)).toBeUndefined();
+  });
   it('submits without waiting for a harness-specific input marker', async () => {
     const harnessPath = path.join(testEnv.testDir, 'codex-input-harness');
     const inputLogPath = path.join(testEnv.testDir, 'input.log');

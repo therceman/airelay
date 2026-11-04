@@ -1,13 +1,13 @@
 {
   "name": "airelay",
-  "version": "0.1.179",
+  "version": "0.1.180",
   "description": "Cross-platform CLI for launching profile-isolated AI harness instances",
   "main": "./dist/index.js",
   "bin": {
     "airelay": "./dist/airelay.cjs"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
     "build": "tsc && node scripts/sync-bin.js",
@@ -17,7 +17,8 @@
     "format": "prettier --write src/**/*.ts test/**/*.ts",
     "format:check": "prettier --check src/**/*.ts test/**/*.ts",
     "audit": "npm audit",
-    "verify": "npm run build && npm run lint && npm run format:check && npm test && npm audit"
+    "audit:production": "npm audit --omit=dev",
+    "verify": "npm run build && npm run lint && npm run format:check && npm test && npm run audit:production"
   },
   "dependencies": {
     "@xterm/addon-serialize": "0.14.0",

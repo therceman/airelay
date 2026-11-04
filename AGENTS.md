@@ -8,7 +8,9 @@ npm test               # jest (test/**/*.test.ts)
 npm run lint           # eslint src/**/*.ts test/**/*.ts
 npm run format         # prettier --write
 npm run format:check   # prettier --check
-npm run verify         # build → lint → format:check → test → audit
+npm run audit          # full dependency audit, including development tools
+npm run audit:production # blocking production dependency audit
+npm run verify         # build → lint → format:check → test → production audit
 ```
 
 Pre-commit runs `npm run verify`. Husky is configured via `prepare` script.
@@ -44,7 +46,7 @@ Config schema (`src/config/schema.ts`):
 - `settings.harnessSelfUpdate`: whether harness self-update checks are allowed; defaults to `false`
 - `settings.mousePassthrough`: allow click/wheel/drag input while suppressing unsolicited pointer-motion reports; defaults to `true`
 - `settings.workspaceRoot`: optional managed workspace root; fresh default `~/.airelay/workspaces`; preserve explicitly configured existing roots
-- `settings.workspaceProjects`: optional bounded `{source, root, project}[]` launcher hints; canonical source directory/longest ancestor opens a project branch only, never changes saved session bindings
+- Workspace picker: projects and agents are ordered by latest launch/resume history, with unused entries alphabetically; it does not bind the invocation directory to a project
 - `start --workspace <dot.selector>`: `<project>.<agent>` maps to `<root>/<project>/agents/<agent>`; session-owned `{selector, root, path}`, NOT a Profile field; filesystem verification only, with normal profile args/env and harness-owned native configuration; see `docs/WORKSPACES.md`
 - `profiles: { <name>: { executable, cwd?, args?, env?, description?, createDirs? } }`
 

@@ -77,8 +77,8 @@ export interface PtyDiagnostics {
 }
 
 function sanitizeSessionKey(sessionKey: string): string {
-  const safe = sessionKey.replace(/[^a-zA-Z0-9_-]/g, '_');
-  return safe || 'unknown-session';
+  const safe = sessionKey.replace(/[^a-zA-Z0-9_.-]/g, '_');
+  return !safe || safe === '.' || safe === '..' ? 'unknown-session' : safe;
 }
 
 export function getRuntimeDiagnosticsDir(sessionKey: string): string {

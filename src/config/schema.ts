@@ -22,28 +22,6 @@ export const HibernateAfterSchema = z
     message: 'duration must be greater than zero and no longer than 30d, or off',
   });
 
-const AbsoluteDirectorySchema = z
-  .string()
-  .refine((value) => path.isAbsolute(value) && path.resolve(value) === value, {
-    message: 'must be a normalized absolute directory',
-  });
-
-export const WorkspaceProjectsSchema = z
-  .array(
-    z
-      .object({
-        source: AbsoluteDirectorySchema,
-        root: AbsoluteDirectorySchema,
-        project: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/),
-      })
-      .strict()
-  )
-  .max(128)
-  .refine((links) => new Set(links.map((link) => link.source)).size === links.length, {
-    message: 'each source directory must have only one Workspace project association',
-  });
-export type WorkspaceProject = z.infer<typeof WorkspaceProjectsSchema>[number];
-
 export const SettingsSchema = z.object({
   promptMaxLength: PromptMaxLengthSchema.default(DEFAULT_PROMPT_MAX_LENGTH),
   hibernateAfter: HibernateAfterSchema.default(DEFAULT_HIBERNATE_AFTER),
@@ -57,7 +35,6 @@ export const SettingsSchema = z.object({
       'must be an absolute path or start with ~/'
     )
     .optional(),
-  workspaceProjects: WorkspaceProjectsSchema.optional(),
 });
 
 export const WorkspaceBindingSchema = z
