@@ -3,12 +3,31 @@ import fs from 'fs';
 import { parseRequest, serializeStreamFrame } from '../src/controller/protocol';
 import { IpcError, IpcErrorCodes } from '../src/types/controller';
 import { SessionController } from '../src/controller';
-import { AttachClient, createStreamTransport, attachCommand } from '../src/commands/attach';
+import {
+  AttachClient,
+  createStreamTransport,
+  attachCommand,
+  filterAttachInput,
+} from '../src/commands/attach';
 import { createPty } from '../src/runtime/pty';
 import { addSession, deleteSession } from '../src/commands/sessions';
 import { useTestEnv } from './test-utils';
 
 jest.setTimeout(60000);
+
+describe('attach mouse input', () => {
+  it.each(['\x1b[M !!', '\x1b[M`!!', '\x1b[<0;45;20M', '\x1b[<64;45;20M'])(
+    'preserves split mouse report %j',
+    (report) => {
+      for (let split = 1; split < report.length; split++) {
+        const first = filterAttachInput(Buffer.from(report.slice(0, split)));
+        const second = filterAttachInput(Buffer.from(report.slice(split)), first.pendingEscape);
+        expect(Buffer.concat([first.data, second.data]).toString()).toBe(report);
+        expect(second.pendingEscape.length).toBe(0);
+      }
+    }
+  );
+});
 
 function expectIpcError(fn: () => void, expectedCode: string): void {
   let err: unknown;

@@ -19,6 +19,7 @@ type AttachBuffer = Buffer<ArrayBufferLike>;
 const ESCAPE_CHAR = String.fromCharCode(0x1b);
 const PLAIN_CSI_PATTERN = new RegExp(`^${ESCAPE_CHAR}\\[(?:[0-9]{1,3}~|[A-Z])$`);
 const PLAIN_SS3_PATTERN = new RegExp(`^${ESCAPE_CHAR}O[A-Z]$`);
+const SGR_MOUSE_PATTERN = new RegExp(`^${ESCAPE_CHAR}\\[<\\d+;\\d+;\\d+[Mm]$`);
 
 const isAllowedEditingByte = (byte: number): boolean =>
   byte === 0x08 || byte === 0x09 || byte === 0x0a || byte === 0x0d || byte === 0x7f;
@@ -99,6 +100,17 @@ export function filterAttachInput(
         continue;
       }
 
+      // X10 mouse reports have three binary payload bytes after CSI M.
+      if (introducer === 0x5b && input[index + 2] === 0x4d) {
+        if (input.length - index < 6) {
+          nextPending = Buffer.from(input.subarray(index));
+          break;
+        }
+        output.push(...input.subarray(index, index + 6));
+        index += 6;
+        continue;
+      }
+
       const endLimit = Math.min(input.length - 1, index + MAX_ESCAPE_SEQUENCE_BYTES - 1);
       let end = -1;
       for (let candidate = index + 2; candidate <= endLimit; candidate += 1) {
@@ -127,6 +139,7 @@ export function filterAttachInput(
       const sequence = input.subarray(index, end + 1);
       if (
         isPlainNavigationSequence(sequence) ||
+        SGR_MOUSE_PATTERN.test(sequence.toString('latin1')) ||
         classifyTerminalQueryReply(sequence.toString('latin1'))
       ) {
         output.push(...sequence);
