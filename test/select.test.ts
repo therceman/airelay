@@ -169,6 +169,30 @@ describe('start confirmation', () => {
     expect(prompt).toHaveBeenCalledTimes(3);
   });
 
+  it('suggests the Workspace selector as the saved session key', async () => {
+    const root = path.join(env.testDir, 'workspaces');
+    const workspace = {
+      selector: 'agent-behave.lead',
+      root,
+      path: path.join(root, 'agent-behave/agents/lead'),
+    };
+    chooseWorkspace.mockResolvedValue(workspace);
+    prompt
+      .mockResolvedValueOnce({ action: 'Start' })
+      .mockResolvedValueOnce({ profile: 'devin' })
+      .mockResolvedValueOnce({ confirm: true })
+      .mockResolvedValueOnce({ sessionId: 'native-session-id' })
+      .mockResolvedValueOnce({ sessionKey: '' });
+
+    await selectCommand();
+
+    expect(prompt.mock.calls[4][0]).toMatchObject({
+      name: 'sessionKey',
+      initial: 'agent-behave.lead',
+    });
+    expect(console.log).toHaveBeenCalledWith('Session saved: agent-behave.lead');
+  });
+
   it.each([
     'Workspace binding does not match its manifest.',
     'Workspace operation in progress; inspect the workspace lock before retrying.',

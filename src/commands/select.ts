@@ -238,7 +238,7 @@ export async function selectCommand(): Promise<void> {
   const sessionResult = (await Enquirer.prompt(sessionPrompt)) as { sessionId: string };
   if (sessionResult.sessionId.trim()) {
     const sessionId = sessionResult.sessionId.trim();
-    const defaultKey = `${profileName}_${sessionId.slice(-4)}`;
+    const defaultKey = workspace?.selector || `${profileName}_${sessionId.slice(-4)}`;
 
     const keyPrompt = withAirelayPromptSymbols({
       type: 'input',
